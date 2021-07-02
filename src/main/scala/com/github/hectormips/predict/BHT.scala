@@ -18,7 +18,7 @@ class BHT extends Module{
 
   val io: BHT_IO = IO(new BHT_IO)
 
-  val record: UInt = RegInit(UInt(2.W), 0.U)
+  val record: UInt = RegInit(UInt(2.W), "b01".U)
 
   when(io.en_visit){
     when(io.is_visited) {
