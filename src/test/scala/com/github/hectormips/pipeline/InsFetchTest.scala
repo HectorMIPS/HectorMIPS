@@ -14,23 +14,27 @@ class InsFetchTest extends FlatSpec with ChiselScalatestTester with Matchers {
       c.io.jump_val(0).poke(0x0a123000.U)
       c.io.jump_val(1).poke(0x0b123000.U)
       c.io.jump_val(2).poke(0x0d123000.U)
-
-      c.io.jump_sel.poke(1.U)
+      c.io.jump_sel(0).poke(1.B)
 
       c.io.next_pc.expect(0x0c123004.U)
       c.io.dram_addr.expect(0x0c123004.U)
       c.io.dram_en.expect(1.B)
 
-      c.io.jump_sel.poke(2.U)
+      c.io.jump_sel(0).poke(0.B)
+      c.io.jump_sel(1).poke(1.B)
       c.io.next_pc.expect(0x0a123000.U)
 
-      c.io.jump_sel.poke(4.U)
+      c.io.jump_sel(1).poke(0.B)
+      c.io.jump_sel(2).poke(1.B)
       c.io.next_pc.expect(0x0b123000.U)
 
-      c.io.jump_sel.poke(8.U)
+      c.io.jump_sel(2).poke(0.B)
+      c.io.jump_sel(3).poke(1.B)
       c.io.next_pc.expect(0x0d123000.U)
     }
   }
+
+  behavior of "InsFetch"
 
   it should "fetch the async RAM data" in {
     test(new InsFetch()) { c =>

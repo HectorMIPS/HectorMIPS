@@ -13,14 +13,14 @@ class InsPreFetch extends Module {
   val io: Bundle {
     val pc: UInt
     val jump_val: Vec[UInt] // 由于跳转导致的pc!=pc+4的可能值
-    val jump_sel: UInt // 选择跳转目标
+    val jump_sel: Vec[Bool] // 选择跳转目标
     val dram_addr: UInt // 数据ram地址，直接使用next_pc
     val dram_en: Bool
     val next_pc: UInt // 下一条pc地址
   } = IO(new Bundle {
     val pc: UInt = Input(UInt(32.W))
     val jump_val: Vec[UInt] = Input(Vec(3, UInt(32.W)))
-    val jump_sel: UInt = Input(UInt(4.W))
+    val jump_sel: Vec[Bool] = Input(Vec(4, Bool()))
     val dram_addr: UInt = Output(UInt(32.W))
     val dram_en: Bool = Output(Bool())
     val next_pc: UInt = Output(UInt(32.W))
