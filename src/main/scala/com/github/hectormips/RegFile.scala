@@ -25,7 +25,7 @@ class RegFile extends Module {
     val waddr: UInt = Input(UInt(5.W))
     val wdata: UInt = Input(UInt(32.W))
   })
-  val regs = Reg(Vec(32, UInt(32.W)))
+  val regs: Vec[UInt] = Reg(Vec(32, UInt(32.W)))
   regs(0) := 0.U
   when(io.we.asBool() && io.waddr > 0.U) {
     regs(io.waddr) := io.wdata
