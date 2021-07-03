@@ -30,7 +30,7 @@ class BTB(size: Int, BHT_size: Int) extends Module {
 
   class LookUpResult extends Bundle {
     val is_find: Bool = Bool()
-    val result: UInt = UInt(32.W)
+    val result: UInt = UInt(len.W)
   }
 
   def get_index(pc: UInt): LookUpResult = {
@@ -38,13 +38,13 @@ class BTB(size: Int, BHT_size: Int) extends Module {
     val index: LookUpResult = Wire(new LookUpResult)
     index := MuxCase({
       val default = Wire(new LookUpResult)
-      default.is_find := 0.U
-      default.result := 0.U
+      default.is_find := 0.B
+      default.result := 0.U(len.W)
       default
     }, (0 until size).map(i => (location_table(i) === pc, {
       val default = Wire(new LookUpResult)
-      default.is_find := 1.U
-      default.result := i.U
+      default.is_find := 1.B
+      default.result := i.U(len.W)
       default
     })))
     index
@@ -65,41 +65,49 @@ class BTB(size: Int, BHT_size: Int) extends Module {
   val find_index: LookUpResult = Wire(new LookUpResult)
   find_index := get_index(io.pc)
 
-  val pattern : UInt = Wire(UInt(bht_len.W))
+  val pattern: UInt = Wire(UInt(bht_len.W))
   pattern := target_table(find_index.result)
 
   val ex_index: LookUpResult = Wire(new LookUpResult)
   ex_index := get_index(io.ex_pc)
 
-  val ex_pattern : UInt = Wire(UInt(bht_len.W))
+  val ex_pattern: UInt = Wire(UInt(bht_len.W))
   ex_pattern := target_table(ex_index.result)
 
-
-  io.target := target_table(find_index.result)
-  io.predict := find_index.is_find & BHT_table(find_index.result)(pattern)
+  val lru_result: UInt = Wire(UInt(len.W))
 
   val lru: Lru = Module(new Lru(size, 128))
   lru.io.en := 1.B
   lru.io.valid := valid_table
-  lru.io.visitor := Mux(ex_index.is_find, ex_index.result, lru.io.next)
+  lru.io.visitor := Mux(ex_index.is_find, ex_index.result, lru_result)
   lru.io.en_visitor := io.en_ex & ex_index.is_find
 
-  when(io.en_ex ) {
-    when(ex_index.is_find){
+  io.target := target_table(find_index.result)
+  io.predict := find_index.is_find & BHT_table(find_index.result)(pattern)
+
+
+  lru_result := lru.io.next
+
+
+  when(io.en_ex) {
+    when(ex_index.is_find) {
       pattern_table(ex_index.result) := (pattern_table(ex_index.result) << 1).asUInt() & io.ex_success
       target_table(ex_index.result) := io.ex_target
-    }.otherwise{
-      target_table(lru.io.next) := io.ex_pc
-      pattern_table(lru.io.next) := 0.U
+      valid_table(ex_index.result) := 1.B
+    }.otherwise {
+      location_table(lru_result) := io.ex_pc
+      target_table(lru_result) := io.ex_target
+      pattern_table(lru_result) := 0.U
+      valid_table(lru_result) := 1.B
     }
   }
 
   for (i <- 0 until size) {
     for (j <- 0 until BHT_size) {
-      withReset(reset.asBool() & (!ex_index.is_find & lru.io.next === i.U)){
+      withReset(reset.asBool() | ((~ex_index.is_find).asBool() & lru_result === i.U(len.W))) {
         val bht = Module(new BHT)
         bht.io.is_visited := io.ex_success
-        bht.io.en_visit := ex_index.result === i.U & ex_pattern === j.U
+        bht.io.en_visit := ex_index.result === i.U(len.W) & ex_pattern === j.U(bht_len.W)
         BHT_table(i)(j) := bht.io.predict
       }
     }
@@ -107,7 +115,5 @@ class BTB(size: Int, BHT_size: Int) extends Module {
 }
 
 object BTB extends App {
-  new ChiselStage execute(args, Seq(ChiselGeneratorAnnotation(
-    () =>
-      new BTB(16, 16))))
+  (new ChiselStage).emitVerilog(new BTB(16, 16))
 }
