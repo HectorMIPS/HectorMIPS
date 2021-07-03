@@ -25,15 +25,16 @@ class InsPreFetch extends Module {
     val dram_en: Bool = Output(Bool())
     val next_pc: UInt = Output(UInt(32.W))
   })
-  io.next_pc := Mux1H(Seq {
-    io.jump_sel(0) -> (io.pc + 4.U)
-    io.jump_sel(1) -> io.jump_val(0)
-    io.jump_sel(2) -> io.jump_val(1)
-    io.jump_sel(4) -> io.jump_val(2)
-  })
+  val next_pc: UInt = Mux1H(Seq(
+    io.jump_sel(0) -> (io.pc + 4.U),
+    io.jump_sel(1) -> io.jump_val(0),
+    io.jump_sel(2) -> io.jump_val(1),
+    io.jump_sel(3) -> io.jump_val(2)
+  ))
+  io.next_pc := next_pc
   // 无暂停，恒1
   io.dram_en := true.B
-  io.dram_addr := io.pc + 4.U
+  io.dram_addr := next_pc
 }
 
 // 获取同步RAM的数据
@@ -48,16 +49,4 @@ class InsFetch extends Module {
     val ins: UInt = Output(UInt(32.W))
   })
   io.ins := io.dram_data
-}
-
-//
-class InsFetchBuf extends Module {
-  val io: Bundle {
-    val ins_in: UInt
-    val ins_out: UInt
-  } = IO(new Bundle {
-    val ins_in: UInt = Input(UInt(32.W))
-    val ins_out: UInt = Output(UInt(32.W))
-  })
-  io.ins_out := io.ins_in
 }
