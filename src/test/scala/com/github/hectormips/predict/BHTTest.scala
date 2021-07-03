@@ -19,7 +19,7 @@ class BHTTest extends FlatSpec with ChiselScalatestTester with Matchers {
       c.io.is_visited.poke(1.B)
 
       c.clock.step(1)
-      c.io.predict.expect(0.B)
+      c.io.predict.expect(1.B)
 
       c.clock.step(1)
       c.io.predict.expect(1.B)
