@@ -5,32 +5,46 @@ package com.github.hectormips.pipeline
  */
 
 import chisel3._
+import chisel3.experimental.ChiselEnum
 import chisel3.util.Mux1H
+import chisel3.util._
 
+object InsJumpSel extends ChiselEnum {
+  val delay_slot_pc: Type = Value(1.U)
+  val pc_add_offset: Type = Value(2.U)
+  val pc_cat_instr_index: Type = Value(4.U)
+  val regfile_read1: Type = Value(8.U)
+}
+
+class InsPreFetchBundle extends Bundle {
+  val pc: UInt = Input(UInt(32.W))
+  val jump_val: Vec[UInt] = Input(Vec(3, UInt(32.W)))
+  val jump_sel: InsJumpSel.Type = Input(InsJumpSel())
+  val dram_addr: UInt = Output(UInt(32.W))
+  val dram_en: Bool = Output(Bool())
+  val next_pc: UInt = Output(UInt(32.W))
+}
 
 // 预取阶段，向同步RAM发起请求
 class InsPreFetch extends Module {
-  val io: Bundle {
-    val pc: UInt
-    val jump_val: Vec[UInt] // 由于跳转导致的pc!=pc+4的可能值
-    val jump_sel: Vec[Bool] // 选择跳转目标
-    val dram_addr: UInt // 数据ram地址，直接使用next_pc
-    val dram_en: Bool
-    val next_pc: UInt // 下一条pc地址
-  } = IO(new Bundle {
-    val pc: UInt = Input(UInt(32.W))
-    val jump_val: Vec[UInt] = Input(Vec(3, UInt(32.W)))
-    val jump_sel: Vec[Bool] = Input(Vec(4, Bool()))
-    val dram_addr: UInt = Output(UInt(32.W))
-    val dram_en: Bool = Output(Bool())
-    val next_pc: UInt = Output(UInt(32.W))
-  })
-  val next_pc: UInt = Mux1H(Seq(
-    io.jump_sel(0) -> (io.pc + 4.U),
-    io.jump_sel(1) -> io.jump_val(0),
-    io.jump_sel(2) -> io.jump_val(1),
-    io.jump_sel(3) -> io.jump_val(2)
-  ))
+  val io: InsPreFetchBundle = IO(new InsPreFetchBundle())
+  val next_pc: UInt = Wire(UInt(32.W))
+  next_pc := 0.U
+  switch(io.jump_sel) {
+    is(InsJumpSel.delay_slot_pc) {
+      next_pc := next_pc + 4.U
+    }
+    is(InsJumpSel.pc_add_offset) {
+      next_pc := io.jump_val(0)
+    }
+    is(InsJumpSel.pc_cat_instr_index) {
+      next_pc := io.jump_val(1)
+    }
+    is(InsJumpSel.regfile_read1) {
+      next_pc := io.jump_val(2)
+    }
+  }
+
   io.next_pc := next_pc
   // 无暂停，恒1
   io.dram_en := true.B

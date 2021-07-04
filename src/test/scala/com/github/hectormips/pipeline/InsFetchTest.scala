@@ -14,22 +14,19 @@ class InsFetchTest extends FlatSpec with ChiselScalatestTester with Matchers {
       c.io.jump_val(0).poke(0x0a123000.U)
       c.io.jump_val(1).poke(0x0b123000.U)
       c.io.jump_val(2).poke(0x0d123000.U)
-      c.io.jump_sel(0).poke(1.B)
+      c.io.jump_sel.poke(InsJumpSel.delay_slot_pc)
 
       c.io.next_pc.expect(0x0c123004.U)
       c.io.dram_addr.expect(0x0c123004.U)
       c.io.dram_en.expect(1.B)
 
-      c.io.jump_sel(0).poke(0.B)
-      c.io.jump_sel(1).poke(1.B)
+      c.io.jump_sel.poke(InsJumpSel.pc_add_offset)
       c.io.next_pc.expect(0x0a123000.U)
 
-      c.io.jump_sel(1).poke(0.B)
-      c.io.jump_sel(2).poke(1.B)
+      c.io.jump_sel.poke(InsJumpSel.pc_cat_instr_index)
       c.io.next_pc.expect(0x0b123000.U)
 
-      c.io.jump_sel(2).poke(0.B)
-      c.io.jump_sel(3).poke(1.B)
+      c.io.jump_sel.poke(InsJumpSel.regfile_read1)
       c.io.next_pc.expect(0x0d123000.U)
     }
   }
