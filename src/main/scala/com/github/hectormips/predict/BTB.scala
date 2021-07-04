@@ -33,7 +33,7 @@ class BTB(size: Int, BHT_size: Int) extends Module {
     val result: UInt = UInt(len.W)
   }
 
-  def get_index(pc: UInt): LookUpResult = {
+  private def get_index(pc: UInt): LookUpResult = {
     // 查找是否有记录
     val index: LookUpResult = Wire(new LookUpResult)
     index := MuxCase({
@@ -50,54 +50,84 @@ class BTB(size: Int, BHT_size: Int) extends Module {
     index
   }
 
+  private def update_pattern_table(index: UInt, is_success: Bool): UInt = {
+    val result: Bundle {
+      val old_pattern: UInt
+      val new_pattern: Bool
+    } = Wire(new Bundle {
+      val old_pattern: UInt = UInt((bht_len - 1).W)
+      val new_pattern: Bool = Bool()
+    })
+    result.old_pattern := index(bht_len - 2, 0)
+    result.new_pattern := is_success
+
+    result.asUInt()
+  }
+
   val io: BTB_IO = IO(new BTB_IO)
 
+  // pc表， 用于储存PC地址
   val location_table: Vec[UInt] = RegInit(VecInit(Seq.fill(size)(0.U(32.W))))
 
+  // target表， 用于储存pc的目的地址
   val target_table: Vec[UInt] = RegInit(VecInit(Seq.fill(size)(0.U(32.W))))
 
+  // pattern_table 用于存储每个PC的匹配记录
   val pattern_table: Vec[UInt] = RegInit(VecInit(Seq.fill(size)(0.U(bht_len.W))))
 
+  // BHT 用于存储每个BHT的结果
   val BHT_table: Vec[Vec[Bool]] = Wire(Vec(size, Vec(BHT_size, Bool())))
 
+  // valid表，用于记录每个pc是否可用
   val valid_table: Vec[Bool] = RegInit(VecInit(Seq.fill(size)(0.B)))
 
+  // 译码段 pc查找结果
   val find_index: LookUpResult = Wire(new LookUpResult)
   find_index := get_index(io.pc)
 
+  // 译码段，pattern查找结果
   val pattern: UInt = Wire(UInt(bht_len.W))
-  pattern := target_table(find_index.result)
+  pattern := pattern_table(find_index.result)
 
+  // ex段 pc查找结果
   val ex_index: LookUpResult = Wire(new LookUpResult)
   ex_index := get_index(io.ex_pc)
 
+  // ex段，pattern查找结果
   val ex_pattern: UInt = Wire(UInt(bht_len.W))
-  ex_pattern := target_table(ex_index.result)
+  val ex_pattern_next: UInt = Wire(UInt(bht_len.W))
+  ex_pattern := pattern_table(ex_index.result)
+  ex_pattern_next := update_pattern_table(pattern_table(ex_index.result), io.ex_success)
 
+  // lru的返回值，下一个应该替换的地址
   val lru_result: UInt = Wire(UInt(len.W))
 
+  // LRU
   val lru: Lru = Module(new Lru(size, 128))
   lru.io.en := 1.B
   lru.io.valid := valid_table
   lru.io.visitor := Mux(ex_index.is_find, ex_index.result, lru_result)
   lru.io.en_visitor := io.en_ex & ex_index.is_find
 
+  // 预测值
   io.target := target_table(find_index.result)
+  // 预测是否成功
   io.predict := find_index.is_find & BHT_table(find_index.result)(pattern)
 
 
   lru_result := lru.io.next
 
 
+  // 更新BTB
   when(io.en_ex) {
     when(ex_index.is_find) {
-      pattern_table(ex_index.result) := (pattern_table(ex_index.result) << 1).asUInt() & io.ex_success
       target_table(ex_index.result) := io.ex_target
+      pattern_table(ex_index.result) := ex_pattern_next
       valid_table(ex_index.result) := 1.B
     }.otherwise {
       location_table(lru_result) := io.ex_pc
       target_table(lru_result) := io.ex_target
-      pattern_table(lru_result) := 0.U
+      pattern_table(lru_result) := io.ex_success
       valid_table(lru_result) := 1.B
     }
   }
@@ -107,7 +137,13 @@ class BTB(size: Int, BHT_size: Int) extends Module {
       withReset(reset.asBool() | ((~ex_index.is_find).asBool() & lru_result === i.U(len.W))) {
         val bht = Module(new BHT)
         bht.io.is_visited := io.ex_success
-        bht.io.en_visit := ex_index.result === i.U(len.W) & ex_pattern === j.U(bht_len.W)
+        if (j == 0){
+          bht.io.en_visit := Mux(ex_index.is_find, ex_index.result === i.U(len.W) & ex_pattern_next === j.U(bht_len.W), lru_result === i.U(len.W) & ~io.ex_success)
+        }else if (j == 1){
+          bht.io.en_visit := Mux(ex_index.is_find, ex_index.result === i.U(len.W) & ex_pattern_next === j.U(bht_len.W), lru_result === i.U(len.W) & io.ex_success)
+        }else{
+          bht.io.en_visit := ex_index.is_find & ex_index.result === i.U(len.W) & ex_pattern_next === j.U(bht_len.W)
+        }
         BHT_table(i)(j) := bht.io.predict
       }
     }
