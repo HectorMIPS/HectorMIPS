@@ -6,72 +6,37 @@ package com.github.hectormips.pipeline
 
 import chisel3._
 import chisel3.util._
+import AluOp._
 
-// 缓存来自取指阶段的输出
-class DecodeBuf extends Module {
-  val io: Bundle {
-    val ins_in: UInt
-    val en: Bool
-    val ins_out: UInt
-  }
-  = IO(new Bundle {
-    val ins_in: UInt = Input(UInt(32.W))
-    val en: Bool = Input(Bool())
-    val ins_out: UInt = Output(UInt(32.W))
-  })
-  val reg: UInt = Reg(32.U)
-  io.ins_out := reg
-  when(io.en) {
-    reg := io.ins_in
-  }
+class InsDecodeBundle extends Bundle {
+  val raw_ins: UInt = Input(UInt(32.W))
+  val pc: UInt = Input(UInt(32.W))
+  // 1: pc=pc+4
+  // 2: pc=pc+(signed)(offset<<2)
+  // 4: pc=pc[31:28]|instr_index<<2
+  // 8: pc=regfile[1]
+  val jump_sel: Vec[Bool] = Output(Vec(4, Bool()))
+  val iram_en: Bool = Output(Bool())
+  val iram_we: Bool = Output(Bool())
+  val alu_src1: Vec[Bool] = Output(Vec(3, Bool()))
+  val alu_src2: Vec[Bool] = Output(Vec(3, Bool()))
+  val alu_op: AluOp.Type = Output(AluOp())
+  val dram_en: Bool = Output(Bool())
+  val dram_we: Bool = Output(Bool())
+  val regfile_we: Bool = Output(Bool())
+  val regfile_addr: Vec[Bool] = Output(Vec(3, Bool()))
+  val regfile_wsrc: Bool = Output(Bool())
+  val ins_opcode: UInt = Output(UInt(6.W))
+  val ins_rs: UInt = Output(UInt(5.W))
+  val ins_rt: UInt = Output(UInt(5.W))
+  val ins_rd: UInt = Output(UInt(5.W))
+  val ins_sa: UInt = Output(UInt(5.W))
+  val ins_imm: UInt = Output(UInt(16.W))
+  val pc_out: UInt = Output(UInt(32.W))
 }
 
 class InsDecode extends Module {
-  val io: Bundle {
-    val raw_ins: UInt
-    val pc: UInt // 延迟槽对应的pc（进入的指令 + 4）
-    val jump_sel: Vec[Bool] // 均为回传给fetch模块的参数
-    val iram_en: Bool
-    val iram_we: Bool
-    val alu_src1: Vec[Bool]
-    val alu_src2: Vec[Bool]
-    val alu_op: Vec[Bool] // 12位的alu指令独热码
-    val dram_en: Bool
-    val dram_we: Bool
-    val regfile_we: Bool
-    val regfile_addr: Vec[Bool] // 3位供写地址生成 1:rd 2:rt 3:32
-    val regfile_wsrc: Bool // 1位写数据生成 0:alu结果 1:ram读
-    val ins_opcode: UInt
-    val ins_rs: UInt
-    val ins_rt: UInt
-    val ins_rd: UInt
-    val ins_sa: UInt
-    val ins_imm: UInt
-  } = IO(new Bundle {
-    val raw_ins: UInt = Input(UInt(32.W))
-    val pc: UInt = Input(UInt(32.W))
-    // 1: pc=pc+4
-    // 2: pc=pc+(signed)(offset<<2)
-    // 4: pc=pc[31:28]|instr_index<<2
-    // 8: pc=regfile[1]
-    val jump_sel: Vec[Bool] = Output(Vec(4, Bool()))
-    val iram_en: Bool = Output(Bool())
-    val iram_we: Bool = Output(Bool())
-    val alu_src1: Vec[Bool] = Output(Vec(3, Bool()))
-    val alu_src2: Vec[Bool] = Output(Vec(3, Bool()))
-    val alu_op: Vec[Bool] = Output(Vec(12, Bool()))
-    val dram_en: Bool = Output(Bool())
-    val dram_we: Bool = Output(Bool())
-    val regfile_we: Bool = Output(Bool())
-    val regfile_addr: Vec[Bool] = Output(Vec(3, Bool()))
-    val regfile_wsrc: Bool = Output(Bool())
-    val ins_opcode: UInt = Output(UInt(6.W))
-    val ins_rs: UInt = Output(UInt(5.W))
-    val ins_rt: UInt = Output(UInt(5.W))
-    val ins_rd: UInt = Output(UInt(5.W))
-    val ins_sa: UInt = Output(UInt(5.W))
-    val ins_imm: UInt = Output(UInt(16.W))
-  })
+  val io: InsDecodeBundle = IO(new InsDecodeBundle)
   val opcode: UInt = io.raw_ins(31, 26)
   val sa: UInt = io.raw_ins(10, 6)
   val func: UInt = io.raw_ins(5, 0)
@@ -115,18 +80,21 @@ class InsDecode extends Module {
   io.alu_src2(1) := ins_addiu | ins_lw | ins_sw | ins_lui
   io.alu_src2(2) := ins_jal
 
-  io.alu_op(0) := ins_addu | ins_addiu | ins_lw | ins_sw | ins_jal
-  io.alu_op(1) := ins_subu
-  io.alu_op(2) := ins_slt
-  io.alu_op(3) := ins_sltu
-  io.alu_op(4) := ins_and
-  io.alu_op(5) := ins_nor
-  io.alu_op(6) := ins_or
-  io.alu_op(7) := ins_xor
-  io.alu_op(8) := ins_sll
-  io.alu_op(9) := ins_srl
-  io.alu_op(10) := ins_sra
-  io.alu_op(11) := ins_lui
+  io.alu_op := Mux1H(Seq(
+    (ins_addiu | ins_addiu | ins_lw | ins_sw | ins_jal) -> AluOp.op_add
+  ))
+  //  io.alu_op(0) := ins_addu | ins_addiu | ins_lw | ins_sw | ins_jal
+  //  io.alu_op(1) := ins_subu
+  //  io.alu_op(2) := ins_slt
+  //  io.alu_op(3) := ins_sltu
+  //  io.alu_op(4) := ins_and
+  //  io.alu_op(5) := ins_nor
+  //  io.alu_op(6) := ins_or
+  //  io.alu_op(7) := ins_xor
+  //  io.alu_op(8) := ins_sll
+  //  io.alu_op(9) := ins_srl
+  //  io.alu_op(10) := ins_sra
+  //  io.alu_op(11) := ins_lui
   io.regfile_we := ins_addu | ins_addiu | ins_subu | ins_lw | ins_jal | ins_slt |
     ins_sltu | ins_sll | ins_srl | ins_sra | ins_lui | ins_and | ins_or | ins_xor | ins_nor
   io.regfile_addr(0) := ins_addu | ins_subu | ins_slt | ins_sltu | ins_sll | ins_srl |
@@ -149,4 +117,5 @@ class InsDecode extends Module {
 
   // 使用sint进行有符号拓展
   val offset: SInt = (io.raw_ins(15, 0) << 2).asSInt()
+  io.pc_out := io.pc
 }
