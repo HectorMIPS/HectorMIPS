@@ -13,16 +13,16 @@ class InsExecuteTest extends FlatSpec with ChiselScalatestTester with Matchers {
       val src2: UInt = 0xbabababaL.U
       val isrc1 = 0xcafeefacL
       val isrc2 = 0xbabababaL
-      c.io.alu_src1_sel.poke(AluSrc1Sel.regfile_read1)
-      c.io.alu_src2_sel.poke(AluSrc2Sel.regfile_read2)
-      c.io.regfile_read1.poke(src1)
-      c.io.regfile_read2.poke(src2)
+      c.io.alu_src1_sel_id_ex.poke(AluSrc1Sel.regfile_read1)
+      c.io.alu_src2_sel_id_ex.poke(AluSrc2Sel.regfile_read2)
+      c.io.regfile_read1_id_ex.poke(src1)
+      c.io.regfile_read2_id_ex.poke(src2)
 
-      c.io.alu_op.poke(AluOp.op_add)
-      c.io.alu_out.expect((isrc1 + isrc2).U(64.W)(31, 0))
+      c.io.alu_op_id_ex.poke(AluOp.op_add)
+      c.io.alu_val_ex_ms.expect((isrc1 + isrc2).U(64.W)(31, 0))
 
-      c.io.alu_op.poke(AluOp.op_sub)
-      c.io.alu_out.expect((isrc1 - isrc2).U(64.W)(31, 0))
+      c.io.alu_op_id_ex.poke(AluOp.op_sub)
+      c.io.alu_val_ex_ms.expect((isrc1 - isrc2).U(64.W)(31, 0))
 
     }
   }

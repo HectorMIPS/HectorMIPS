@@ -10,15 +10,27 @@ object MemorySrc extends ChiselEnum {
 }
 
 class InsMemoryBundle extends Bundle {
-  val mem_addr_src: Vec[UInt] = Input(Vec(2, UInt(32.W))) // 0: 来自于alu运算结果 1：来自于alu直接计算的mem地址
-  val mem_en: Bool = Input(Bool())
-  val mem_we: Bool = Input(Bool())
-  val mem_addr_sel: MemorySrc.Type = Input(MemorySrc())
+  val mem_rdata: UInt = Input(UInt(32.W))
+  val alu_val_ex_ms: UInt = Input(UInt(32.W))
+  val regfile_wsrc_sel_ex_ms: Bool = Input(Bool())
+  val regfile_waddr_sel_ex_ms: RegFileWAddrSel.Type = Input(RegFileWAddrSel())
+  val inst_rd_ex_ms: UInt = Input(UInt(5.W))
+  val inst_rt_ex_ms: UInt = Input(UInt(5.W))
+  val regfile_we_ex_ms: Bool = Input(Bool())
 
-  val mem_out: UInt = Output(UInt(32.W))
+  val regfile_waddr_sel_ms_wb: RegFileWAddrSel.Type = Output(RegFileWAddrSel())
+  val inst_rd_ms_wb: UInt = Output(UInt(5.W))
+  val inst_rt_ms_wb: UInt = Output(UInt(5.W))
+  val regfile_we_ms_wb: Bool = Output(Bool())
+  val regfile_wdata_ms_wb: UInt = Output(UInt(32.W))
+
 }
 
-class InsMemoryBack extends Module {
+class InsMemory extends Module {
   val io: InsMemoryBundle = IO(new InsMemoryBundle)
-
+  io.regfile_waddr_sel_ms_wb := io.regfile_waddr_sel_ex_ms
+  io.inst_rd_ms_wb := io.inst_rd_ex_ms
+  io.inst_rt_ms_wb := io.inst_rt_ex_ms
+  io.regfile_we_ms_wb := io.regfile_we_ex_ms
+  io.regfile_wdata_ms_wb := Mux(io.regfile_wsrc_sel_ex_ms, io.mem_rdata, io.alu_val_ex_ms)
 }

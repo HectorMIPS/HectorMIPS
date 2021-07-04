@@ -36,7 +36,7 @@ class InsFetchTest extends FlatSpec with ChiselScalatestTester with Matchers {
   it should "fetch the async RAM data" in {
     test(new InsFetch()) { c =>
       c.io.dram_data.poke(0x00aabbcc.U)
-      c.io.ins.expect(0x00aabbcc.U)
+      c.io.ins_if_id.expect(0x00aabbcc.U)
     }
   }
 
