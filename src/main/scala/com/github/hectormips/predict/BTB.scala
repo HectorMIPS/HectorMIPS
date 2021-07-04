@@ -107,7 +107,7 @@ class BTB(size: Int, BHT_size: Int) extends Module {
   lru.io.en := 1.B
   lru.io.valid := valid_table
   lru.io.visitor := Mux(ex_index.is_find, ex_index.result, lru_result)
-  lru.io.en_visitor := io.en_ex & ex_index.is_find
+  lru.io.en_visitor := io.en_ex
 
   // 预测值
   io.target := target_table(find_index.result)
@@ -134,15 +134,17 @@ class BTB(size: Int, BHT_size: Int) extends Module {
 
   for (i <- 0 until size) {
     for (j <- 0 until BHT_size) {
-      withReset(reset.asBool() | ((~ex_index.is_find).asBool() & lru_result === i.U(len.W))) {
+      val is_this_bht = ex_index.result === i.U(len.W) & ex_pattern_next === j.U(bht_len.W)
+      val is_this_next = lru_result === i.U(len.W)
+      withReset(reset.asBool() | ((~ex_index.is_find).asBool() & is_this_next)) {
         val bht = Module(new BHT)
         bht.io.is_visited := io.ex_success
         if (j == 0){
-          bht.io.en_visit := Mux(ex_index.is_find, ex_index.result === i.U(len.W) & ex_pattern_next === j.U(bht_len.W), lru_result === i.U(len.W) & ~io.ex_success)
+          bht.io.en_visit := Mux(ex_index.is_find, is_this_bht, is_this_next & ~io.ex_success)
         }else if (j == 1){
-          bht.io.en_visit := Mux(ex_index.is_find, ex_index.result === i.U(len.W) & ex_pattern_next === j.U(bht_len.W), lru_result === i.U(len.W) & io.ex_success)
+          bht.io.en_visit := Mux(ex_index.is_find, is_this_bht, is_this_next & io.ex_success)
         }else{
-          bht.io.en_visit := ex_index.is_find & ex_index.result === i.U(len.W) & ex_pattern_next === j.U(bht_len.W)
+          bht.io.en_visit := ex_index.is_find & is_this_bht
         }
         BHT_table(i)(j) := bht.io.predict
       }
