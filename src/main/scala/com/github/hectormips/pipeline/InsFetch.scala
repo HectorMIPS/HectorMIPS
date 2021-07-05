@@ -16,14 +16,21 @@ object InsJumpSel extends ChiselEnum {
   val regfile_read1     : Type = Value(8.U)
 }
 
+class DecodePreFetchBundle extends Bundle {
+  val jump_sel_id_pf: InsJumpSel.Type = Output(InsJumpSel())
+  val jump_val_id_pf: Vec[UInt]       = Output(Vec(2, UInt(32.W)))
+}
+
 class InsPreFetchBundle extends Bundle {
-  val pc                 : UInt            = Input(UInt(32.W))
-  val jump_val           : Vec[UInt]       = Input(Vec(3, UInt(32.W)))
-  val jump_sel           : InsJumpSel.Type = Input(InsJumpSel())
-  val dram_addr          : UInt            = Output(UInt(32.W))
-  val dram_en            : Bool            = Output(Bool())
-  val next_pc            : UInt            = Output(UInt(32.W))
-  val delay_slot_pc_pf_if: UInt            = Output(UInt(32.W))
+  val pc                 : UInt                 = Input(UInt(32.W))
+  val id_pf_in           : DecodePreFetchBundle = Input(new DecodePreFetchBundle)
+  val regfile_read1      : UInt                 = Input(UInt(32.W))
+  val ins_ram_addr       : UInt                 = Output(UInt(32.W))
+  val ins_ram_en         : Bool                 = Output(Bool())
+  val next_pc            : UInt                 = Output(UInt(32.W))
+  val pc_wen             : Bool                 = Output(Bool())
+  val delay_slot_pc_pf_if: UInt                 = Output(UInt(32.W))
+
 }
 
 // 预取阶段，向同步RAM发起请求
@@ -31,38 +38,40 @@ class InsPreFetch extends Module {
   val io     : InsPreFetchBundle = IO(new InsPreFetchBundle())
   val next_pc: UInt              = Wire(UInt(32.W))
   next_pc := 0.U
-  switch(io.jump_sel) {
+  switch(io.id_pf_in.jump_sel_id_pf) {
     is(InsJumpSel.delay_slot_pc) {
       next_pc := io.pc + 4.U
     }
     is(InsJumpSel.pc_add_offset) {
-      next_pc := io.jump_val(0)
+      next_pc := io.id_pf_in.jump_val_id_pf(0)
     }
     is(InsJumpSel.pc_cat_instr_index) {
-      next_pc := io.jump_val(1)
+      next_pc := io.id_pf_in.jump_val_id_pf(1)
     }
     is(InsJumpSel.regfile_read1) {
-      next_pc := io.jump_val(2)
+      next_pc := io.regfile_read1
     }
   }
 
   io.next_pc := next_pc
   // 无暂停，恒1
-  io.dram_en := true.B
-  io.dram_addr := next_pc
+  io.ins_ram_en := true.B
+  io.ins_ram_addr := next_pc
   io.delay_slot_pc_pf_if := io.pc + 4.U
+  io.pc_wen := 1.B
 }
 
 class InsFetchBundle extends Bundle {
   val delay_slot_pc_pf_if: UInt = Input(UInt(32.W)) // 延迟槽pc值
-  val dram_data          : UInt = Input(UInt(32.W))
-  val ins_if_id          : UInt = Output(UInt(32.W))
-  val pc_if_id           : UInt = Output(UInt(32.W))
+  val ins_ram_data       : UInt = Input(UInt(32.W))
+
+  val if_id_out: FetchDecodeBundle = Output(new FetchDecodeBundle)
 }
 
 // 获取同步RAM的数据
 class InsFetch extends Module {
   val io: InsFetchBundle = IO(new InsFetchBundle())
-  io.ins_if_id := io.dram_data
-  io.pc_if_id := io.delay_slot_pc_pf_if
+
+  io.if_id_out.ins_if_id := io.ins_ram_data
+  io.if_id_out.pc_if_id := io.delay_slot_pc_pf_if
 }

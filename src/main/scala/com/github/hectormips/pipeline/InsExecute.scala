@@ -17,35 +17,35 @@ object AluSrc2Sel extends ChiselEnum {
   val const_31     : Type = Value(4.U)
 }
 
-class InsExecuteBundle extends Bundle {
-  val alu_op_id_ex       : AluOp.Type      = Input(AluOp())
-  val alu_src1_sel_id_ex : AluSrc1Sel.Type = Input(AluSrc1Sel())
-  val alu_src2_sel_id_ex : AluSrc2Sel.Type = Input(AluSrc2Sel())
+// 通过译码阶段传入的参数
+class DecodeExecuteBundle extends Bundle {
+  val alu_op_id_ex           : AluOp.Type           = AluOp()
+  val alu_src1_sel_id_ex     : AluSrc1Sel.Type      = AluSrc1Sel()
+  val alu_src2_sel_id_ex     : AluSrc2Sel.Type      = AluSrc2Sel()
   // 寄存器堆读端口1 2
-  val regfile_read1_id_ex: UInt            = Input(UInt(32.W))
-  val regfile_read2_id_ex: UInt            = Input(UInt(32.W))
-  val pc_id_ex           : UInt            = Input(UInt(32.W))
-  val sa_32_id_ex        : UInt            = Input(UInt(32.W))
-  val imm_32_id_ex       : UInt            = Input(UInt(32.W))
-
+  val pc_id_ex               : UInt                 = UInt(32.W)
+  val sa_32_id_ex            : UInt                 = UInt(32.W)
+  val imm_32_id_ex           : UInt                 = UInt(32.W)
   // 直传id_ex_ms
-  val mem_en_id_ex           : Bool                 = Input(Bool())
-  val mem_wen_id_ex          : Bool                 = Input(Bool())
-  val regfile_wsrc_sel_id_ex : Bool                 = Input(Bool())
-  val regfile_waddr_sel_id_ex: RegFileWAddrSel.Type = Input(RegFileWAddrSel())
-  val inst_rd_id_ex          : UInt                 = Input(UInt(5.W))
-  val inst_rt_id_ex          : UInt                 = Input(UInt(5.W))
-  val regfile_we_id_ex       : Bool                 = Input(Bool())
+  val mem_en_id_ex           : Bool                 = Bool()
+  val mem_wen_id_ex          : Bool                 = Bool()
+  val regfile_wsrc_sel_id_ex : Bool                 = Bool()
+  val regfile_waddr_sel_id_ex: RegFileWAddrSel.Type = RegFileWAddrSel()
+  val inst_rs_id_ex          : UInt                 = UInt(5.W)
+  val inst_rd_id_ex          : UInt                 = UInt(5.W)
+  val inst_rt_id_ex          : UInt                 = UInt(5.W)
+  val regfile_we_id_ex       : Bool                 = Bool()
+
+
+}
+
+class InsExecuteBundle extends Bundle {
+  val id_ex_in     : DecodeExecuteBundle = Input(new DecodeExecuteBundle)
+  val regfile_read1: UInt                = Input(UInt(32.W))
+  val regfile_read2: UInt                = Input(UInt(32.W))
 
   // 传递给访存的输出
-  val mem_en_ex_ms           : Bool                 = Output(Bool())
-  val mem_wen_ex_ms          : Bool                 = Output(Bool())
-  val regfile_wsrc_sel_ex_ms : Bool                 = Output(Bool())
-  val regfile_waddr_sel_ex_ms: RegFileWAddrSel.Type = Output(RegFileWAddrSel())
-  val inst_rd_ex_ms          : UInt                 = Output(UInt(5.W))
-  val inst_rt_ex_ms          : UInt                 = Output(UInt(5.W))
-  val regfile_we_ex_ms       : Bool                 = Output(Bool())
-  val alu_val_ex_ms          : UInt                 = Output(UInt(32.W))
+  val ex_ms_out: ExecuteMemoryBundle = Output(new ExecuteMemoryBundle)
 
   // 传给data ram的使能信号和数据信号
   val mem_en   : Bool = Output(Bool())
@@ -61,30 +61,30 @@ class InsExecute extends Module {
   val src2   : UInt             = Wire(UInt(32.W))
   src1 := 0.U
   src2 := 0.U
-  switch(io.alu_src1_sel_id_ex) {
+  switch(io.id_ex_in.alu_src1_sel_id_ex) {
     is(AluSrc1Sel.pc) {
-      src1 := io.pc_id_ex
+      src1 := io.id_ex_in.pc_id_ex
     }
     is(AluSrc1Sel.sa_32) {
-      src1 := io.sa_32_id_ex
+      src1 := io.id_ex_in.sa_32_id_ex
     }
     is(AluSrc1Sel.regfile_read1) {
-      src1 := io.regfile_read1_id_ex
+      src1 := io.regfile_read1
     }
   }
-  switch(io.alu_src2_sel_id_ex) {
+  switch(io.id_ex_in.alu_src2_sel_id_ex) {
     is(AluSrc2Sel.imm_32) {
-      src2 := io.imm_32_id_ex
+      src2 := io.id_ex_in.imm_32_id_ex
     }
     is(AluSrc2Sel.const_31) {
       src2 := 31.U
     }
     is(AluSrc2Sel.regfile_read2) {
-      src2 := io.regfile_read2_id_ex
+      src2 := io.regfile_read2
     }
   }
   alu_out := 0.U
-  switch(io.alu_op_id_ex) {
+  switch(io.id_ex_in.alu_op_id_ex) {
     is(AluOp.op_add) {
       alu_out := src1 + src2
     }
@@ -123,16 +123,15 @@ class InsExecute extends Module {
     }
 
   }
-  io.alu_val_ex_ms := alu_out
+  io.ex_ms_out.alu_val_ex_ms := alu_out
   io.mem_addr := src1 + src2 // 直出内存地址，连接到sram上
   io.mem_wdata := src2
-  io.mem_en := io.mem_en_ex_ms
-  io.mem_wen := io.mem_wen_ex_ms
-  io.mem_en_ex_ms := io.mem_en_id_ex
-  io.mem_wen_ex_ms := io.mem_wen_id_ex
-  io.regfile_wsrc_sel_ex_ms := io.regfile_wsrc_sel_id_ex
-  io.regfile_waddr_sel_ex_ms := io.regfile_waddr_sel_id_ex
-  io.inst_rd_ex_ms := io.inst_rd_id_ex
-  io.inst_rt_ex_ms := io.inst_rt_id_ex
-  io.regfile_we_ex_ms := io.regfile_we_id_ex
+  io.mem_en := io.id_ex_in.mem_en_id_ex
+  io.mem_wen := io.id_ex_in.mem_wen_id_ex
+
+  io.ex_ms_out.regfile_wsrc_sel_ex_ms := io.id_ex_in.regfile_wsrc_sel_id_ex
+  io.ex_ms_out.regfile_waddr_sel_ex_ms := io.id_ex_in.regfile_waddr_sel_id_ex
+  io.ex_ms_out.inst_rd_ex_ms := io.id_ex_in.inst_rd_id_ex
+  io.ex_ms_out.inst_rt_ex_ms := io.id_ex_in.inst_rt_id_ex
+  io.ex_ms_out.regfile_we_ex_ms := io.id_ex_in.regfile_we_id_ex
 }

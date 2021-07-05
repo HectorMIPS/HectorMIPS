@@ -1,10 +1,10 @@
-package com.github.hectormips
+package com.github.hectormips.pipeline
 
 import chisel3._
 import chiseltest._
-import org.scalatest._
 import chiseltest.experimental.TestOptionBuilder._
 import chiseltest.internal.WriteVcdAnnotation
+import org.scalatest._
 
 class RegFileTest extends FlatSpec with ChiselScalatestTester with Matchers {
   behavior of "RegFile"

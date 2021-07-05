@@ -5,32 +5,31 @@ import chisel3.experimental.ChiselEnum
 import chisel3.util._
 
 object MemorySrc extends ChiselEnum {
-  val alu_val: Type = Value(1.U)
+  val alu_val : Type = Value(1.U)
   val mem_addr: Type = Value(2.U)
 }
 
-class InsMemoryBundle extends Bundle {
-  val mem_rdata: UInt = Input(UInt(32.W))
-  val alu_val_ex_ms: UInt = Input(UInt(32.W))
-  val regfile_wsrc_sel_ex_ms: Bool = Input(Bool())
-  val regfile_waddr_sel_ex_ms: RegFileWAddrSel.Type = Input(RegFileWAddrSel())
-  val inst_rd_ex_ms: UInt = Input(UInt(5.W))
-  val inst_rt_ex_ms: UInt = Input(UInt(5.W))
-  val regfile_we_ex_ms: Bool = Input(Bool())
+class ExecuteMemoryBundle extends Bundle {
+  val alu_val_ex_ms          : UInt                 = UInt(32.W)
+  val regfile_wsrc_sel_ex_ms : Bool                 = Bool()
+  val regfile_waddr_sel_ex_ms: RegFileWAddrSel.Type = RegFileWAddrSel()
+  val inst_rd_ex_ms          : UInt                 = UInt(5.W)
+  val inst_rt_ex_ms          : UInt                 = UInt(5.W)
+  val regfile_we_ex_ms       : Bool                 = Bool()
+}
 
-  val regfile_waddr_sel_ms_wb: RegFileWAddrSel.Type = Output(RegFileWAddrSel())
-  val inst_rd_ms_wb: UInt = Output(UInt(5.W))
-  val inst_rt_ms_wb: UInt = Output(UInt(5.W))
-  val regfile_we_ms_wb: Bool = Output(Bool())
-  val regfile_wdata_ms_wb: UInt = Output(UInt(32.W))
+class InsMemoryBundle extends Bundle {
+  val mem_rdata: UInt                  = Input(UInt(32.W))
+  val ex_ms_in : ExecuteMemoryBundle   = Input(new ExecuteMemoryBundle)
+  val ms_wb_out: MemoryWriteBackBundle = Output(new MemoryWriteBackBundle)
 
 }
 
 class InsMemory extends Module {
   val io: InsMemoryBundle = IO(new InsMemoryBundle)
-  io.regfile_waddr_sel_ms_wb := io.regfile_waddr_sel_ex_ms
-  io.inst_rd_ms_wb := io.inst_rd_ex_ms
-  io.inst_rt_ms_wb := io.inst_rt_ex_ms
-  io.regfile_we_ms_wb := io.regfile_we_ex_ms
-  io.regfile_wdata_ms_wb := Mux(io.regfile_wsrc_sel_ex_ms, io.mem_rdata, io.alu_val_ex_ms)
+  io.ms_wb_out.regfile_waddr_sel_ms_wb := io.ex_ms_in.regfile_waddr_sel_ex_ms
+  io.ms_wb_out.inst_rd_ms_wb := io.ex_ms_in.inst_rd_ex_ms
+  io.ms_wb_out.inst_rt_ms_wb := io.ex_ms_in.inst_rt_ex_ms
+  io.ms_wb_out.regfile_we_ms_wb := io.ex_ms_in.regfile_we_ex_ms
+  io.ms_wb_out.regfile_wdata_ms_wb := Mux(io.ex_ms_in.regfile_wsrc_sel_ex_ms, io.mem_rdata, io.ex_ms_in.alu_val_ex_ms)
 }
