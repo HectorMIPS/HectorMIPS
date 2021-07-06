@@ -29,8 +29,6 @@ class InsDecodeTest extends FlatSpec with ChiselScalatestTester with Matchers {
       c.io.if_id_in.ins_if_id.poke(jal_ins)
       c.io.if_id_in.pc_if_id.poke(0.U)
       c.clock.step()
-      c.io.id_ex_out.alu_src1_sel_id_ex.expect(AluSrc1Sel.pc)
-      c.io.id_ex_out.alu_src2_sel_id_ex.expect(AluSrc2Sel.const_31)
       c.io.id_ex_out.alu_op_id_ex.expect(AluOp.op_add)
       c.io.id_ex_out.regfile_we_id_ex.expect(1.B)
       c.io.id_ex_out.regfile_waddr_sel_id_ex.expect(RegFileWAddrSel.const_31)

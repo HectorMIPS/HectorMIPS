@@ -5,27 +5,17 @@ import chisel3.experimental.ChiselEnum
 import chisel3.util.Mux1H
 import chisel3.util._
 
-object AluSrc1Sel extends ChiselEnum {
-  val regfile_read1: Type = Value(1.U)
-  val pc           : Type = Value(2.U)
-  val sa_32        : Type = Value(4.U) // sa零扩展
-}
-
-object AluSrc2Sel extends ChiselEnum {
-  val regfile_read2: Type = Value(1.U)
-  val imm_32       : Type = Value(2.U) // 立即数域符号扩展
-  val const_31     : Type = Value(4.U)
-}
 
 // 通过译码阶段传入的参数
 class DecodeExecuteBundle extends WithValid {
-  val alu_op_id_ex           : AluOp.Type           = AluOp()
-  val alu_src1_sel_id_ex     : AluSrc1Sel.Type      = AluSrc1Sel()
-  val alu_src2_sel_id_ex     : AluSrc2Sel.Type      = AluSrc2Sel()
+  val alu_op_id_ex: AluOp.Type = AluOp()
   // 寄存器堆读端口1 2
-  val pc_id_ex               : UInt                 = UInt(32.W)
-  val sa_32_id_ex            : UInt                 = UInt(32.W)
-  val imm_32_id_ex           : UInt                 = UInt(32.W)
+  val pc_id_ex    : UInt       = UInt(32.W)
+  val sa_32_id_ex : UInt       = UInt(32.W)
+  val imm_32_id_ex: UInt       = UInt(32.W)
+
+  val alu_src1_id_ex         : UInt                 = UInt(32.W)
+  val alu_src2_id_ex         : UInt                 = UInt(32.W)
   // 直传id_ex_ms
   val mem_en_id_ex           : Bool                 = Bool()
   val mem_wen_id_ex          : Bool                 = Bool()
@@ -40,9 +30,7 @@ class DecodeExecuteBundle extends WithValid {
 }
 
 class InsExecuteBundle extends WithAllowin {
-  val id_ex_in     : DecodeExecuteBundle = Input(new DecodeExecuteBundle)
-  val regfile_read1: UInt                = Input(UInt(32.W))
-  val regfile_read2: UInt                = Input(UInt(32.W))
+  val id_ex_in: DecodeExecuteBundle = Input(new DecodeExecuteBundle)
 
   // 传递给访存的输出
   val ex_ms_out: ExecuteMemoryBundle = Output(new ExecuteMemoryBundle)
@@ -59,30 +47,9 @@ class InsExecute extends Module {
   val alu_out: UInt             = Wire(UInt(32.W))
   val src1   : UInt             = Wire(UInt(32.W))
   val src2   : UInt             = Wire(UInt(32.W))
-  src1 := 0.U
-  src2 := 0.U
-  switch(io.id_ex_in.alu_src1_sel_id_ex) {
-    is(AluSrc1Sel.pc) {
-      src1 := io.id_ex_in.pc_id_ex
-    }
-    is(AluSrc1Sel.sa_32) {
-      src1 := io.id_ex_in.sa_32_id_ex
-    }
-    is(AluSrc1Sel.regfile_read1) {
-      src1 := io.regfile_read1
-    }
-  }
-  switch(io.id_ex_in.alu_src2_sel_id_ex) {
-    is(AluSrc2Sel.imm_32) {
-      src2 := io.id_ex_in.imm_32_id_ex
-    }
-    is(AluSrc2Sel.const_31) {
-      src2 := 31.U
-    }
-    is(AluSrc2Sel.regfile_read2) {
-      src2 := io.regfile_read2
-    }
-  }
+  src1 := io.id_ex_in.alu_src1_id_ex
+  src2 := io.id_ex_in.alu_src2_id_ex
+
   alu_out := 0.U
   switch(io.id_ex_in.alu_op_id_ex) {
     is(AluOp.op_add) {

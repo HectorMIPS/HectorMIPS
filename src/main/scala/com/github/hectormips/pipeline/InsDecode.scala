@@ -17,6 +17,18 @@ object RegFileWAddrSel extends ChiselEnum {
   val const_31: Type = Value(4.U)
 }
 
+object AluSrc1Sel extends ChiselEnum {
+  val regfile_read1: Type = Value(1.U)
+  val pc           : Type = Value(2.U)
+  val sa_32        : Type = Value(4.U) // sa零扩展
+}
+
+object AluSrc2Sel extends ChiselEnum {
+  val regfile_read2: Type = Value(1.U)
+  val imm_32       : Type = Value(2.U) // 立即数域符号扩展
+  val const_31     : Type = Value(4.U)
+}
+
 class FetchDecodeBundle extends WithValid {
   val ins_if_id: UInt = UInt(32.W)
   val pc_if_id : UInt = UInt(32.W)
@@ -24,8 +36,10 @@ class FetchDecodeBundle extends WithValid {
 
 class InsDecodeBundle extends WithAllowin {
 
-  val if_id_in : FetchDecodeBundle    = Input(new FetchDecodeBundle)
-  val id_pf_out: DecodePreFetchBundle = Output(new DecodePreFetchBundle)
+  val if_id_in     : FetchDecodeBundle    = Input(new FetchDecodeBundle)
+  val regfile_read1: UInt                 = Input(UInt(32.W))
+  val regfile_read2: UInt                 = Input(UInt(32.W))
+  val id_pf_out    : DecodePreFetchBundle = Output(new DecodePreFetchBundle)
 
   val iram_en   : Bool                = Output(Bool())
   val iram_we   : Bool                = Output(Bool())
@@ -42,6 +56,9 @@ class InsDecode extends Module {
   val sa         : UInt            = io.if_id_in.ins_if_id(10, 6)
   val imm        : SInt            = Wire(SInt(32.W))
   val func       : UInt            = io.if_id_in.ins_if_id(5, 0)
+  val rs         : UInt            = io.if_id_in.ins_if_id(25, 21)
+  val rt         : UInt            = io.if_id_in.ins_if_id(20, 16)
+  val rd         : UInt            = io.if_id_in.ins_if_id(15, 11)
   val ins_addu   : Bool            = opcode === 0.U && sa === 0.U && func === "b100001".U
   val ins_addiu  : Bool            = opcode === "b001001".U
   val ins_subu   : Bool            = opcode === 0.U && sa === 0.U && func === "b100011".U
@@ -50,20 +67,18 @@ class InsDecode extends Module {
   val ins_beq    : Bool            = opcode === "b000100".U
   val ins_bne    : Bool            = opcode === "b000101".U
   val ins_jal    : Bool            = opcode === "b000011".U
-  val ins_jr     : Bool            = opcode === "b000000".U && sa === "b00000".U && func === "b001000".U
+  val ins_jr     : Bool            = opcode === "b000000".U && rt === "b00000".U && rd === "b00000".U &&
+    sa === "b00000".U && func === "b001000".U
   val ins_slt    : Bool            = opcode === "b000000".U && sa === "b00000".U && func === "b101010".U
   val ins_sltu   : Bool            = opcode === "b000000".U && sa === "b00000".U && func === "b101011".U
   val ins_sll    : Bool            = opcode === "b000000".U && sa === "b00000".U && func === "b000000".U
   val ins_srl    : Bool            = opcode === "b000000".U && sa === "b00000".U && func === "b000010".U
   val ins_sra    : Bool            = opcode === "b000000".U && sa === "b00000".U && func === "b000011".U
-  val ins_lui    : Bool            = opcode === "b001111".U && sa === "b00000".U
+  val ins_lui    : Bool            = opcode === "b001111".U && rs === "b00000".U
   val ins_and    : Bool            = opcode === "b000000".U && sa === "b00000".U && func === "b100100".U
   val ins_or     : Bool            = opcode === "b000000".U && sa === "b00000".U && func === "b100101".U
   val ins_xor    : Bool            = opcode === "b000000".U && sa === "b00000".U && func === "b100110".U
   val ins_nor    : Bool            = opcode === "b000000".U && sa === "b00000".U && func === "b100111".U
-  val rs         : UInt            = io.if_id_in.ins_if_id(25, 21)
-  val rt         : UInt            = io.if_id_in.ins_if_id(20, 16)
-  val rd         : UInt            = io.if_id_in.ins_if_id(15, 11)
   // 使用sint进行有符号拓展
   val offset     : SInt            = Wire(SInt(32.W))
   val instr_index: UInt            = io.if_id_in.ins_if_id(25, 0)
@@ -85,19 +100,49 @@ class InsDecode extends Module {
   io.iram_en := 1.B
   io.iram_we := 0.B
 
-  io.id_ex_out.alu_src1_sel_id_ex := Mux1H(Seq(
+  val src1_sel: AluSrc1Sel.Type = Wire(AluSrc1Sel())
+  val src2_sel: AluSrc2Sel.Type = Wire(AluSrc2Sel())
+  val alu_src1: UInt            = Wire(UInt(32.W))
+  val alu_src2: UInt            = Wire(UInt(32.W))
+  src1_sel := Mux1H(Seq(
     (ins_addu | ins_addiu | ins_subu | ins_lw | ins_sw |
       ins_slt | ins_sltu | ins_and | ins_or | ins_xor | ins_nor) -> AluSrc1Sel.regfile_read1,
     ins_jal -> AluSrc1Sel.pc,
     (ins_sll | ins_srl | ins_sra) -> AluSrc1Sel.sa_32
   ))
 
-  io.id_ex_out.alu_src2_sel_id_ex := Mux1H(Seq(
+  src2_sel := Mux1H(Seq(
     (ins_addu | ins_subu | ins_slt | ins_sltu | ins_sll | ins_srl |
       ins_sra | ins_and | ins_or | ins_xor | ins_nor) -> AluSrc2Sel.regfile_read2,
     (ins_addiu | ins_lw | ins_sw | ins_lui) -> AluSrc2Sel.imm_32,
     ins_jal -> AluSrc2Sel.const_31
   ))
+  alu_src1 := 0.U
+  alu_src2 := 0.U
+  switch(src1_sel) {
+    is(AluSrc1Sel.pc) {
+      alu_src1 := io.if_id_in.pc_if_id
+    }
+    is(AluSrc1Sel.sa_32) {
+      alu_src1 := sa
+    }
+    is(AluSrc1Sel.regfile_read1) {
+      alu_src1 := io.regfile_read1
+    }
+  }
+  switch(src2_sel) {
+    is(AluSrc2Sel.imm_32) {
+      alu_src2 := imm.asUInt()
+    }
+    is(AluSrc2Sel.const_31) {
+      alu_src2 := 31.U
+    }
+    is(AluSrc2Sel.regfile_read2) {
+      alu_src2 := io.regfile_read2
+    }
+  }
+  io.id_ex_out.alu_src1_id_ex := alu_src1
+  io.id_ex_out.alu_src2_id_ex := alu_src2
   io.id_ex_out.alu_op_id_ex := Mux1H(Seq(
     (ins_addu | ins_addiu | ins_lw | ins_sw | ins_jal) -> AluOp.op_add,
     ins_subu -> AluOp.op_sub,
@@ -136,10 +181,11 @@ class InsDecode extends Module {
 
   io.id_ex_out.pc_id_ex := io.if_id_in.pc_if_id
   io.decode_to_fetch_next_pc(0) := io.if_id_in.pc_if_id + offset.asUInt()
-  io.decode_to_fetch_next_pc(1) := Cat(Cat(io.if_id_in.pc_if_id(31, 28), instr_index), "b00".U)
+  io.decode_to_fetch_next_pc(1) := Cat(Seq(io.if_id_in.pc_if_id(31, 28), instr_index, "b00".U))
 
   io.this_allowin := io.next_allowin && !reset.asBool()
   io.id_ex_out.bus_valid := io.if_id_in.bus_valid && !reset.asBool()
+
 }
 
 object InsDecode extends App {
