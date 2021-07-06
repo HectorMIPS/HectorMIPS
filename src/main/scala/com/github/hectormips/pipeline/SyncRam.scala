@@ -2,6 +2,7 @@ package com.github.hectormips.pipeline
 
 import chisel3._
 import chisel3.util._
+import chisel3.util.experimental.loadMemoryFromFile
 
 class SyncRamBundle extends Bundle {
   val ram_wen  : Bool = Input(Bool())

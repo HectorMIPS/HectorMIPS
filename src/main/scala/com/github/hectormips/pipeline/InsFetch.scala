@@ -21,7 +21,7 @@ class DecodePreFetchBundle extends Bundle {
   val jump_val_id_pf: Vec[UInt]       = Output(Vec(2, UInt(32.W)))
 }
 
-class InsPreFetchBundle extends Bundle {
+class InsPreFetchBundle extends WithAllowin {
   val pc                 : UInt                 = Input(UInt(32.W))
   val id_pf_in           : DecodePreFetchBundle = Input(new DecodePreFetchBundle)
   val regfile_read1      : UInt                 = Input(UInt(32.W))
@@ -30,6 +30,9 @@ class InsPreFetchBundle extends Bundle {
   val next_pc            : UInt                 = Output(UInt(32.W))
   val pc_wen             : Bool                 = Output(Bool())
   val delay_slot_pc_pf_if: UInt                 = Output(UInt(32.W))
+
+  val in_valid   : Bool = Input(Bool()) // 传入预取的输入是否有效
+  val pf_if_valid: Bool = Output(Bool())
 
 }
 
@@ -59,19 +62,23 @@ class InsPreFetch extends Module {
   io.ins_ram_addr := next_pc
   io.delay_slot_pc_pf_if := io.pc + 4.U
   io.pc_wen := 1.B
+  io.pf_if_valid := io.in_valid && !reset.asBool()
+  io.this_allowin := !reset.asBool() && io.next_allowin
 }
 
-class InsFetchBundle extends Bundle {
+class InsSufFetchBundle extends Bundle {
   val delay_slot_pc_pf_if: UInt = Input(UInt(32.W)) // 延迟槽pc值
   val ins_ram_data       : UInt = Input(UInt(32.W))
 
-  val if_id_out: FetchDecodeBundle = Output(new FetchDecodeBundle)
+  val pf_if_valid: Bool              = Input(Bool())
+  val if_id_out  : FetchDecodeBundle = Output(new FetchDecodeBundle)
 }
 
 // 获取同步RAM的数据
-class InsFetch extends Module {
-  val io: InsFetchBundle = IO(new InsFetchBundle())
+class InsSufFetch extends Module {
+  val io: InsSufFetchBundle = IO(new InsSufFetchBundle())
 
   io.if_id_out.ins_if_id := io.ins_ram_data
   io.if_id_out.pc_if_id := io.delay_slot_pc_pf_if
+  io.if_id_out.bus_valid := !reset.asBool() && io.pf_if_valid
 }

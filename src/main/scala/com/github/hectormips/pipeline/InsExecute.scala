@@ -18,7 +18,7 @@ object AluSrc2Sel extends ChiselEnum {
 }
 
 // 通过译码阶段传入的参数
-class DecodeExecuteBundle extends Bundle {
+class DecodeExecuteBundle extends WithValid {
   val alu_op_id_ex           : AluOp.Type           = AluOp()
   val alu_src1_sel_id_ex     : AluSrc1Sel.Type      = AluSrc1Sel()
   val alu_src2_sel_id_ex     : AluSrc2Sel.Type      = AluSrc2Sel()
@@ -39,7 +39,7 @@ class DecodeExecuteBundle extends Bundle {
 
 }
 
-class InsExecuteBundle extends Bundle {
+class InsExecuteBundle extends WithAllowin {
   val id_ex_in     : DecodeExecuteBundle = Input(new DecodeExecuteBundle)
   val regfile_read1: UInt                = Input(UInt(32.W))
   val regfile_read2: UInt                = Input(UInt(32.W))
@@ -134,4 +134,7 @@ class InsExecute extends Module {
   io.ex_ms_out.inst_rd_ex_ms := io.id_ex_in.inst_rd_id_ex
   io.ex_ms_out.inst_rt_ex_ms := io.id_ex_in.inst_rt_id_ex
   io.ex_ms_out.regfile_we_ex_ms := io.id_ex_in.regfile_we_id_ex
+
+  io.this_allowin := io.next_allowin && !reset.asBool()
+  io.ex_ms_out.bus_valid := io.id_ex_in.bus_valid && !reset.asBool()
 }

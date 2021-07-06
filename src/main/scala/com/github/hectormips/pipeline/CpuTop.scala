@@ -2,48 +2,43 @@ package com.github.hectormips.pipeline
 
 import chisel3.util._
 import chisel3._
+import chisel3.util.experimental.loadMemoryFromFile
 import chisel3.stage.ChiselStage
 
 class CpuTopBundle extends Bundle {
-  val pc_debug      : UInt                  = Output(UInt(32.W))
-  val regfile_rdata1: UInt                  = Output(UInt(32.W))
-  val regfile_rdata2: UInt                  = Output(UInt(32.W))
-  val if_id_debug   : FetchDecodeBundle     = Output(new FetchDecodeBundle)
-  val id_ex_debug   : DecodeExecuteBundle   = Output(new DecodeExecuteBundle)
-  val ex_ms_debug   : ExecuteMemoryBundle   = Output(new ExecuteMemoryBundle)
-  val ms_wb_debug   : MemoryWriteBackBundle = Output(new MemoryWriteBackBundle)
-  val id_pf_debug   : DecodePreFetchBundle  = Output(new DecodePreFetchBundle)
+  val pc_debug      : UInt = Output(UInt(32.W))
+  val regfile_rdata1: UInt = Output(UInt(32.W))
+  val regfile_rdata2: UInt = Output(UInt(32.W))
+
+  val regfile_wb_addr_debug: UInt = Output(UInt(5.W))
+  val regfile_wb_data_debug: UInt = Output(UInt(32.W))
 }
 
 class CpuTop extends Module {
   val io: CpuTopBundle = IO(new CpuTopBundle())
 
-  withClock(clock)(
-    printf("regdata1 ===> %d\n", io.regfile_rdata1)
-  )
   // 内建寄存器
   // pc重置时默认为0xfffffffc，这样+4得到的就是第一条指令地址
-  val pc_next: UInt = Wire(UInt(32.W))
-  val pc_wen : Bool = Wire(Bool())
-  val pc     : UInt = RegEnable(pc_next, 0xfffffffc.S.asUInt(), pc_wen)
-
+  val pc_next: UInt    = Wire(UInt(32.W))
+  val pc_wen : Bool    = Wire(Bool())
+  val pc     : UInt    = RegEnable(pc_next, 0xfffffffc.S(32.W).asUInt(), pc_wen)
   // 直接在cpu顶层内建ins ram和data ram
-  val ins_ram : SyncRam = Module(new SyncRam(1024))
+  val ins_ram: SyncRam = Module(new SyncRam(1024))
+  loadMemoryFromFile(ins_ram.ram, "resource/inst1.hex.txt")
+
+
   val data_ram: SyncRam = Module(new SyncRam(1024))
 
   // 连线
-  val if_id_bus: FetchDecodeBundle     = Wire(new FetchDecodeBundle)
-  val id_ex_bus: DecodeExecuteBundle   = Wire(new DecodeExecuteBundle)
-  val ex_ms_bus: ExecuteMemoryBundle   = Wire(new ExecuteMemoryBundle)
-  val ms_wb_bus: MemoryWriteBackBundle = Wire(new MemoryWriteBackBundle)
-  val id_pf_bus: DecodePreFetchBundle  = Wire(new DecodePreFetchBundle)
-
-  io.if_id_debug := if_id_bus
-  io.id_ex_debug := id_ex_bus
-  io.ex_ms_debug := ex_ms_bus
-  io.ms_wb_debug := ms_wb_bus
-  io.id_pf_debug := id_pf_bus
-
+  val if_id_bus : FetchDecodeBundle     = Wire(new FetchDecodeBundle)
+  val id_ex_bus : DecodeExecuteBundle   = Wire(new DecodeExecuteBundle)
+  val ex_ms_bus : ExecuteMemoryBundle   = Wire(new ExecuteMemoryBundle)
+  val ms_wb_bus : MemoryWriteBackBundle = Wire(new MemoryWriteBackBundle)
+  val id_pf_bus : DecodePreFetchBundle  = Wire(new DecodePreFetchBundle)
+  val id_allowin: Bool                  = Wire(Bool())
+  val ex_allowin: Bool                  = Wire(Bool())
+  val ms_allowin: Bool                  = Wire(Bool())
+  val wb_allowin: Bool                  = Wire(Bool())
 
   // 寄存器堆
   val regfile: RegFile = Module(new RegFile)
@@ -52,9 +47,11 @@ class CpuTop extends Module {
   // 每个寄存器都以其需要被用于输入的阶段命名
   // 预取
   val pf_module: InsPreFetch = Module(new InsPreFetch)
+  pf_module.io.in_valid := 1.U // 目前始终允许
   pf_module.io.id_pf_in := id_pf_bus
   pf_module.io.regfile_read1 := regfile.io.rdata1
   pf_module.io.pc := pc
+  pf_module.io.next_allowin := 1.B
   ins_ram.io.ram_addr := pf_module.io.ins_ram_addr
   ins_ram.io.ram_en := pf_module.io.ins_ram_en
   ins_ram.io.ram_wen := 0.U
@@ -64,11 +61,13 @@ class CpuTop extends Module {
 
 
   // 取指
-  val if_module: InsFetch = Module(new InsFetch)
+  val if_module: InsSufFetch = Module(new InsSufFetch)
   // 由于是伪阶段，不需要寄存器来存储延迟槽指令pc
+  if_module.io.pf_if_valid := pf_module.io.pf_if_valid
   if_module.io.delay_slot_pc_pf_if := pf_module.io.delay_slot_pc_pf_if
   if_module.io.ins_ram_data := ins_ram.io.ram_rdata
   if_id_bus := if_module.io.if_id_out
+
 
   // 译码
   val id_reg   : FetchDecodeBundle = RegNext(if_id_bus)
@@ -81,6 +80,8 @@ class CpuTop extends Module {
   id_module.io.if_id_in.ins_if_id := if_id_bus.ins_if_id
   id_module.io.if_id_in.pc_if_id := if_id_bus.pc_if_id
   id_ex_bus := id_module.io.id_ex_out
+  id_allowin := id_module.io.this_allowin
+
 
   // 执行
   val ex_reg: DecodeExecuteBundle = RegNext(id_ex_bus)
@@ -98,6 +99,7 @@ class CpuTop extends Module {
   data_ram.io.ram_addr := ex_module.io.mem_addr
   data_ram.io.ram_wdata := ex_module.io.mem_wdata
   ex_ms_bus := ex_module.io.ex_ms_out
+  ex_allowin := ex_module.io.this_allowin
 
 
   // 访存
@@ -107,6 +109,7 @@ class CpuTop extends Module {
   ms_module.io.ex_ms_in := ms_reg
   ms_module.io.mem_rdata := data_ram.io.ram_rdata
   ms_wb_bus := ms_module.io.ms_wb_out
+  ms_allowin := ms_module.io.this_allowin
 
   // 写回
   val wb_reg   : MemoryWriteBackBundle = RegNext(ms_wb_bus)
@@ -115,7 +118,16 @@ class CpuTop extends Module {
   regfile.io.wdata := wb_module.io.regfile_wdata
   regfile.io.waddr := wb_module.io.regfile_waddr
   regfile.io.we := wb_module.io.regfile_we
+  wb_module.io.next_allowin := 1.B
+  wb_allowin := wb_module.io.this_allowin
+
   io.pc_debug := pc
+  io.regfile_wb_addr_debug := wb_module.io.regfile_waddr
+  io.regfile_wb_data_debug := wb_module.io.regfile_wdata
+
+  id_module.io.next_allowin := ex_allowin
+  ex_module.io.next_allowin := ms_allowin
+  ms_module.io.next_allowin := wb_allowin
 }
 
 object CpuTop extends App {

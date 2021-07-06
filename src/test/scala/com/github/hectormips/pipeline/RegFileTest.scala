@@ -27,6 +27,7 @@ class RegFileTest extends FlatSpec with ChiselScalatestTester with Matchers {
       c.clock.step(1)
       c.io.raddr2.poke(0.U)
       c.io.raddr2.expect(0.U)
+
     }
   }
 }

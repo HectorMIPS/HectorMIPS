@@ -17,12 +17,12 @@ object RegFileWAddrSel extends ChiselEnum {
   val const_31: Type = Value(4.U)
 }
 
-class FetchDecodeBundle extends Bundle {
+class FetchDecodeBundle extends WithValid {
   val ins_if_id: UInt = UInt(32.W)
   val pc_if_id : UInt = UInt(32.W)
 }
 
-class InsDecodeBundle extends Bundle {
+class InsDecodeBundle extends WithAllowin {
 
   val if_id_in : FetchDecodeBundle    = Input(new FetchDecodeBundle)
   val id_pf_out: DecodePreFetchBundle = Output(new DecodePreFetchBundle)
@@ -138,7 +138,8 @@ class InsDecode extends Module {
   io.decode_to_fetch_next_pc(0) := io.if_id_in.pc_if_id + offset.asUInt()
   io.decode_to_fetch_next_pc(1) := Cat(Cat(io.if_id_in.pc_if_id(31, 28), instr_index), "b00".U)
 
-
+  io.this_allowin := io.next_allowin && !reset.asBool()
+  io.id_ex_out.bus_valid := io.if_id_in.bus_valid && !reset.asBool()
 }
 
 object InsDecode extends App {

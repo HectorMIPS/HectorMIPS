@@ -3,6 +3,7 @@ package com.github.hectormips.pipeline
 import chisel3._
 import chiseltest._
 import org.scalatest._
+import chisel3.util.experimental.loadMemoryFromFile
 
 class SyncRamTest extends FlatSpec with ChiselScalatestTester with Matchers {
   behavior of "SyncRam"
