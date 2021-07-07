@@ -16,6 +16,18 @@ class ExecuteMemoryBundle extends WithValid {
   val inst_rd_ex_ms          : UInt                 = UInt(5.W)
   val inst_rt_ex_ms          : UInt                 = UInt(5.W)
   val regfile_we_ex_ms       : Bool                 = Bool()
+  val pc_ex_ms_debug         : UInt                 = UInt(32.W)
+
+  override def defaults(): Unit = {
+    super.defaults()
+    alu_val_ex_ms := 0.U
+    regfile_wsrc_sel_ex_ms := 0.B
+    regfile_waddr_sel_ex_ms := RegFileWAddrSel.inst_rt
+    inst_rd_ex_ms := 0.U
+    inst_rt_ex_ms := 0.U
+    regfile_we_ex_ms := 0.B
+    pc_ex_ms_debug := 0.U
+  }
 }
 
 class InsMemoryBundle extends WithAllowin {
@@ -35,4 +47,5 @@ class InsMemory extends Module {
 
   io.this_allowin := io.next_allowin && !reset.asBool()
   io.ms_wb_out.bus_valid := io.ex_ms_in.bus_valid && !reset.asBool()
+  io.ms_wb_out.pc_ms_wb := io.ex_ms_in.pc_ex_ms_debug
 }

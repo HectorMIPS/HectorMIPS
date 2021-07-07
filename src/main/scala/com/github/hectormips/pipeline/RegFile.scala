@@ -18,12 +18,12 @@ class RegFileBundle extends Bundle {
 }
 
 // 寄存器堆文件
-class RegFile extends Module {
+class RegFile(reg_init: Int) extends Module {
   val io  : RegFileBundle = IO(new RegFileBundle)
   val regs: Vec[UInt]     = RegInit(
     VecInit(Seq.fill(32)(5.U(32.W)))
   )
-  regs(0) := 0.U
+  regs(0) := reg_init.S.asUInt()
   when(io.we.asBool()) {
     when(io.waddr > 0.U) {
       regs(io.waddr) := io.wdata
@@ -35,5 +35,5 @@ class RegFile extends Module {
 }
 
 object RegFile extends App {
-  (new ChiselStage).emitVerilog(new RegFile)
+  (new ChiselStage).emitVerilog(new RegFile(0))
 }

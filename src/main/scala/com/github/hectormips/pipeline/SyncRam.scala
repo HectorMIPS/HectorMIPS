@@ -13,7 +13,7 @@ class SyncRamBundle extends Bundle {
 }
 
 // 数据大小为_depth_字节
-class SyncRam(depth: Int) extends Module {
+class SyncRam(depth: Long) extends Module {
   val io : SyncRamBundle     = IO(new SyncRamBundle)
   val ram: SyncReadMem[UInt] = SyncReadMem(depth, UInt(8.W)) // 使用寄存器组来模拟ram
   io.ram_rdata := DontCare

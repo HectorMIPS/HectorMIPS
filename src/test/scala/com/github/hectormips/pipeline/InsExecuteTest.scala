@@ -22,6 +22,7 @@ class InsExecuteTest extends FlatSpec with ChiselScalatestTester with Matchers {
       c.io.id_ex_in.alu_op_id_ex.poke(AluOp.op_sub)
       c.io.ex_ms_out.alu_val_ex_ms.expect((isrc1 - isrc2).U(64.W)(31, 0))
 
+
     }
   }
 

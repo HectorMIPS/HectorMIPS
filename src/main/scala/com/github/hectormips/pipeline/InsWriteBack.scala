@@ -9,6 +9,17 @@ class MemoryWriteBackBundle extends WithValid {
   val inst_rt_ms_wb          : UInt                 = UInt(5.W)
   val regfile_we_ms_wb       : Bool                 = Bool()
   val regfile_wdata_ms_wb    : UInt                 = UInt(32.W)
+  val pc_ms_wb               : UInt                 = UInt(32.W)
+
+  override def defaults(): Unit = {
+    super.defaults()
+    regfile_waddr_sel_ms_wb := RegFileWAddrSel.inst_rt
+    inst_rd_ms_wb := 0.U
+    inst_rt_ms_wb := 0.U
+    regfile_we_ms_wb := 0.B
+    regfile_wdata_ms_wb := 0.U
+    pc_ms_wb := 0.U
+  }
 }
 
 class InsWriteBackBundle extends WithAllowin {
@@ -19,6 +30,7 @@ class InsWriteBackBundle extends WithAllowin {
   val regfile_waddr: UInt = Output(UInt(5.W))
   val regfile_we   : Bool = Output(Bool())
   val wb_valid     : Bool = Output(Bool())
+  val pc_wb        : UInt = Output(UInt(32.W))
 }
 
 class InsWriteBack extends Module {
@@ -40,4 +52,5 @@ class InsWriteBack extends Module {
 
   io.this_allowin := !reset.asBool()
   io.wb_valid := !reset.asBool() && io.ms_wb_in.bus_valid
+  io.pc_wb := io.ms_wb_in.pc_ms_wb
 }

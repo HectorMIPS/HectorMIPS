@@ -9,4 +9,8 @@ class WithAllowin extends Bundle {
 
 class WithValid extends Bundle {
   val bus_valid: Bool = Bool()
+
+  def defaults(): Unit = {
+    bus_valid := 0.B
+  }
 }

@@ -17,6 +17,7 @@ class InsWriteBackTest extends FlatSpec with ChiselScalatestTester with Matchers
 
       c.io.regfile_waddr.expect(2.U)
       c.io.regfile_wdata.expect(114515.U)
+      c.io.ms_wb_in.bus_valid.poke(1.B)
       c.io.regfile_we.expect(1.B)
 
       c.io.ms_wb_in.regfile_waddr_sel_ms_wb.poke(RegFileWAddrSel.inst_rt)

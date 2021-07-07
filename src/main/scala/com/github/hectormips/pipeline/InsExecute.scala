@@ -25,8 +25,31 @@ class DecodeExecuteBundle extends WithValid {
   val inst_rd_id_ex          : UInt                 = UInt(5.W)
   val inst_rt_id_ex          : UInt                 = UInt(5.W)
   val regfile_we_id_ex       : Bool                 = Bool()
+  val pc_id_ex_debug         : UInt                 = UInt(32.W)
+  val mem_wdata_id_ex        : UInt                 = UInt(32.W)
 
+  override def defaults(): Unit = {
+    alu_op_id_ex := AluOp.op_add
+    pc_id_ex := 0.U
+    sa_32_id_ex := 0.U
+    imm_32_id_ex := 0.U
 
+    alu_src1_id_ex := 0.U
+    alu_src2_id_ex := 0.U
+    mem_en_id_ex := 0.B
+    mem_wen_id_ex := 0.B
+    regfile_wsrc_sel_id_ex := 0.B
+    regfile_waddr_sel_id_ex := RegFileWAddrSel.inst_rt
+
+    inst_rs_id_ex := 0.U
+    inst_rd_id_ex := 0.U
+    inst_rt_id_ex := 0.U
+    regfile_we_id_ex := 0.B
+    pc_id_ex_debug := 0.U
+    mem_wdata_id_ex := 0.U
+
+    super.defaults()
+  }
 }
 
 class InsExecuteBundle extends WithAllowin {
@@ -92,7 +115,7 @@ class InsExecute extends Module {
   }
   io.ex_ms_out.alu_val_ex_ms := alu_out
   io.mem_addr := src1 + src2 // 直出内存地址，连接到sram上
-  io.mem_wdata := src2
+  io.mem_wdata := io.id_ex_in.mem_wdata_id_ex
   io.mem_en := io.id_ex_in.mem_en_id_ex
   io.mem_wen := io.id_ex_in.mem_wen_id_ex
 
@@ -101,6 +124,7 @@ class InsExecute extends Module {
   io.ex_ms_out.inst_rd_ex_ms := io.id_ex_in.inst_rd_id_ex
   io.ex_ms_out.inst_rt_ex_ms := io.id_ex_in.inst_rt_id_ex
   io.ex_ms_out.regfile_we_ex_ms := io.id_ex_in.regfile_we_id_ex
+  io.ex_ms_out.pc_ex_ms_debug := io.id_ex_in.pc_id_ex_debug
 
   io.this_allowin := io.next_allowin && !reset.asBool()
   io.ex_ms_out.bus_valid := io.id_ex_in.bus_valid && !reset.asBool()

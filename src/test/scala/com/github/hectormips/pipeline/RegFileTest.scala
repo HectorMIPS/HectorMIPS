@@ -10,7 +10,7 @@ class RegFileTest extends FlatSpec with ChiselScalatestTester with Matchers {
   behavior of "RegFile"
 
   it should "write and read" in {
-    test(new RegFile()).withAnnotations(Seq(WriteVcdAnnotation)) { c =>
+    test(new RegFile(0)).withAnnotations(Seq(WriteVcdAnnotation)) { c =>
       for (i <- 0 until 31) {
         c.io.we.poke(true.B)
         c.io.waddr.poke(i.U)

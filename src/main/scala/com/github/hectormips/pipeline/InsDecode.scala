@@ -19,19 +19,27 @@ object RegFileWAddrSel extends ChiselEnum {
 
 object AluSrc1Sel extends ChiselEnum {
   val regfile_read1: Type = Value(1.U)
-  val pc           : Type = Value(2.U)
+  val pc_delay     : Type = Value(2.U)
   val sa_32        : Type = Value(4.U) // sa零扩展
 }
 
 object AluSrc2Sel extends ChiselEnum {
   val regfile_read2: Type = Value(1.U)
   val imm_32       : Type = Value(2.U) // 立即数域符号扩展
-  val const_31     : Type = Value(4.U)
+  val const_4      : Type = Value(4.U) // 立即数4，用于jal
 }
 
 class FetchDecodeBundle extends WithValid {
-  val ins_if_id: UInt = UInt(32.W)
-  val pc_if_id : UInt = UInt(32.W)
+  val ins_if_id     : UInt = UInt(32.W)
+  val pc_if_id      : UInt = UInt(32.W) // 延迟槽pc
+  val pc_debug_if_id: UInt = UInt(32.W) // 转移pc
+
+  override def defaults(): Unit = {
+    super.defaults()
+    ins_if_id := 0.U
+    pc_if_id := 0xbfbffffc.S(32.W).asUInt()
+    pc_debug_if_id := 0xbfbffffcL.U
+  }
 }
 
 class InsDecodeBundle extends WithAllowin {
@@ -71,9 +79,9 @@ class InsDecode extends Module {
     sa === "b00000".U && func === "b001000".U
   val ins_slt    : Bool            = opcode === "b000000".U && sa === "b00000".U && func === "b101010".U
   val ins_sltu   : Bool            = opcode === "b000000".U && sa === "b00000".U && func === "b101011".U
-  val ins_sll    : Bool            = opcode === "b000000".U && sa === "b00000".U && func === "b000000".U
-  val ins_srl    : Bool            = opcode === "b000000".U && sa === "b00000".U && func === "b000010".U
-  val ins_sra    : Bool            = opcode === "b000000".U && sa === "b00000".U && func === "b000011".U
+  val ins_sll    : Bool            = opcode === "b000000".U && rs === "b00000".U && func === "b000000".U
+  val ins_srl    : Bool            = opcode === "b000000".U && rs === "b00000".U && func === "b000010".U
+  val ins_sra    : Bool            = opcode === "b000000".U && rs === "b00000".U && func === "b000011".U
   val ins_lui    : Bool            = opcode === "b001111".U && rs === "b00000".U
   val ins_and    : Bool            = opcode === "b000000".U && sa === "b00000".U && func === "b100100".U
   val ins_or     : Bool            = opcode === "b000000".U && sa === "b00000".U && func === "b100101".U
@@ -88,14 +96,16 @@ class InsDecode extends Module {
     (ins_addu | ins_addiu | ins_subu | ins_lw | ins_sw |
       ins_slt | ins_sltu | ins_sll | ins_srl | ins_sra | ins_lui | ins_and | ins_or |
       ins_xor | ins_nor) -> InsJumpSel.delay_slot_pc,
-    (ins_beq | ins_bne) -> InsJumpSel.pc_add_offset,
+    ((ins_beq && io.regfile_read1 === io.regfile_read2) | (ins_bne && io.regfile_read1 =/= io.regfile_read2)) -> InsJumpSel.pc_add_offset,
+    ((ins_beq && io.regfile_read1 =/= io.regfile_read2) | (ins_bne && io.regfile_read1 === io.regfile_read2)) -> InsJumpSel.delay_slot_pc,
     ins_jal -> InsJumpSel.pc_cat_instr_index,
     ins_jr -> InsJumpSel.regfile_read1
   ))
   // 0: pc=pc+(signed)(offset<<2)
   // 1: pc=pc[31:28]|instr_index<<2
   io.id_pf_out.jump_val_id_pf(0) := io.if_id_in.pc_if_id + offset.asUInt()
-  io.id_pf_out.jump_val_id_pf(1) := Cat(io.if_id_in.pc_if_id(31, 28), instr_index)
+  io.id_pf_out.jump_val_id_pf(1) := Cat(Seq(io.if_id_in.pc_if_id(31, 28), instr_index, "b00".U(2.W)))
+  io.id_pf_out.bus_valid := io.if_id_in.bus_valid
 
   io.iram_en := 1.B
   io.iram_we := 0.B
@@ -107,7 +117,7 @@ class InsDecode extends Module {
   src1_sel := Mux1H(Seq(
     (ins_addu | ins_addiu | ins_subu | ins_lw | ins_sw |
       ins_slt | ins_sltu | ins_and | ins_or | ins_xor | ins_nor) -> AluSrc1Sel.regfile_read1,
-    ins_jal -> AluSrc1Sel.pc,
+    ins_jal -> AluSrc1Sel.pc_delay,
     (ins_sll | ins_srl | ins_sra) -> AluSrc1Sel.sa_32
   ))
 
@@ -115,12 +125,12 @@ class InsDecode extends Module {
     (ins_addu | ins_subu | ins_slt | ins_sltu | ins_sll | ins_srl |
       ins_sra | ins_and | ins_or | ins_xor | ins_nor) -> AluSrc2Sel.regfile_read2,
     (ins_addiu | ins_lw | ins_sw | ins_lui) -> AluSrc2Sel.imm_32,
-    ins_jal -> AluSrc2Sel.const_31
+    ins_jal -> AluSrc2Sel.const_4
   ))
   alu_src1 := 0.U
   alu_src2 := 0.U
   switch(src1_sel) {
-    is(AluSrc1Sel.pc) {
+    is(AluSrc1Sel.pc_delay) {
       alu_src1 := io.if_id_in.pc_if_id
     }
     is(AluSrc1Sel.sa_32) {
@@ -134,8 +144,8 @@ class InsDecode extends Module {
     is(AluSrc2Sel.imm_32) {
       alu_src2 := imm.asUInt()
     }
-    is(AluSrc2Sel.const_31) {
-      alu_src2 := 31.U
+    is(AluSrc2Sel.const_4) {
+      alu_src2 := 4.U
     }
     is(AluSrc2Sel.regfile_read2) {
       alu_src2 := io.regfile_read2
@@ -180,8 +190,11 @@ class InsDecode extends Module {
 
 
   io.id_ex_out.pc_id_ex := io.if_id_in.pc_if_id
+  io.id_ex_out.pc_id_ex_debug := io.if_id_in.pc_debug_if_id
   io.decode_to_fetch_next_pc(0) := io.if_id_in.pc_if_id + offset.asUInt()
-  io.decode_to_fetch_next_pc(1) := Cat(Seq(io.if_id_in.pc_if_id(31, 28), instr_index, "b00".U))
+  io.decode_to_fetch_next_pc(1) := Cat(Seq(io.if_id_in.pc_if_id(31, 28), instr_index, "b00".U(2.W)))
+  // sw会使用寄存器堆读端口2的数据写入内存
+  io.id_ex_out.mem_wdata_id_ex := io.regfile_read2
 
   io.this_allowin := io.next_allowin && !reset.asBool()
   io.id_ex_out.bus_valid := io.if_id_in.bus_valid && !reset.asBool()
