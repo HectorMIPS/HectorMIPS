@@ -145,6 +145,27 @@ class SocTopTest extends FlatSpec with ChiselScalatestTester with Matchers {
     }
 
   }
+  it should "run instructions in seq after lw" in {
+    test(new SocTop("resource/inst5.hex.txt")).withAnnotations(Seq(WriteVcdAnnotation)) { c => {
+      c.clock.step(5)
+      printPc(c.io.debug_wb_pc.peek())
+      // lw t2, 0(t0)
+      c.io.debug_wb_rf_wen.expect(0xf.U)
+      c.io.debug_wb_rf_wnum.expect(10.U)
 
+      // xor t2, t2, t1
+      c.clock.step(2)
+      c.io.debug_wb_rf_wen.expect(0xf.U)
+      printPc(c.io.debug_wb_pc.peek())
+      c.clock.step(1)
+
+      //  sll t3, t2, 0x9
+      c.io.debug_wb_rf_wen.expect(0xf.U)
+      c.io.debug_wb_rf_wnum.expect(11.U)
+      printPc(c.io.debug_wb_pc.peek())
+    }
+    }
+
+  }
 
 }

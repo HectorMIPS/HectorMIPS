@@ -61,6 +61,8 @@ class InsWriteBack extends Module {
 
   io.bypass_wb_id.reg_valid := bus_valid && io.ms_wb_in.regfile_we_ms_wb
   io.bypass_wb_id.reg_data := io.ms_wb_in.regfile_wdata_ms_wb
-  io.bypass_wb_id.reg_addr := Mux(io.ms_wb_in.regfile_waddr_sel_ms_wb === RegFileWAddrSel.inst_rd,
-    io.ms_wb_in.inst_rd_ms_wb, io.ms_wb_in.inst_rt_ms_wb)
+  io.bypass_wb_id.reg_addr := Mux1H(Seq(
+    (io.ms_wb_in.regfile_waddr_sel_ms_wb === RegFileWAddrSel.inst_rd) -> io.ms_wb_in.inst_rd_ms_wb,
+    (io.ms_wb_in.regfile_waddr_sel_ms_wb === RegFileWAddrSel.inst_rt) -> io.ms_wb_in.inst_rt_ms_wb,
+    (io.ms_wb_in.regfile_waddr_sel_ms_wb === RegFileWAddrSel.const_31) -> 31.U))
 }

@@ -55,6 +55,9 @@ class InsMemory extends Module {
 
   io.bypass_ms_id.reg_valid := bus_valid && io.ex_ms_in.regfile_we_ex_ms
   io.bypass_ms_id.reg_data := Mux(io.ex_ms_in.regfile_wsrc_sel_ex_ms, io.mem_rdata, io.ex_ms_in.alu_val_ex_ms)
-  io.bypass_ms_id.reg_addr := Mux(io.ex_ms_in.regfile_waddr_sel_ex_ms === RegFileWAddrSel.inst_rd,
-    io.ex_ms_in.inst_rd_ex_ms, io.ex_ms_in.inst_rt_ex_ms)
+  io.bypass_ms_id.reg_addr := 0.U
+  io.bypass_ms_id.reg_addr := Mux1H(Seq(
+    (io.ex_ms_in.regfile_waddr_sel_ex_ms === RegFileWAddrSel.inst_rd) -> io.ex_ms_in.inst_rd_ex_ms,
+    (io.ex_ms_in.regfile_waddr_sel_ex_ms === RegFileWAddrSel.inst_rt) -> io.ex_ms_in.inst_rt_ex_ms,
+    (io.ex_ms_in.regfile_waddr_sel_ex_ms === RegFileWAddrSel.const_31) -> 31.U))
 }

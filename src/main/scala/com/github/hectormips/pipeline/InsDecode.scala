@@ -109,6 +109,11 @@ class InsDecode extends Module {
   val ready_go                 : Bool            = Wire(Bool())
   val regfile_read1_with_bypass: UInt            = Wire(UInt(32.W))
   val regfile_read2_with_bypass: UInt            = Wire(UInt(32.W))
+
+  def byPassData(rf_addr: UInt, bypass: BypassMsgBundle): (Bool, UInt) = {
+    (bypass.reg_valid && bypass.reg_addr === rf_addr) -> bypass.reg_data
+  }
+
   regfile_read1_with_bypass := Mux(rs === 0.U, 0.U, MuxCase(io.regfile_read1, Seq(
     byPassData(rs, io.bypass_bus.bp_ex_id),
     byPassData(rs, io.bypass_bus.bp_ms_id),
@@ -186,9 +191,6 @@ class InsDecode extends Module {
   alu_src1 := 0.U
   alu_src2 := 0.U
 
-  def byPassData(rf_addr: UInt, bypass: BypassMsgBundle): (Bool, UInt) = {
-    (bypass.reg_valid && bypass.reg_addr === rf_addr) -> bypass.reg_data
-  }
 
   switch(src1_sel) {
     is(AluSrc1Sel.pc_delay) {
@@ -255,7 +257,7 @@ class InsDecode extends Module {
   io.decode_to_fetch_next_pc(0) := io.if_id_in.pc_if_id + offset.asUInt()
   io.decode_to_fetch_next_pc(1) := Cat(Seq(io.if_id_in.pc_if_id(31, 28), instr_index, "b00".U(2.W)))
   // sw会使用寄存器堆读端口2的数据写入内存
-  io.id_ex_out.mem_wdata_id_ex := io.regfile_read2
+  io.id_ex_out.mem_wdata_id_ex := regfile_read2_with_bypass
 
 
   io.this_allowin := io.next_allowin && !reset.asBool() && ready_go

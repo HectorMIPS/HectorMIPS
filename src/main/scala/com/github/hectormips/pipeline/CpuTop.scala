@@ -5,8 +5,11 @@ import chisel3._
 import chisel3.util.experimental.loadMemoryFromFile
 import chisel3.stage.ChiselStage
 
+import java.io.{File, PrintWriter}
+import scala.io.Source
+
 class CpuTopBundle extends Bundle {
-  val inst_sram_en   : Bool = Output(Bool()).suggestName("inst_sram_en")
+  val inst_sram_en   : Bool = Output(Bool())
   val inst_sram_wen  : UInt = Output(UInt(4.W))
   val inst_sram_addr : UInt = Output(UInt(32.W))
   val inst_sram_wdata: UInt = Output(UInt(32.W))
@@ -195,5 +198,5 @@ class CpuTop(pc_init: Int, reg_init: Int = 0) extends MultiIOModule {
 }
 
 object CpuTop extends App {
-  (new ChiselStage).emitVerilog(new CpuTop(0xbfbffffc))
+  val v_content = (new ChiselStage).emitVerilog(new CpuTop(0xbfbffffc))
 }

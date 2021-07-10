@@ -59,9 +59,9 @@ class InsExecuteBundle extends WithAllowin {
   val ex_ms_out: ExecuteMemoryBundle = Output(new ExecuteMemoryBundle)
 
   // 传给data ram的使能信号和数据信号
-  val mem_en      : Bool            = Output(Bool())
-  val mem_wen     : Bool            = Output(Bool())
-  val mem_addr    : UInt            = Output(UInt(32.W))
+  val mem_en        : Bool            = Output(Bool())
+  val mem_wen       : Bool            = Output(Bool())
+  val mem_addr      : UInt            = Output(UInt(32.W))
   val mem_wdata     : UInt            = Output(UInt(32.W))
   val valid_lw_ex_id: Bool            = Output(Bool())
   val bypass_ex_id  : BypassMsgBundle = Output(new BypassMsgBundle)
@@ -136,8 +136,10 @@ class InsExecute extends Module {
   // 写寄存器来源为内存，并且此时ex阶段有效
   io.valid_lw_ex_id := io.id_ex_in.regfile_wsrc_sel_id_ex && io.id_ex_in.regfile_we_id_ex && bus_valid
   io.bypass_ex_id.reg_data := alu_out
-  io.bypass_ex_id.reg_addr := Mux(io.id_ex_in.regfile_waddr_sel_id_ex === RegFileWAddrSel.inst_rt,
-    io.id_ex_in.inst_rt_id_ex, io.id_ex_in.inst_rd_id_ex)
+  io.bypass_ex_id.reg_addr := Mux1H(Seq(
+    (io.id_ex_in.regfile_waddr_sel_id_ex === RegFileWAddrSel.inst_rd) -> io.id_ex_in.inst_rd_id_ex,
+    (io.id_ex_in.regfile_waddr_sel_id_ex === RegFileWAddrSel.inst_rt) -> io.id_ex_in.inst_rt_id_ex,
+    (io.id_ex_in.regfile_waddr_sel_id_ex === RegFileWAddrSel.const_31) -> 31.U))
 
   io.this_allowin := io.next_allowin && !reset.asBool()
   io.ex_ms_out.bus_valid := bus_valid

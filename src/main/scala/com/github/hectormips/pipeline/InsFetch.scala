@@ -66,7 +66,8 @@ class InsPreFetch extends Module {
     (io.id_pf_in.stall_id_pf || !io.next_allowin) -> io.pc
   ))
   // 无暂停，恒1
-  io.ins_ram_en := 1.B
+  // 当需要暂停的时候，需要同步ram保持上一个周期的读出内容，使能0
+  io.ins_ram_en := !io.id_pf_in.stall_id_pf && io.next_allowin
   io.ins_ram_addr := next_pc
   io.delay_slot_pc_pf_if := io.pc + 4.U
   // 永远可以写入pc，直接通过控制io.next_pc的值来实现暂停等操作来简化控制模型
