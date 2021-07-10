@@ -103,9 +103,7 @@ class BTB(size: Int, BHT_size: Int) extends Module {
   val lru_result: UInt = Wire(UInt(len.W))
 
   // LRU
-  val lru: Lru = Module(new Lru(size, 128))
-  lru.io.en := 1.B
-  lru.io.valid := valid_table
+  val lru: Lru = Module(new Lru(size))
   lru.io.visitor := Mux(ex_index.is_find, ex_index.result, lru_result)
   lru.io.en_visitor := io.en_ex
 
