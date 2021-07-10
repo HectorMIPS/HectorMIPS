@@ -35,6 +35,7 @@ class InsMemoryBundle extends WithAllowin {
   val ex_ms_in : ExecuteMemoryBundle   = Input(new ExecuteMemoryBundle)
   val ms_wb_out: MemoryWriteBackBundle = Output(new MemoryWriteBackBundle)
 
+  val bypass_ms_id: BypassMsgBundle = Output(new BypassMsgBundle)
 }
 
 class InsMemory extends Module {
@@ -45,7 +46,15 @@ class InsMemory extends Module {
   io.ms_wb_out.regfile_we_ms_wb := io.ex_ms_in.regfile_we_ex_ms
   io.ms_wb_out.regfile_wdata_ms_wb := Mux(io.ex_ms_in.regfile_wsrc_sel_ex_ms, io.mem_rdata, io.ex_ms_in.alu_val_ex_ms)
 
+
+  val bus_valid: Bool = Wire(Bool())
+  bus_valid := io.ex_ms_in.bus_valid && !reset.asBool()
   io.this_allowin := io.next_allowin && !reset.asBool()
-  io.ms_wb_out.bus_valid := io.ex_ms_in.bus_valid && !reset.asBool()
+  io.ms_wb_out.bus_valid := bus_valid
   io.ms_wb_out.pc_ms_wb := io.ex_ms_in.pc_ex_ms_debug
+
+  io.bypass_ms_id.reg_valid := bus_valid && io.ex_ms_in.regfile_we_ex_ms
+  io.bypass_ms_id.reg_data := Mux(io.ex_ms_in.regfile_wsrc_sel_ex_ms, io.mem_rdata, io.ex_ms_in.alu_val_ex_ms)
+  io.bypass_ms_id.reg_addr := Mux(io.ex_ms_in.regfile_waddr_sel_ex_ms === RegFileWAddrSel.inst_rd,
+    io.ex_ms_in.inst_rd_ex_ms, io.ex_ms_in.inst_rt_ex_ms)
 }

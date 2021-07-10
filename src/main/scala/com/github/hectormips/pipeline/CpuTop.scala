@@ -26,6 +26,20 @@ class CpuTopBundle extends Bundle {
 }
 
 
+object RegEnableWithValid {
+
+  def apply[T <: WithValid](next: T, init: T, enable: Bool, valid_enable: Bool): T = {
+    val r = RegInit(init)
+    when(enable) {
+      r := next
+    }
+    when(valid_enable) {
+      r.bus_valid := next.bus_valid
+    }
+    r
+  }
+}
+
 class CpuTop(pc_init: Int, reg_init: Int = 0) extends MultiIOModule {
   val io: CpuTopBundle = IO(new CpuTopBundle()).suggestName("prefix_to_remove")
 
@@ -42,10 +56,14 @@ class CpuTop(pc_init: Int, reg_init: Int = 0) extends MultiIOModule {
   val ex_ms_bus : ExecuteMemoryBundle   = Wire(new ExecuteMemoryBundle)
   val ms_wb_bus : MemoryWriteBackBundle = Wire(new MemoryWriteBackBundle)
   val id_pf_bus : DecodePreFetchBundle  = Wire(new DecodePreFetchBundle)
+  val if_allowin: Bool                  = Wire(Bool())
   val id_allowin: Bool                  = Wire(Bool())
   val ex_allowin: Bool                  = Wire(Bool())
   val ms_allowin: Bool                  = Wire(Bool())
   val wb_allowin: Bool                  = Wire(Bool())
+  val bypass_bus: DecodeBypassBundle    = Wire(new DecodeBypassBundle)
+  val lw_ex_id  : Bool                  = Wire(Bool())
+  bypass_bus.valid_lw_ex_id := lw_ex_id
 
   def addr_mapping(physical_addr: UInt): UInt = {
     val vaddr: UInt = Wire(UInt(32.W))
@@ -62,9 +80,8 @@ class CpuTop(pc_init: Int, reg_init: Int = 0) extends MultiIOModule {
   val pf_module: InsPreFetch = Module(new InsPreFetch)
   pf_module.io.in_valid := 1.U // 目前始终允许
   pf_module.io.id_pf_in := id_pf_bus
-  pf_module.io.regfile_read1 := regfile.io.rdata1
   pf_module.io.pc := pc
-  pf_module.io.next_allowin := 1.B
+  pf_module.io.next_allowin := if_allowin
   io.inst_sram_addr := addr_mapping(pf_module.io.ins_ram_addr)
   io.inst_sram_en := pf_module.io.ins_ram_en
   io.inst_sram_wen := "b0000".U(4.W)
@@ -82,21 +99,25 @@ class CpuTop(pc_init: Int, reg_init: Int = 0) extends MultiIOModule {
   if_module.io.delay_slot_pc_pf_if := pf_module.io.delay_slot_pc_pf_if
   if_module.io.ins_ram_data := io.inst_sram_rdata
   if_module.io.pc_debug_pf_if := pf_module.io.pc_debug_pf_if
+  if_module.io.next_allowin := id_allowin
+  if_allowin := if_module.io.this_allowin
   if_id_bus := if_module.io.if_id_out
   if_id_bus.bus_valid := if_module.io.if_id_out.bus_valid && if_valid_reg
 
 
   // 译码
-  val id_reg   : FetchDecodeBundle = RegEnable(next = if_id_bus, enable = id_allowin, init = {
+  val id_reg: FetchDecodeBundle = RegEnableWithValid(next = if_id_bus, enable = id_allowin && if_id_bus.bus_valid, init = {
     val bundle: FetchDecodeBundle = Wire(new FetchDecodeBundle)
     bundle.defaults()
     bundle
-  })
-  val id_module: InsDecode         = Module(new InsDecode)
+  }, valid_enable = id_allowin)
 
+  val id_module: InsDecode = Module(new InsDecode)
   id_module.io.if_id_in := id_reg
   id_module.io.regfile_read1 := regfile.io.rdata1
   id_module.io.regfile_read2 := regfile.io.rdata2
+  id_module.io.bypass_bus := bypass_bus
+  id_module.io.ex_out_valid := ex_ms_bus.bus_valid
   // 回馈给预取阶段的输出
   id_pf_bus := id_module.io.id_pf_out
 
@@ -109,11 +130,11 @@ class CpuTop(pc_init: Int, reg_init: Int = 0) extends MultiIOModule {
 
 
   // 执行
-  val ex_reg: DecodeExecuteBundle = RegEnable(next = id_ex_bus, enable = ex_allowin, init = {
+  val ex_reg: DecodeExecuteBundle = RegEnableWithValid(next = id_ex_bus, enable = ex_allowin && id_ex_bus.bus_valid, init = {
     val bundle: DecodeExecuteBundle = Wire(new DecodeExecuteBundle)
     bundle.defaults()
     bundle
-  })
+  }, valid_enable = ex_allowin)
 
   val ex_module: InsExecute = Module(new InsExecute)
   // 直接接入ram的通路
@@ -126,27 +147,30 @@ class CpuTop(pc_init: Int, reg_init: Int = 0) extends MultiIOModule {
   io.data_sram_wdata := ex_module.io.mem_wdata
   ex_ms_bus := ex_module.io.ex_ms_out
   ex_allowin := ex_module.io.this_allowin
+  bypass_bus.bp_ex_id := ex_module.io.bypass_ex_id
+  lw_ex_id := ex_module.io.valid_lw_ex_id
 
 
   // 访存
-  val ms_reg: ExecuteMemoryBundle = RegEnable(next = ex_ms_bus, enable = ms_allowin, init = {
+  val ms_reg: ExecuteMemoryBundle = RegEnableWithValid(next = ex_ms_bus, enable = ms_allowin && ex_ms_bus.bus_valid, init = {
     val bundle = Wire(new ExecuteMemoryBundle)
     bundle.defaults()
     bundle
-  })
+  }, valid_enable = ms_allowin)
 
   val ms_module: InsMemory = Module(new InsMemory)
   ms_module.io.ex_ms_in := ms_reg
   ms_module.io.mem_rdata := io.data_sram_rdata
   ms_wb_bus := ms_module.io.ms_wb_out
   ms_allowin := ms_module.io.this_allowin
+  bypass_bus.bp_ms_id := ms_module.io.bypass_ms_id
 
   // 写回
-  val wb_reg   : MemoryWriteBackBundle = RegEnable(next = ms_wb_bus, enable = wb_allowin, init = {
+  val wb_reg   : MemoryWriteBackBundle = RegEnableWithValid(next = ms_wb_bus, enable = wb_allowin && ms_wb_bus.bus_valid, init = {
     val bundle = Wire(new MemoryWriteBackBundle)
     bundle.defaults()
     bundle
-  })
+  }, valid_enable = wb_allowin)
   val wb_module: InsWriteBack          = Module(new InsWriteBack)
   wb_module.io.ms_wb_in := wb_reg
   regfile.io.wdata := wb_module.io.regfile_wdata
@@ -154,6 +178,7 @@ class CpuTop(pc_init: Int, reg_init: Int = 0) extends MultiIOModule {
   regfile.io.we := wb_module.io.regfile_we
   wb_module.io.next_allowin := 1.B
   wb_allowin := wb_module.io.this_allowin
+  bypass_bus.bp_wb_id := wb_module.io.bypass_wb_id
 
   io.debug_wb_pc := wb_module.io.pc_wb
   io.debug_wb_rf_wnum := wb_module.io.regfile_waddr

@@ -59,10 +59,13 @@ class InsExecuteBundle extends WithAllowin {
   val ex_ms_out: ExecuteMemoryBundle = Output(new ExecuteMemoryBundle)
 
   // 传给data ram的使能信号和数据信号
-  val mem_en   : Bool = Output(Bool())
-  val mem_wen  : Bool = Output(Bool())
-  val mem_addr : UInt = Output(UInt(32.W))
-  val mem_wdata: UInt = Output(UInt(32.W))
+  val mem_en      : Bool            = Output(Bool())
+  val mem_wen     : Bool            = Output(Bool())
+  val mem_addr    : UInt            = Output(UInt(32.W))
+  val mem_wdata     : UInt            = Output(UInt(32.W))
+  val valid_lw_ex_id: Bool            = Output(Bool())
+  val bypass_ex_id  : BypassMsgBundle = Output(new BypassMsgBundle)
+
 }
 
 class InsExecute extends Module {
@@ -119,13 +122,23 @@ class InsExecute extends Module {
   io.mem_en := io.id_ex_in.mem_en_id_ex
   io.mem_wen := io.id_ex_in.mem_wen_id_ex
 
+  val bus_valid: Bool = Wire(Bool())
+  bus_valid := io.id_ex_in.bus_valid && !reset.asBool()
+
   io.ex_ms_out.regfile_wsrc_sel_ex_ms := io.id_ex_in.regfile_wsrc_sel_id_ex
   io.ex_ms_out.regfile_waddr_sel_ex_ms := io.id_ex_in.regfile_waddr_sel_id_ex
   io.ex_ms_out.inst_rd_ex_ms := io.id_ex_in.inst_rd_id_ex
   io.ex_ms_out.inst_rt_ex_ms := io.id_ex_in.inst_rt_id_ex
   io.ex_ms_out.regfile_we_ex_ms := io.id_ex_in.regfile_we_id_ex
   io.ex_ms_out.pc_ex_ms_debug := io.id_ex_in.pc_id_ex_debug
+  // 当指令为从内存中取出存放至寄存器堆中时，ex阶段无法得出结果，前递无效
+  io.bypass_ex_id.reg_valid := bus_valid && io.id_ex_in.regfile_we_id_ex && !io.id_ex_in.regfile_wsrc_sel_id_ex
+  // 写寄存器来源为内存，并且此时ex阶段有效
+  io.valid_lw_ex_id := io.id_ex_in.regfile_wsrc_sel_id_ex && io.id_ex_in.regfile_we_id_ex && bus_valid
+  io.bypass_ex_id.reg_data := alu_out
+  io.bypass_ex_id.reg_addr := Mux(io.id_ex_in.regfile_waddr_sel_id_ex === RegFileWAddrSel.inst_rt,
+    io.id_ex_in.inst_rt_id_ex, io.id_ex_in.inst_rd_id_ex)
 
   io.this_allowin := io.next_allowin && !reset.asBool()
-  io.ex_ms_out.bus_valid := io.id_ex_in.bus_valid && !reset.asBool()
+  io.ex_ms_out.bus_valid := bus_valid
 }

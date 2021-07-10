@@ -31,6 +31,8 @@ class InsWriteBackBundle extends WithAllowin {
   val regfile_we   : Bool = Output(Bool())
   val wb_valid     : Bool = Output(Bool())
   val pc_wb        : UInt = Output(UInt(32.W))
+
+  val bypass_wb_id: BypassMsgBundle = Output(new BypassMsgBundle)
 }
 
 class InsWriteBack extends Module {
@@ -50,7 +52,15 @@ class InsWriteBack extends Module {
   }
   io.regfile_wdata := io.ms_wb_in.regfile_wdata_ms_wb
 
+  val bus_valid: Bool = Wire(Bool())
+  bus_valid := !reset.asBool() && io.ms_wb_in.bus_valid
+
   io.this_allowin := !reset.asBool()
-  io.wb_valid := !reset.asBool() && io.ms_wb_in.bus_valid
+  io.wb_valid := bus_valid
   io.pc_wb := io.ms_wb_in.pc_ms_wb
+
+  io.bypass_wb_id.reg_valid := bus_valid && io.ms_wb_in.regfile_we_ms_wb
+  io.bypass_wb_id.reg_data := io.ms_wb_in.regfile_wdata_ms_wb
+  io.bypass_wb_id.reg_addr := Mux(io.ms_wb_in.regfile_waddr_sel_ms_wb === RegFileWAddrSel.inst_rd,
+    io.ms_wb_in.inst_rd_ms_wb, io.ms_wb_in.inst_rt_ms_wb)
 }

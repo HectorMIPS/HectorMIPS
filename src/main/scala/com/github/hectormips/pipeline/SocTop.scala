@@ -13,12 +13,12 @@ class SocTopBundle extends Bundle {
 }
 
 
-class SocTop extends MultiIOModule {
+class SocTop(ram_filename: String) extends MultiIOModule {
   val io      : SocTopBundle = IO(new SocTopBundle())
   val cpu     : CpuTop       = Module(new CpuTop(0xfffffffc, 5))
   val inst_ram: SyncRam      = Module(new SyncRam(0x2000L))
   val data_ram: SyncRam      = Module(new SyncRam(0x2000L))
-  loadMemoryFromFile(inst_ram.ram, "resource/inst1.hex.txt")
+  loadMemoryFromFile(inst_ram.ram, ram_filename)
 
   cpu.io.inst_sram_rdata := inst_ram.io.ram_rdata
   inst_ram.io.ram_en := cpu.io.inst_sram_en
