@@ -167,5 +167,25 @@ class SocTopTest extends FlatSpec with ChiselScalatestTester with Matchers {
     }
 
   }
+  it should "run access hi lo correctly" in {
 
+    test(new SocTop("resource/inst6.hex.txt")).withAnnotations(Seq(WriteVcdAnnotation)) { c => {
+      c.clock.step(5)
+      printPc(c.io.debug_wb_pc.peek())
+      // addiu a1, a1, 0x120
+      c.io.debug_wb_rf_wen.expect(0xf.U)
+      c.io.debug_wb_rf_wdata.expect(0x125.U)
+
+      // mtlo a1
+      c.clock.step(1)
+
+      // mflo a1
+      c.clock.step(1)
+      c.io.debug_wb_rf_wnum.expect(5.U)
+      c.io.debug_wb_rf_wen.expect(0xf.U)
+      c.io.debug_wb_rf_wdata.expect(0x125.U)
+    }
+    }
+
+  }
 }

@@ -29,6 +29,11 @@ object AluSrc2Sel extends ChiselEnum {
   val imm_32_unsigned_extend: Type = Value(8.U)
 }
 
+object HiloSel extends ChiselEnum {
+  val hi: Type = Value(1.U)
+  val lo: Type = Value(2.U)
+}
+
 class FetchDecodeBundle extends WithValid {
   val ins_if_id     : UInt = UInt(32.W)
   val pc_if_id      : UInt = UInt(32.W) // 延迟槽pc
@@ -119,6 +124,10 @@ class InsDecode extends Module {
   val ins_multu   : Bool            = opcode === 0.U && rd === 0.U && sa === 0.U && func === 0x19.U
   val ins_div     : Bool            = opcode === 0.U && rd === 0.U && sa === 0.U && func === 0x1a.U
   val ins_divu    : Bool            = opcode === 0.U && rd === 0.U && sa === 0.U && func === 0x1b.U
+  val ins_mfhi    : Bool            = opcode === 0.U && rs === 0.U && rt === 0.U && sa === 0.U && func === 0x10.U
+  val ins_mflo    : Bool            = opcode === 0.U && rs === 0.U && rt === 0.U && sa === 0.U && func === 0x12.U
+  val ins_mthi    : Bool            = opcode === 0.U && rt === 0.U && rd === 0.U && sa === 0.U && func === 0x11.U
+  val ins_mtlo    : Bool            = opcode === 0.U && rt === 0.U && rd === 0.U && sa === 0.U && func === 0x13.U
 
 
   // 使用sint进行有符号拓展
@@ -149,7 +158,8 @@ class InsDecode extends Module {
     (ins_addu | ins_add | ins_addiu | ins_addi | ins_subu | ins_sub | ins_lw | ins_sw |
       ins_slt | ins_sltu | ins_sll | ins_srl | ins_sra | ins_lui | ins_and | ins_or |
       ins_xor | ins_nor | ins_slti | ins_sltiu | ins_andi | ins_ori | ins_xori | ins_sllv |
-      ins_srlv | ins_srav | ins_mult | ins_multu | ins_div | ins_divu) -> InsJumpSel.delay_slot_pc,
+      ins_srlv | ins_srav | ins_mult | ins_multu | ins_div | ins_divu | ins_mfhi | ins_mflo |
+      ins_mthi | ins_mtlo) -> InsJumpSel.delay_slot_pc,
     ((ins_beq && regfile_read1_with_bypass === regfile_read2_with_bypass) |
       (ins_bne && regfile_read1_with_bypass =/= regfile_read2_with_bypass)) -> InsJumpSel.pc_add_offset,
     ins_jal -> InsJumpSel.pc_cat_instr_index,
@@ -199,9 +209,9 @@ class InsDecode extends Module {
     (ins_addu | ins_add | ins_addiu | ins_addi | ins_subu | ins_sub | ins_lw | ins_sw |
       ins_slt | ins_sltu | ins_and | ins_or | ins_xor | ins_nor | ins_sltu | ins_sltiu |
       ins_andi | ins_ori | ins_xori | ins_sllv | ins_srlv | ins_srav | ins_multu |
-      ins_mult | ins_div | ins_divu) -> AluSrc1Sel.regfile_read1,
+      ins_mult | ins_div | ins_divu | ins_mthi | ins_mtlo) -> AluSrc1Sel.regfile_read1,
     ins_jal -> AluSrc1Sel.pc_delay,
-    (ins_sll | ins_srl | ins_sra) -> AluSrc1Sel.sa_32
+    (ins_sll | ins_srl | ins_sra) -> AluSrc1Sel.sa_32,
   ))
 
   src2_sel := Mux1H(Seq(
@@ -211,8 +221,7 @@ class InsDecode extends Module {
     (ins_addiu | ins_addi | ins_lw | ins_sw | ins_lui | ins_slti | ins_sltiu) -> AluSrc2Sel.imm_32_signed_extend,
     (ins_andi | ins_ori | ins_xori) -> AluSrc2Sel.imm_32_unsigned_extend,
     ins_jal -> AluSrc2Sel.const_4
-  )
-  )
+  ))
   alu_src1 := 0.U
   alu_src2 := 0.U
 
@@ -265,11 +274,11 @@ class InsDecode extends Module {
   io.id_ex_out.regfile_we_id_ex := ins_addu | ins_add | ins_addiu | ins_addi | ins_subu | ins_sub |
     ins_lw | ins_jal | ins_slt | ins_sltu | ins_sll | ins_srl | ins_sra | ins_lui | ins_and | ins_or |
     ins_xor | ins_nor | ins_sltiu | ins_slti | ins_andi | ins_ori | ins_xori | ins_sllv | ins_srlv |
-    ins_srav
+    ins_srav | ins_mfhi | ins_mflo
   io.id_ex_out.regfile_waddr_sel_id_ex := Mux1H(Seq(
     (ins_addu | ins_add | ins_subu | ins_sub | ins_slt | ins_sltu | ins_sll | ins_srl |
       ins_sra | ins_and | ins_or | ins_xor | ins_nor | ins_sllv | ins_srlv |
-      ins_srav) -> RegFileWAddrSel.inst_rd,
+      ins_srav | ins_mfhi | ins_mflo) -> RegFileWAddrSel.inst_rd,
     (ins_addiu | ins_addi | ins_lw | ins_lui | ins_slti | ins_sltiu | ins_andi | ins_ori |
       ins_xori) -> RegFileWAddrSel.inst_rt,
     ins_jal -> RegFileWAddrSel.const_31
@@ -287,8 +296,13 @@ class InsDecode extends Module {
   io.id_ex_out.mem_wen_id_ex := ins_sw
   io.id_ex_out.regfile_wsrc_sel_id_ex := ins_lw
 
-  io.id_ex_out.hi_wen := ins_multu | ins_mult | ins_div | ins_divu
-  io.id_ex_out.lo_wen := ins_multu | ins_mult | ins_div | ins_divu
+  io.id_ex_out.hi_wen := ins_multu | ins_mult | ins_div | ins_divu | ins_mthi
+  io.id_ex_out.lo_wen := ins_multu | ins_mult | ins_div | ins_divu | ins_mtlo
+  io.id_ex_out.hilo_sel := HiloSel.hi
+  io.id_ex_out.hilo_sel := Mux1H(Seq(
+    (ins_mthi | ins_mfhi) -> HiloSel.hi,
+    (ins_mtlo | ins_mflo) -> HiloSel.lo
+  ))
 
 
   io.id_ex_out.pc_id_ex := io.if_id_in.pc_if_id

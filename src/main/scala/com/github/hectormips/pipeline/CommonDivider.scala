@@ -16,7 +16,6 @@ class IPDividerBundle extends Bundle {
   val m_axis_dout_tdata : UInt = Output(UInt(64.W))
 }
 
-// TODO: rename this
 class div_signed_gen_0 extends BlackBox {
   val io: IPDividerBundle = IO(new IPDividerBundle)
 }

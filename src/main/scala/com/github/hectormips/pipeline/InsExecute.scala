@@ -29,6 +29,7 @@ class DecodeExecuteBundle extends WithValid {
   val mem_wdata_id_ex        : UInt                 = UInt(32.W)
   val hi_wen                 : Bool                 = Bool()
   val lo_wen                 : Bool                 = Bool()
+  val hilo_sel               : HiloSel.Type         = HiloSel()
 
   override def defaults(): Unit = {
     alu_op_id_ex := AluOp.op_add
@@ -52,6 +53,7 @@ class DecodeExecuteBundle extends WithValid {
 
     hi_wen := 0.U
     lo_wen := 0.U
+    hilo_sel := HiloSel.hi
     super.defaults()
   }
 }
@@ -78,8 +80,10 @@ class InsExecuteBundle extends WithAllowin {
   val bypass_ex_id: BypassMsgBundle = Output(new BypassMsgBundle)
 
   val hi_out: UInt = Output(UInt(32.W))
+  val hi_in : UInt = Input(UInt(32.W))
   val hi_wen: Bool = Output(Bool())
   val lo_out: UInt = Output(UInt(32.W))
+  val lo_in : UInt = Input(UInt(32.W))
   val lo_wen: Bool = Output(Bool())
 
   val divider_required: Bool = Output(Bool())
@@ -89,10 +93,11 @@ class InsExecuteBundle extends WithAllowin {
 }
 
 class InsExecute extends Module {
-  val io     : InsExecuteBundle = IO(new InsExecuteBundle)
-  val alu_out: UInt             = Wire(UInt(32.W))
-  val src1   : UInt             = Wire(UInt(32.W))
-  val src2   : UInt             = Wire(UInt(32.W))
+  val io              : InsExecuteBundle = IO(new InsExecuteBundle)
+  val alu_out         : UInt             = Wire(UInt(32.W))
+  val src1            : UInt             = Wire(UInt(32.W))
+  val src2            : UInt             = Wire(UInt(32.W))
+  val divider_required: Bool             = io.id_ex_in.alu_op_id_ex === AluOp.op_divu || io.id_ex_in.alu_op_id_ex === AluOp.op_div
   src1 := io.id_ex_in.alu_src1_id_ex
   src2 := io.id_ex_in.alu_src2_id_ex
 
@@ -107,13 +112,13 @@ class InsExecute extends Module {
   divider.io.is_signed := io.id_ex_in.alu_op_id_ex === AluOp.op_div
   divider.io.tvalid := io.divider_tvalid
   io.divider_tready := divider.io.tready
-  io.divider_required := io.id_ex_in.alu_op_id_ex === AluOp.op_divu || io.id_ex_in.alu_op_id_ex === AluOp.op_div
+  io.divider_required := divider_required
 
 
   def mult_div_sel(mult_res: UInt, div_res: UInt): UInt = {
-    Mux1H(Seq(
+    MuxCase(src1, Seq(
       (io.id_ex_in.alu_op_id_ex === AluOp.op_mult | io.id_ex_in.alu_op_id_ex === AluOp.op_multu) -> mult_res,
-      (io.id_ex_in.alu_op_id_ex === AluOp.op_div | io.id_ex_in.alu_op_id_ex === AluOp.op_divu) -> div_res
+      (io.id_ex_in.alu_op_id_ex === AluOp.op_div | io.id_ex_in.alu_op_id_ex === AluOp.op_divu) -> div_res,
     ))
   }
 
@@ -123,11 +128,11 @@ class InsExecute extends Module {
   io.lo_wen := 0.B
 
   io.hi_out := mult_div_sel(multiplier.io.mult_res_63_32, divider.io.remainder)
-  io.hi_wen := mult_div_sel(1.B, 1.B)
+  io.hi_wen := Mux(divider_required, divider.io.out_valid, 1.B) && io.id_ex_in.hi_wen
   io.lo_out := mult_div_sel(multiplier.io.mult_res_31_0, divider.io.quotient)
-  io.lo_wen := mult_div_sel(1.B, 1.B)
+  io.lo_wen := Mux(divider_required, divider.io.out_valid, 1.B) && io.id_ex_in.lo_wen
 
-  alu_out := 0.U
+  alu_out := Mux(io.id_ex_in.hilo_sel === HiloSel.hi, io.hi_in, io.lo_in)
   switch(io.id_ex_in.alu_op_id_ex) {
     is(AluOp.op_add) {
       alu_out := src1 + src2
@@ -164,6 +169,12 @@ class InsExecute extends Module {
     }
     is(AluOp.op_lui) {
       alu_out := src2 << 16.U
+    }
+    is(AluOp.op_hi_dir) {
+      alu_out := io.hi_in
+    }
+    is(AluOp.op_lo_dir) {
+      alu_out := io.lo_in
     }
   }
 
