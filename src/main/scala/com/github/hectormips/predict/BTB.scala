@@ -22,9 +22,11 @@ class BTB(size: Int, BHT_size: Int) extends Module {
 
     // 执行端的执行结果
     val en_ex: Bool = Input(Bool())
+    // 分支指令的PC值
     val ex_pc: UInt = Input(UInt(32.W))
     // 分支是否成功
     val ex_success: Bool = Input(Bool())
+    // 分支的目的地址
     val ex_target: UInt = Input(UInt(32.W))
   }
 
@@ -130,6 +132,7 @@ class BTB(size: Int, BHT_size: Int) extends Module {
     }
   }
 
+  // 设置BHT
   for (i <- 0 until size) {
     for (j <- 0 until BHT_size) {
       val is_this_bht = ex_index.result === i.U(len.W) & ex_pattern_next === j.U(bht_len.W)
