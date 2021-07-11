@@ -2,7 +2,7 @@ package com.github.hectormips.pipeline
 
 import chisel3.util._
 import chisel3._
-import chisel3.util.experimental.loadMemoryFromFile
+import chisel3.util.experimental.forceName
 import chisel3.stage.ChiselStage
 
 import java.io.{File, PrintWriter}
@@ -26,6 +26,22 @@ class CpuTopBundle extends Bundle {
   val debug_wb_rf_wnum : UInt = Output(UInt(5.W))
   val debug_wb_rf_wdata: UInt = Output(UInt(32.W))
 
+  forceName(inst_sram_en, "inst_sram_en")
+  forceName(inst_sram_wen, "inst_sram_wen")
+  forceName(inst_sram_addr, "inst_sram_addr")
+  forceName(inst_sram_wdata, "inst_sram_wdata")
+  forceName(inst_sram_rdata, "inst_sram_rdata")
+
+  forceName(data_sram_en, "data_sram_en")
+  forceName(data_sram_wen, "data_sram_wen")
+  forceName(data_sram_addr, "data_sram_addr")
+  forceName(data_sram_wdata, "data_sram_wdata")
+  forceName(data_sram_rdata, "data_sram_rdata")
+
+  forceName(debug_wb_pc, "debug_wb_pc")
+  forceName(debug_wb_rf_wen, "debug_wb_rf_wen")
+  forceName(debug_wb_rf_wnum, "debug_wb_rf_wnum")
+  forceName(debug_wb_rf_wdata, "debug_wb_rf_wdata")
 }
 
 
@@ -44,7 +60,7 @@ object RegEnableWithValid {
 }
 
 class CpuTop(pc_init: Int, reg_init: Int = 0) extends MultiIOModule {
-  val io: CpuTopBundle = IO(new CpuTopBundle()).suggestName("prefix_to_remove")
+  val io: CpuTopBundle = IO(new CpuTopBundle())
 
   // 内建寄存器
   // pc重置时默认为0xfffffffc，这样+4得到的就是第一条指令地址
