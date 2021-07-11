@@ -32,7 +32,7 @@ class Lru(size: Int) extends Module {
     current := comb.io.update
   }
 
-  io.next := MuxCase(0.U, (0 until size).map(i => (comb.io.lru_pre(i) === 1.B, i.U)))
+  io.next := Mux1H((0 until size).map(i => (comb.io.lru_pre(i) === 1.B, i.U)))
 }
 
 
