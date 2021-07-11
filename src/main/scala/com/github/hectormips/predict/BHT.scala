@@ -18,7 +18,15 @@ class BHT extends Module {
 
   val io: BHT_IO = IO(new BHT_IO)
 
-  val record: UInt = RegInit(UInt(2.W), 0.U)
+  val record: UInt = Reg(UInt(2.W))
+
+  when(reset.asBool()) {
+    when(io.is_visited & io.en_visit) {
+      record := "b10".U
+    }.otherwise {
+      record := "b01".U
+    }
+  }
 
   when(io.en_visit) {
     when(io.is_visited) {

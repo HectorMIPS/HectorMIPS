@@ -1,56 +1,44 @@
 package com.github.hectormips.utils
 
 import chisel3._
+import scala.math.pow
 import chisel3.util._
 import chisel3.stage.{ChiselGeneratorAnnotation, ChiselStage}
 
-class Lru(size: Int, max_value:Int) extends Module{
-  class LruIO(size:Int, len:Int) extends Bundle {
-    //整体使能
-    val en: Bool = Input(Bool())
+class Lru(size: Int) extends Module {
+  require(size > 0)
+  require(isPow2(size))
+  val LEN: Int = log2Ceil(size)
+  val WIDTH: Int = size * (size - 1) / 2
 
-    // 是否可用
-    val valid: Vec[Bool] = Input(Vec(size, Bool()))
-
+  class LruIO extends Bundle {
     // 访问
-    val visitor: UInt = Input(UInt(len.W))
+    val visitor: UInt = Input(UInt(LEN.W))
     val en_visitor: Bool = Input(Bool())
 
     // 下一个被替换的cell Index
-    val next: UInt = Output(UInt(len.W))
+    val next: UInt = Output(UInt(LEN.W))
   }
 
-  val len: Int = log2Ceil(size)
-  val true_size: Int = 2^len
+  val io: LruIO = IO(new LruIO)
 
-  val counter_len: Int = log2Ceil(max_value)
-  val io:LruIO = IO(new LruIO(size, len))
+  val current: UInt = RegInit(UInt(WIDTH.W), (pow(2, WIDTH) - 1).toInt.U)
 
-  // size 个计数器
-  val counters: Vec[UInt] = Wire(Vec(size, UInt(counter_len.W)))
+  val comb: LruComb = Module(new LruComb(size))
+  comb.io.access := io.visitor
+  comb.io.current := current
 
-  for (i <- 0 until size) {
-    withReset(reset.asBool() | (io.visitor === i.U & io.en_visitor)){
-      val counter = Module(new Counter(max_value, desc = true))
-      counter.io.en := io.en
-      counters(i) := counter.io.value
-    }
+  when(io.en_visitor) {
+    current := comb.io.update
   }
 
-  // 比较器
-  val comparator: MinComparator = Module(new MinComparator(counter_len, size))
-  comparator.io.in := counters
-
-  val mask :UInt = Wire(UInt(size.W))
-  mask :=  comparator.io.out | (~io.valid.asUInt()).asUInt()
-
-  io.next := MuxCase(0.U, (0 until size).map( i => (mask(i) === 1.B, i.U)) )
+  io.next := MuxCase(0.U, (0 until size).map(i => (comb.io.lru_pre(i) === 1.B, i.U)))
 }
 
 
 object Lru extends App {
   new ChiselStage execute(args, Seq(ChiselGeneratorAnnotation(
     () =>
-      new Lru(8, 128))))
+      new Lru(8))))
 }
 
