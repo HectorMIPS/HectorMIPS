@@ -51,7 +51,13 @@ class CpuTop(pc_init: Int, reg_init: Int = 0) extends MultiIOModule {
   val pc_next: UInt = Wire(UInt(32.W))
   val pc_wen : Bool = Wire(Bool())
   val pc     : UInt = RegEnable(pc_next, pc_init.S(32.W).asUInt(), pc_wen)
-  //  val pc     : UInt = RegEnable(pc_next, 0xfffffffc.S(32.W).asUInt(), pc_wen)
+
+  val hi_wen : Bool = Wire(Bool())
+  val lo_wen : Bool = Wire(Bool())
+  val hi_next: UInt = Wire(UInt(32.W))
+  val lo_next: UInt = Wire(UInt(32.W))
+  val hi     : UInt = RegEnable(hi_next, 0.U, hi_wen)
+  val lo     : UInt = RegEnable(lo_next, 0.U, lo_wen)
 
   // 连线
   val if_id_bus : FetchDecodeBundle     = Wire(new FetchDecodeBundle)
@@ -139,7 +145,17 @@ class CpuTop(pc_init: Int, reg_init: Int = 0) extends MultiIOModule {
     bundle
   }, valid_enable = ex_allowin)
 
-  val ex_module: InsExecute = Module(new InsExecute)
+  val ex_module            : InsExecute        = Module(new InsExecute)
+  val ex_divider_state_next: DividerState.Type = Wire(DividerState())
+  val ex_divider_ready     : Bool              = ex_module.io.divider_tready
+  val ex_divider_state_reg : DividerState.Type = RegEnable(next = ex_divider_state_next, init = DividerState.waiting,
+    enable = ex_module.io.divider_required)
+  ex_divider_state_next := MuxCase(DividerState.waiting, Seq(
+    (ex_divider_state_reg === DividerState.waiting && ex_module.io.divider_required) -> DividerState.inputting,
+    (ex_divider_state_reg === DividerState.inputting && ex_module.io.divider_tready) -> DividerState.processing,
+    (ex_divider_state_reg === DividerState.processing && ex_module.io.this_allowin) -> DividerState.waiting
+  ))
+  ex_module.io.divider_tvalid := ex_divider_state_next === DividerState.inputting
   // 直接接入ram的通路
   ex_module.io.id_ex_in := ex_reg
   io.data_sram_en := ex_module.io.mem_en
@@ -152,6 +168,10 @@ class CpuTop(pc_init: Int, reg_init: Int = 0) extends MultiIOModule {
   ex_allowin := ex_module.io.this_allowin
   bypass_bus.bp_ex_id := ex_module.io.bypass_ex_id
   lw_ex_id := ex_module.io.valid_lw_ex_id
+  hi_next := ex_module.io.hi_out
+  lo_next := ex_module.io.lo_out
+  hi_wen := ex_module.io.hi_wen
+  lo_wen := ex_module.io.lo_wen
 
 
   // 访存

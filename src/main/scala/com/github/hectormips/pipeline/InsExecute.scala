@@ -27,6 +27,8 @@ class DecodeExecuteBundle extends WithValid {
   val regfile_we_id_ex       : Bool                 = Bool()
   val pc_id_ex_debug         : UInt                 = UInt(32.W)
   val mem_wdata_id_ex        : UInt                 = UInt(32.W)
+  val hi_wen                 : Bool                 = Bool()
+  val lo_wen                 : Bool                 = Bool()
 
   override def defaults(): Unit = {
     alu_op_id_ex := AluOp.op_add
@@ -48,8 +50,16 @@ class DecodeExecuteBundle extends WithValid {
     pc_id_ex_debug := 0.U
     mem_wdata_id_ex := 0.U
 
+    hi_wen := 0.U
+    lo_wen := 0.U
     super.defaults()
   }
+}
+
+object DividerState extends ChiselEnum {
+  val waiting   : Type = Value(0.U)
+  val inputting : Type = Value(1.U)
+  val processing: Type = Value(2.U)
 }
 
 class InsExecuteBundle extends WithAllowin {
@@ -59,12 +69,22 @@ class InsExecuteBundle extends WithAllowin {
   val ex_ms_out: ExecuteMemoryBundle = Output(new ExecuteMemoryBundle)
 
   // 传给data ram的使能信号和数据信号
-  val mem_en        : Bool            = Output(Bool())
-  val mem_wen       : Bool            = Output(Bool())
-  val mem_addr      : UInt            = Output(UInt(32.W))
-  val mem_wdata     : UInt            = Output(UInt(32.W))
-  val valid_lw_ex_id: Bool            = Output(Bool())
-  val bypass_ex_id  : BypassMsgBundle = Output(new BypassMsgBundle)
+  val mem_en        : Bool = Output(Bool())
+  val mem_wen       : Bool = Output(Bool())
+  val mem_addr      : UInt = Output(UInt(32.W))
+  val mem_wdata     : UInt = Output(UInt(32.W))
+  val valid_lw_ex_id: Bool = Output(Bool())
+
+  val bypass_ex_id: BypassMsgBundle = Output(new BypassMsgBundle)
+
+  val hi_out: UInt = Output(UInt(32.W))
+  val hi_wen: Bool = Output(Bool())
+  val lo_out: UInt = Output(UInt(32.W))
+  val lo_wen: Bool = Output(Bool())
+
+  val divider_required: Bool = Output(Bool())
+  val divider_tready  : Bool = Output(Bool())
+  val divider_tvalid  : Bool = Input(Bool())
 
 }
 
@@ -75,6 +95,37 @@ class InsExecute extends Module {
   val src2   : UInt             = Wire(UInt(32.W))
   src1 := io.id_ex_in.alu_src1_id_ex
   src2 := io.id_ex_in.alu_src2_id_ex
+
+  val multiplier: CommonMultiplier = Module(new CommonMultiplier)
+  multiplier.io.mult1 := src1
+  multiplier.io.mult2 := src2
+  multiplier.io.is_signed := io.id_ex_in.alu_op_id_ex === AluOp.op_mult
+
+  val divider: CommonDivider = Module(new CommonDivider)
+  divider.io.divisor := src1
+  divider.io.dividend := src2
+  divider.io.is_signed := io.id_ex_in.alu_op_id_ex === AluOp.op_div
+  divider.io.tvalid := io.divider_tvalid
+  io.divider_tready := divider.io.tready
+  io.divider_required := io.id_ex_in.alu_op_id_ex === AluOp.op_divu || io.id_ex_in.alu_op_id_ex === AluOp.op_div
+
+
+  def mult_div_sel(mult_res: UInt, div_res: UInt): UInt = {
+    Mux1H(Seq(
+      (io.id_ex_in.alu_op_id_ex === AluOp.op_mult | io.id_ex_in.alu_op_id_ex === AluOp.op_multu) -> mult_res,
+      (io.id_ex_in.alu_op_id_ex === AluOp.op_div | io.id_ex_in.alu_op_id_ex === AluOp.op_divu) -> div_res
+    ))
+  }
+
+  io.hi_out := 0.U
+  io.hi_wen := 0.B
+  io.lo_out := 0.U
+  io.lo_wen := 0.B
+
+  io.hi_out := mult_div_sel(multiplier.io.mult_res_63_32, divider.io.remainder)
+  io.hi_wen := mult_div_sel(1.B, 1.B)
+  io.lo_out := mult_div_sel(multiplier.io.mult_res_31_0, divider.io.quotient)
+  io.lo_wen := mult_div_sel(1.B, 1.B)
 
   alu_out := 0.U
   switch(io.id_ex_in.alu_op_id_ex) {
@@ -114,8 +165,8 @@ class InsExecute extends Module {
     is(AluOp.op_lui) {
       alu_out := src2 << 16.U
     }
-
   }
+
   io.ex_ms_out.alu_val_ex_ms := alu_out
   io.mem_addr := src1 + src2 // 直出内存地址，连接到sram上
   io.mem_wdata := io.id_ex_in.mem_wdata_id_ex
@@ -141,6 +192,8 @@ class InsExecute extends Module {
     (io.id_ex_in.regfile_waddr_sel_id_ex === RegFileWAddrSel.inst_rt) -> io.id_ex_in.inst_rt_id_ex,
     (io.id_ex_in.regfile_waddr_sel_id_ex === RegFileWAddrSel.const_31) -> 31.U))
 
-  io.this_allowin := io.next_allowin && !reset.asBool()
-  io.ex_ms_out.bus_valid := bus_valid
+  val ins_div : Bool = io.id_ex_in.alu_op_id_ex === AluOp.op_div || io.id_ex_in.alu_op_id_ex === AluOp.op_divu
+  val ready_go: Bool = Mux(ins_div, !divider.io.out_valid, 1.B)
+  io.this_allowin := ready_go && io.next_allowin && !reset.asBool()
+  io.ex_ms_out.bus_valid := ready_go && bus_valid
 }
