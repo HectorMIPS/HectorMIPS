@@ -27,7 +27,7 @@ class CpuTopBundle extends Bundle {
   val debug_wb_rf_wnum : UInt = Output(UInt(5.W))
   val debug_wb_rf_wdata: UInt = Output(UInt(32.W))
 
-  forceName(interrupt, "int_ext")
+  forceName(interrupt, "ext_int")
 
   forceName(inst_sram_en, "inst_sram_en")
   forceName(inst_sram_wen, "inst_sram_wen")
