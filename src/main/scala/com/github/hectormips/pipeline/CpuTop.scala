@@ -187,7 +187,7 @@ class CpuTop(pc_init: Int, reg_init: Int = 0) extends MultiIOModule {
     ex_module.io.hi_in := hi
     ex_module.io.lo_in := lo
     io.data_sram_en := ex_module.io.mem_en
-    io.data_sram_wen := VecInit(Seq.fill(4)(ex_module.io.mem_wen)).asUInt()
+    io.data_sram_wen := ex_module.io.mem_wen
     io.data_sram_addr := addr_mapping(ex_module.io.mem_addr)
     //  io.data_sram_wdata := ex_module.io.mem_wdata
     // sw => wdata := regfile2

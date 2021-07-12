@@ -128,6 +128,20 @@ class InsDecode extends Module {
   val ins_mflo    : Bool            = opcode === 0.U && rs === 0.U && rt === 0.U && sa === 0.U && func === 0x12.U
   val ins_mthi    : Bool            = opcode === 0.U && rt === 0.U && rd === 0.U && sa === 0.U && func === 0x11.U
   val ins_mtlo    : Bool            = opcode === 0.U && rt === 0.U && rd === 0.U && sa === 0.U && func === 0x13.U
+  val ins_bgez    : Bool            = opcode === 1.U && rt === 1.U
+  val ins_bgtz    : Bool            = opcode === 7.U && rt === 0.U
+  val ins_blez    : Bool            = opcode === 6.U && rt === 0.U
+  val ins_bltz    : Bool            = opcode === 1.U && rt === 0.U
+  val ins_j       : Bool            = opcode === 2.U
+  val ins_bltzal  : Bool            = opcode === 1.U && rt === 0x10.U
+  val ins_bgezal  : Bool            = opcode === 1.U && rt === 0x11.U
+  val ins_jalr    : Bool            = opcode === 0.U && rt === 0.U && sa === 0.U && func === 0x9.U
+  val ins_lb      : Bool            = opcode === 0x20.U
+  val ins_lbu     : Bool            = opcode === 0x24.U
+  val ins_lh      : Bool            = opcode === 0x21.U
+  val ins_lhu     : Bool            = opcode === 0x25.U
+  val ins_sb      : Bool            = opcode === 0x28.U
+  val ins_sh      : Bool            = opcode === 0x29.U
 
 
   // 使用sint进行有符号拓展
@@ -152,20 +166,31 @@ class InsDecode extends Module {
     byPassData(rt, io.bypass_bus.bp_wb_id),
   )))
   val regfile1_eq_regfile2: Bool = regfile_read1_with_bypass === regfile_read2_with_bypass
+  val regfile1_gt_0       : Bool = regfile_read1_with_bypass > 0.U
+  val regfile1_ge_0       : Bool = regfile_read1_with_bypass >= 0.U
   offset := (io.if_id_in.ins_if_id(15, 0) << 2).asSInt()
   imm_signed := io.if_id_in.ins_if_id(15, 0).asSInt()
   io.id_pf_out.jump_sel_id_pf := Mux1H(Seq(
-    (ins_addu | ins_add | ins_addiu | ins_addi | ins_subu | ins_sub | ins_lw | ins_sw |
+    (ins_addu | ins_add | ins_addiu | ins_addi | ins_subu | ins_sub | ins_lw | ins_lb |
+      ins_lbu | ins_lh | ins_lhu | ins_sw | ins_sh | ins_sb |
       ins_slt | ins_sltu | ins_sll | ins_srl | ins_sra | ins_lui | ins_and | ins_or |
       ins_xor | ins_nor | ins_slti | ins_sltiu | ins_andi | ins_ori | ins_xori | ins_sllv |
       ins_srlv | ins_srav | ins_mult | ins_multu | ins_div | ins_divu | ins_mfhi | ins_mflo |
       ins_mthi | ins_mtlo) -> InsJumpSel.delay_slot_pc,
-    ((ins_beq && regfile_read1_with_bypass === regfile_read2_with_bypass) |
-      (ins_bne && regfile_read1_with_bypass =/= regfile_read2_with_bypass)) -> InsJumpSel.pc_add_offset,
-    ins_jal -> InsJumpSel.pc_cat_instr_index,
-    ((ins_beq && regfile_read1_with_bypass =/= regfile_read2_with_bypass) |
-      (ins_bne && regfile_read1_with_bypass === regfile_read2_with_bypass)) -> InsJumpSel.delay_slot_pc,
-    ins_jr -> InsJumpSel.regfile_read1
+    ((ins_beq && regfile1_eq_regfile2) |
+      (ins_bne && !regfile1_eq_regfile2) |
+      (ins_bgtz && regfile1_gt_0) |
+      ((ins_bgez | ins_bgezal) && regfile1_ge_0) |
+      ((ins_bltz | ins_bltzal) && !regfile1_ge_0) |
+      (ins_blez && !regfile1_gt_0)) -> InsJumpSel.pc_add_offset,
+    (ins_jal | ins_j) -> InsJumpSel.pc_cat_instr_index,
+    ((ins_beq && !regfile1_eq_regfile2) |
+      (ins_bne && regfile1_eq_regfile2) |
+      (ins_bgtz && !regfile1_gt_0) |
+      ((ins_bgez | ins_bgezal) && !regfile1_ge_0) |
+      ((ins_bltz | ins_bltzal) && regfile1_ge_0) |
+      (ins_blez && regfile1_gt_0)) -> InsJumpSel.delay_slot_pc,
+    (ins_jr | ins_jalr) -> InsJumpSel.regfile_read1
   ))
 
   // 0: pc=pc+(signed)(offset<<2)
@@ -178,7 +203,11 @@ class InsDecode extends Module {
 
   io.id_pf_out.jump_taken := (ins_beq && regfile1_eq_regfile2) ||
     (ins_bne && !regfile1_eq_regfile2) ||
-    ins_jr || ins_jal
+    (ins_bgtz && regfile1_gt_0) ||
+    ((ins_bgez | ins_bgezal) && regfile1_ge_0) ||
+    ((ins_bltz | ins_bltzal) && !regfile1_ge_0) ||
+    (ins_blez && !regfile1_gt_0) ||
+    ins_jr || ins_jal || ins_j || ins_jalr
 
   io.iram_en := 1.B
   io.iram_we := 0.B
@@ -190,8 +219,9 @@ class InsDecode extends Module {
 
   val bp_ex_id_reg_addr   : UInt = io.bypass_bus.bp_ex_id.reg_addr
   val branch_inst_conflict: Bool = io.bypass_bus.valid_lw_ex_id && bp_ex_id_reg_addr =/= 0.U &&
-    ((ins_jr && rs === bp_ex_id_reg_addr) ||
-      ((ins_beq || ins_bne) && (rs === bp_ex_id_reg_addr || rt === bp_ex_id_reg_addr)))
+    (((ins_jr || ins_jalr) && rs === bp_ex_id_reg_addr) ||
+      ((ins_beq || ins_bne) && (rs === bp_ex_id_reg_addr || rt === bp_ex_id_reg_addr)) ||
+      ((ins_bgez || ins_bgtz || ins_blez || ins_bltz || ins_bltzal || ins_bgezal) && (rs === bp_ex_id_reg_addr)))
   val normal_inst_conflict: Bool = io.bypass_bus.valid_lw_ex_id && io.bypass_bus.bp_ex_id.reg_addr =/= 0.U &&
     ((src1_sel === AluSrc1Sel.regfile_read1 && rs === io.bypass_bus.bp_ex_id.reg_addr) ||
       (src2_sel === AluSrc2Sel.regfile_read2 && rt === io.bypass_bus.bp_ex_id.reg_addr)) &&
@@ -206,11 +236,12 @@ class InsDecode extends Module {
 
 
   src1_sel := Mux1H(Seq(
-    (ins_addu | ins_add | ins_addiu | ins_addi | ins_subu | ins_sub | ins_lw | ins_sw |
+    (ins_addu | ins_add | ins_addiu | ins_addi | ins_subu | ins_sub | ins_lw | ins_lb |
+      ins_lbu | ins_lh | ins_lhu | ins_sw | ins_sh | ins_sb |
       ins_slt | ins_sltu | ins_and | ins_or | ins_xor | ins_nor | ins_sltu | ins_slti | ins_sltiu |
       ins_andi | ins_ori | ins_xori | ins_sllv | ins_srlv | ins_srav | ins_multu |
       ins_mult | ins_div | ins_divu | ins_mthi | ins_mtlo) -> AluSrc1Sel.regfile_read1,
-    ins_jal -> AluSrc1Sel.pc_delay,
+    (ins_jal | ins_bgezal | ins_bltzal | ins_jalr) -> AluSrc1Sel.pc_delay,
     (ins_sll | ins_srl | ins_sra) -> AluSrc1Sel.sa_32,
   ))
 
@@ -218,9 +249,11 @@ class InsDecode extends Module {
     (ins_addu | ins_add | ins_subu | ins_sub | ins_slt | ins_sltu | ins_sll | ins_srl |
       ins_sra | ins_and | ins_or | ins_xor | ins_nor | ins_sllv | ins_srlv | ins_srav |
       ins_mult | ins_multu | ins_div | ins_divu) -> AluSrc2Sel.regfile_read2,
-    (ins_addiu | ins_addi | ins_lw | ins_sw | ins_lui | ins_slti | ins_sltiu) -> AluSrc2Sel.imm_32_signed_extend,
+    (ins_addiu | ins_addi | ins_lw | ins_lb |
+      ins_lbu | ins_lh | ins_lhu | ins_sw | ins_sh | ins_sb | ins_lui | ins_slti |
+      ins_sltiu) -> AluSrc2Sel.imm_32_signed_extend,
     (ins_andi | ins_ori | ins_xori) -> AluSrc2Sel.imm_32_unsigned_extend,
-    ins_jal -> AluSrc2Sel.const_4
+    (ins_jal | ins_bgezal | ins_bltzal | ins_jalr) -> AluSrc2Sel.const_4
   ))
   alu_src1 := 0.U
   alu_src2 := 0.U
@@ -254,7 +287,9 @@ class InsDecode extends Module {
   io.id_ex_out.alu_src1_id_ex := alu_src1
   io.id_ex_out.alu_src2_id_ex := alu_src2
   io.id_ex_out.alu_op_id_ex := Mux1H(Seq(
-    (ins_addu | ins_add | ins_addiu | ins_addi | ins_lw | ins_sw | ins_jal) -> AluOp.op_add,
+    (ins_addu | ins_add | ins_addiu | ins_addi | ins_lw | ins_lb |
+      ins_lbu | ins_lh | ins_lhu | ins_sw | ins_sh | ins_sb |
+      ins_jal | ins_bltzal | ins_bgezal | ins_jalr) -> AluOp.op_add,
     (ins_subu | ins_sub) -> AluOp.op_sub,
     (ins_slt | ins_slti) -> AluOp.op_slt,
     (ins_sltu | ins_sltiu) -> AluOp.op_sltu,
@@ -272,16 +307,18 @@ class InsDecode extends Module {
     ins_divu -> AluOp.op_divu
   ))
   io.id_ex_out.regfile_we_id_ex := ins_addu | ins_add | ins_addiu | ins_addi | ins_subu | ins_sub |
-    ins_lw | ins_jal | ins_slt | ins_sltu | ins_sll | ins_srl | ins_sra | ins_lui | ins_and | ins_or |
+    ins_lw | ins_lb |
+    ins_lbu | ins_lh | ins_lhu | ins_jal | ins_bgezal | ins_bltzal | ins_slt | ins_sltu | ins_sll | ins_srl | ins_sra | ins_lui | ins_and | ins_or |
     ins_xor | ins_nor | ins_sltiu | ins_slti | ins_andi | ins_ori | ins_xori | ins_sllv | ins_srlv |
-    ins_srav | ins_mfhi | ins_mflo
+    ins_srav | ins_mfhi | ins_mflo | ins_jalr
   io.id_ex_out.regfile_waddr_sel_id_ex := Mux1H(Seq(
     (ins_addu | ins_add | ins_subu | ins_sub | ins_slt | ins_sltu | ins_sll | ins_srl |
       ins_sra | ins_and | ins_or | ins_xor | ins_nor | ins_sllv | ins_srlv |
-      ins_srav | ins_mfhi | ins_mflo) -> RegFileWAddrSel.inst_rd,
-    (ins_addiu | ins_addi | ins_lw | ins_lui | ins_slti | ins_sltiu | ins_andi | ins_ori |
+      ins_srav | ins_mfhi | ins_mflo | ins_jalr) -> RegFileWAddrSel.inst_rd,
+    (ins_addiu | ins_addi | ins_lw | ins_lb |
+      ins_lbu | ins_lh | ins_lhu | ins_lui | ins_slti | ins_sltiu | ins_andi | ins_ori |
       ins_xori) -> RegFileWAddrSel.inst_rt,
-    ins_jal -> RegFileWAddrSel.const_31
+    (ins_jal | ins_bgezal | ins_bltzal) -> RegFileWAddrSel.const_31
   ))
 
   io.ins_opcode := opcode
@@ -292,9 +329,21 @@ class InsDecode extends Module {
   io.id_ex_out.imm_32_id_ex := imm_signed.asUInt()
 
 
-  io.id_ex_out.mem_en_id_ex := ins_lw | ins_sw
-  io.id_ex_out.mem_wen_id_ex := ins_sw
-  io.id_ex_out.regfile_wsrc_sel_id_ex := ins_lw
+  io.id_ex_out.mem_en_id_ex := ins_lw | ins_lb |
+    ins_lbu | ins_lh | ins_lhu | ins_sw | ins_sh | ins_sb
+  io.id_ex_out.mem_wen_id_ex := MuxCase(0.U, Seq(
+    ins_sw -> 0xf.U,
+    ins_sh -> 0x3.U,
+    ins_sb -> 0x1.U
+  ))
+  io.id_ex_out.regfile_wsrc_sel_id_ex := ins_lw | ins_lb |
+    ins_lbu | ins_lh | ins_lhu
+  io.id_ex_out.mem_rdata_sel_id_ex := MuxCase(MemRDataSel.word, Seq(
+    (ins_lb | ins_lbu) -> MemRDataSel.byte,
+    (ins_lh | ins_lhu) -> MemRDataSel.hword,
+    ins_lw -> MemRDataSel.word
+  ))
+  io.id_ex_out.mem_rdata_extend_is_signed_id_ex := ins_lb | ins_lh
 
   io.id_ex_out.hi_wen := ins_multu | ins_mult | ins_div | ins_divu | ins_mthi
   io.id_ex_out.lo_wen := ins_multu | ins_mult | ins_div | ins_divu | ins_mtlo
@@ -310,8 +359,10 @@ class InsDecode extends Module {
   io.decode_to_fetch_next_pc(0) := io.if_id_in.pc_if_id + offset.asUInt()
   io.decode_to_fetch_next_pc(1) := Cat(Seq(io.if_id_in.pc_if_id(31, 28), instr_index, "b00".U(2.W)))
   // sw会使用寄存器堆读端口2的数据写入内存
-  io.id_ex_out.mem_wdata_id_ex := regfile_read2_with_bypass
-
+  io.id_ex_out.mem_wdata_id_ex := MuxCase(regfile_read2_with_bypass, Seq(
+    ins_sh -> VecInit(Seq.fill(2)(regfile_read2_with_bypass(15, 0))).asUInt(),
+    ins_sb -> VecInit(Seq.fill(4)(regfile_read2_with_bypass(7, 0))).asUInt(),
+  ))
 
   io.this_allowin := io.next_allowin && !reset.asBool() && ready_go
   io.id_ex_out.bus_valid := io.if_id_in.bus_valid && !reset.asBool() && ready_go

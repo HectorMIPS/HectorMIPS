@@ -14,22 +14,24 @@ class DecodeExecuteBundle extends WithValid {
   val sa_32_id_ex : UInt       = UInt(32.W)
   val imm_32_id_ex: UInt       = UInt(32.W)
 
-  val alu_src1_id_ex         : UInt                 = UInt(32.W)
-  val alu_src2_id_ex         : UInt                 = UInt(32.W)
+  val alu_src1_id_ex                  : UInt                 = UInt(32.W)
+  val alu_src2_id_ex                  : UInt                 = UInt(32.W)
   // 直传id_ex_ms
-  val mem_en_id_ex           : Bool                 = Bool()
-  val mem_wen_id_ex          : Bool                 = Bool()
-  val regfile_wsrc_sel_id_ex : Bool                 = Bool()
-  val regfile_waddr_sel_id_ex: RegFileWAddrSel.Type = RegFileWAddrSel()
-  val inst_rs_id_ex          : UInt                 = UInt(5.W)
-  val inst_rd_id_ex          : UInt                 = UInt(5.W)
-  val inst_rt_id_ex          : UInt                 = UInt(5.W)
-  val regfile_we_id_ex       : Bool                 = Bool()
-  val pc_id_ex_debug         : UInt                 = UInt(32.W)
-  val mem_wdata_id_ex        : UInt                 = UInt(32.W)
-  val hi_wen                 : Bool                 = Bool()
-  val lo_wen                 : Bool                 = Bool()
-  val hilo_sel               : HiloSel.Type         = HiloSel()
+  val mem_en_id_ex                    : Bool                 = Bool()
+  val mem_wen_id_ex                   : UInt                 = UInt(4.W)
+  val regfile_wsrc_sel_id_ex          : Bool                 = Bool()
+  val regfile_waddr_sel_id_ex         : RegFileWAddrSel.Type = RegFileWAddrSel()
+  val inst_rs_id_ex                   : UInt                 = UInt(5.W)
+  val inst_rd_id_ex                   : UInt                 = UInt(5.W)
+  val inst_rt_id_ex                   : UInt                 = UInt(5.W)
+  val regfile_we_id_ex                : Bool                 = Bool()
+  val pc_id_ex_debug                  : UInt                 = UInt(32.W)
+  val mem_wdata_id_ex                 : UInt                 = UInt(32.W)
+  val hi_wen                          : Bool                 = Bool()
+  val lo_wen                          : Bool                 = Bool()
+  val hilo_sel                        : HiloSel.Type         = HiloSel()
+  val mem_rdata_sel_id_ex             : MemRDataSel.Type     = MemRDataSel() // 假设数据已经将指定地址对齐到最低位
+  val mem_rdata_extend_is_signed_id_ex: Bool                 = Bool()
 
   override def defaults(): Unit = {
     alu_op_id_ex := AluOp.op_add
@@ -54,6 +56,11 @@ class DecodeExecuteBundle extends WithValid {
     hi_wen := 0.U
     lo_wen := 0.U
     hilo_sel := HiloSel.hi
+
+    mem_rdata_sel_id_ex := MemRDataSel.word
+    mem_rdata_extend_is_signed_id_ex := 0.B
+
+
     super.defaults()
   }
 }
@@ -73,7 +80,7 @@ class InsExecuteBundle extends WithAllowin {
 
   // 传给data ram的使能信号和数据信号
   val mem_en        : Bool = Output(Bool())
-  val mem_wen       : Bool = Output(Bool())
+  val mem_wen       : UInt = Output(UInt(4.W))
   val mem_addr      : UInt = Output(UInt(32.W))
   val mem_wdata     : UInt = Output(UInt(32.W))
   val valid_lw_ex_id: Bool = Output(Bool())
@@ -180,10 +187,11 @@ class InsExecute extends Module {
   }
 
   io.ex_ms_out.alu_val_ex_ms := alu_out
-  io.mem_addr := src1 + src2 // 直出内存地址，连接到sram上
+  val src_sum: UInt = src1 + src2
+  io.mem_addr := src_sum & 0xfffffffcL.U // 直出内存地址，连接到sram上，地址需要编码为4的整数倍
   io.mem_wdata := io.id_ex_in.mem_wdata_id_ex
   io.mem_en := io.id_ex_in.mem_en_id_ex
-  io.mem_wen := io.id_ex_in.mem_wen_id_ex
+  io.mem_wen := io.id_ex_in.mem_wen_id_ex << src_sum(1, 0)
 
   val bus_valid: Bool = Wire(Bool())
   bus_valid := io.id_ex_in.bus_valid && !reset.asBool()
@@ -194,6 +202,9 @@ class InsExecute extends Module {
   io.ex_ms_out.inst_rt_ex_ms := io.id_ex_in.inst_rt_id_ex
   io.ex_ms_out.regfile_we_ex_ms := io.id_ex_in.regfile_we_id_ex
   io.ex_ms_out.pc_ex_ms_debug := io.id_ex_in.pc_id_ex_debug
+  io.ex_ms_out.mem_rdata_offset := src_sum & 0x00000003.U
+  io.ex_ms_out.mem_rdata_sel_ex_ms := io.id_ex_in.mem_rdata_sel_id_ex
+  io.ex_ms_out.mem_rdata_extend_is_signed_ex_ms := io.id_ex_in.mem_rdata_extend_is_signed_id_ex
   // 当指令为从内存中取出存放至寄存器堆中时，ex阶段无法得出结果，前递无效
   io.bypass_ex_id.reg_valid := bus_valid && io.id_ex_in.regfile_we_id_ex && !io.id_ex_in.regfile_wsrc_sel_id_ex
   // 写寄存器来源为内存，并且此时ex阶段有效

@@ -9,14 +9,23 @@ object MemorySrc extends ChiselEnum {
   val mem_addr: Type = Value(2.U)
 }
 
+object MemRDataSel extends ChiselEnum {
+  val byte : Type = Value(1.U)
+  val hword: Type = Value(2.U)
+  val word : Type = Value(4.U)
+}
+
 class ExecuteMemoryBundle extends WithValid {
-  val alu_val_ex_ms          : UInt                 = UInt(32.W)
-  val regfile_wsrc_sel_ex_ms : Bool                 = Bool()
-  val regfile_waddr_sel_ex_ms: RegFileWAddrSel.Type = RegFileWAddrSel()
-  val inst_rd_ex_ms          : UInt                 = UInt(5.W)
-  val inst_rt_ex_ms          : UInt                 = UInt(5.W)
-  val regfile_we_ex_ms       : Bool                 = Bool()
-  val pc_ex_ms_debug         : UInt                 = UInt(32.W)
+  val alu_val_ex_ms                   : UInt                 = UInt(32.W)
+  val regfile_wsrc_sel_ex_ms          : Bool                 = Bool()
+  val regfile_waddr_sel_ex_ms         : RegFileWAddrSel.Type = RegFileWAddrSel()
+  val inst_rd_ex_ms                   : UInt                 = UInt(5.W)
+  val inst_rt_ex_ms                   : UInt                 = UInt(5.W)
+  val regfile_we_ex_ms                : Bool                 = Bool()
+  val pc_ex_ms_debug                  : UInt                 = UInt(32.W)
+  val mem_rdata_offset                : UInt                 = UInt(2.W)
+  val mem_rdata_sel_ex_ms             : MemRDataSel.Type     = MemRDataSel() // 假设数据已经将指定地址对齐到最低位
+  val mem_rdata_extend_is_signed_ex_ms: Bool                 = Bool()
 
   override def defaults(): Unit = {
     super.defaults()
@@ -27,6 +36,9 @@ class ExecuteMemoryBundle extends WithValid {
     inst_rt_ex_ms := 0.U
     regfile_we_ex_ms := 0.B
     pc_ex_ms_debug := 0.U
+    mem_rdata_offset := 0.U
+    mem_rdata_sel_ex_ms := MemRDataSel.word
+    mem_rdata_extend_is_signed_ex_ms := 0.B
   }
 }
 
@@ -44,7 +56,26 @@ class InsMemory extends Module {
   io.ms_wb_out.inst_rd_ms_wb := io.ex_ms_in.inst_rd_ex_ms
   io.ms_wb_out.inst_rt_ms_wb := io.ex_ms_in.inst_rt_ex_ms
   io.ms_wb_out.regfile_we_ms_wb := io.ex_ms_in.regfile_we_ex_ms
-  io.ms_wb_out.regfile_wdata_ms_wb := Mux(io.ex_ms_in.regfile_wsrc_sel_ex_ms, io.mem_rdata, io.ex_ms_in.alu_val_ex_ms)
+  val mem_rdata_fixed: UInt      = Wire(UInt(32.W))
+  val mem_rdata_vec  : Vec[UInt] = Wire(Vec(4, UInt(8.W)))
+  for (i <- 0 until 4) {
+    mem_rdata_vec(i) := mem_rdata_fixed(31 - i * 8, 24 - i * 8)
+  }
+  mem_rdata_fixed := (io.mem_rdata >> io.ex_ms_in.mem_rdata_offset).asUInt()
+  val mem_rdata_out   : UInt = Wire(UInt(32.W))
+
+  def extendBySignFlag(sign_bit: Bool, width: Int): UInt = {
+    VecInit(Seq.fill(width)(io.ex_ms_in.mem_rdata_extend_is_signed_ex_ms & sign_bit)).asUInt()
+  }
+
+  mem_rdata_out := MuxCase(mem_rdata_fixed, Seq(
+    (io.ex_ms_in.mem_rdata_sel_ex_ms === MemRDataSel.byte) -> Cat(extendBySignFlag(mem_rdata_fixed(7), 24), mem_rdata_fixed(7, 0)),
+    (io.ex_ms_in.mem_rdata_sel_ex_ms === MemRDataSel.hword) -> Cat(extendBySignFlag(mem_rdata_fixed(15), 16), mem_rdata_fixed(15, 0)),
+    (io.ex_ms_in.mem_rdata_sel_ex_ms === MemRDataSel.word) -> mem_rdata_fixed
+  ))
+
+
+  io.ms_wb_out.regfile_wdata_ms_wb := Mux(io.ex_ms_in.regfile_wsrc_sel_ex_ms, mem_rdata_out, io.ex_ms_in.alu_val_ex_ms)
 
 
   val bus_valid: Bool = Wire(Bool())
