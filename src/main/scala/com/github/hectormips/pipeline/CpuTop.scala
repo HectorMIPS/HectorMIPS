@@ -60,7 +60,12 @@ object RegEnableWithValid {
 }
 
 class CpuTop(pc_init: Int, reg_init: Int = 0) extends MultiIOModule {
+  // 命名
   val io: CpuTopBundle = IO(new CpuTopBundle())
+
+  forceName(reset, "resetn")
+  override val desiredName = s"mycpu_top"
+
 
   // 内建寄存器
   // pc重置时默认为0xfffffffc，这样+4得到的就是第一条指令地址
