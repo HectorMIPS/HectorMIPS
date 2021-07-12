@@ -15,7 +15,9 @@ class SocTopTest extends FlatSpec with ChiselScalatestTester with Matchers {
 
   it should "execute and reset" in {
     test(new SocTop("resource/inst1.hex.txt")) { c =>
-
+      c.reset.poke(1.B)
+      c.clock.step(2)
+      c.reset.poke(0.B)
       for (i <- 1 to 5) {
         c.clock.step()
         println(s"pc ===> ${c.io.debug_wb_pc.peek()}, we ===> ${c.io.debug_wb_rf_wen.peek()}")
