@@ -27,7 +27,7 @@ class CpuTopBundle extends Bundle {
   val debug_wb_rf_wnum : UInt = Output(UInt(5.W))
   val debug_wb_rf_wdata: UInt = Output(UInt(32.W))
 
-  forceName(interrupt, "int")
+  forceName(interrupt, "int_ext")
 
   forceName(inst_sram_en, "inst_sram_en")
   forceName(inst_sram_wen, "inst_sram_wen")
@@ -175,7 +175,7 @@ class CpuTop(pc_init: Int, reg_init: Int = 0) extends MultiIOModule {
     val ex_divider_ready     : Bool              = ex_module.io.divider_tready
     val ex_divider_state_reg : DividerState.Type = RegEnable(next = ex_divider_state_next, init = DividerState.waiting,
       enable = ex_module.io.divider_required)
-    ex_divider_state_next := MuxCase(DividerState.waiting, Seq(
+    ex_divider_state_next := MuxCase(ex_divider_state_reg, Seq(
       (ex_divider_state_reg === DividerState.waiting && ex_module.io.divider_required) -> DividerState.inputting,
       (ex_divider_state_reg === DividerState.inputting && ex_module.io.divider_tready) -> DividerState.processing,
       (ex_divider_state_reg === DividerState.processing && ex_module.io.this_allowin) -> DividerState.waiting
