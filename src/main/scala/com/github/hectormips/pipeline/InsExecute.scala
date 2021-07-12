@@ -107,8 +107,8 @@ class InsExecute extends Module {
   multiplier.io.is_signed := io.id_ex_in.alu_op_id_ex === AluOp.op_mult
 
   val divider: CommonDivider = Module(new CommonDivider)
-  divider.io.divisor := src1
-  divider.io.dividend := src2
+  divider.io.divisor := src2
+  divider.io.dividend := src1
   divider.io.is_signed := io.id_ex_in.alu_op_id_ex === AluOp.op_div
   divider.io.tvalid := io.divider_tvalid
   io.divider_tready := divider.io.tready
@@ -203,8 +203,7 @@ class InsExecute extends Module {
     (io.id_ex_in.regfile_waddr_sel_id_ex === RegFileWAddrSel.inst_rt) -> io.id_ex_in.inst_rt_id_ex,
     (io.id_ex_in.regfile_waddr_sel_id_ex === RegFileWAddrSel.const_31) -> 31.U))
 
-  val ins_div : Bool = io.id_ex_in.alu_op_id_ex === AluOp.op_div || io.id_ex_in.alu_op_id_ex === AluOp.op_divu
-  val ready_go: Bool = Mux(ins_div, !divider.io.out_valid, 1.B)
+  val ready_go: Bool = Mux(divider_required, divider.io.out_valid, 1.B)
   io.this_allowin := ready_go && io.next_allowin && !reset.asBool()
   io.ex_ms_out.bus_valid := ready_go && bus_valid
 }

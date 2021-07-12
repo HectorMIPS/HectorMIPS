@@ -14,6 +14,7 @@ class IPDividerBundle extends Bundle {
 
   val m_axis_dout_tvalid: Bool = Output(Bool())
   val m_axis_dout_tdata : UInt = Output(UInt(64.W))
+  val aclk              : Bool = Input(Bool())
 }
 
 class div_signed_gen_0 extends BlackBox {
@@ -58,6 +59,9 @@ class CommonDivider extends Module {
     ip_divider_unsigned.io.m_axis_dout_tdata(63, 32))
   io.remainder := Mux(io.is_signed, ip_divider_signed.io.m_axis_dout_tdata(31, 0),
     ip_divider_unsigned.io.m_axis_dout_tdata(31, 0))
+
+  ip_divider_signed.io.aclk := clock.asBool()
+  ip_divider_unsigned.io.aclk := clock.asBool()
 }
 
 object CommonDivider extends App {

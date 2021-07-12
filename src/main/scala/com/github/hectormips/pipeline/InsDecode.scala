@@ -207,7 +207,7 @@ class InsDecode extends Module {
 
   src1_sel := Mux1H(Seq(
     (ins_addu | ins_add | ins_addiu | ins_addi | ins_subu | ins_sub | ins_lw | ins_sw |
-      ins_slt | ins_sltu | ins_and | ins_or | ins_xor | ins_nor | ins_sltu | ins_sltiu |
+      ins_slt | ins_sltu | ins_and | ins_or | ins_xor | ins_nor | ins_sltu | ins_slti | ins_sltiu |
       ins_andi | ins_ori | ins_xori | ins_sllv | ins_srlv | ins_srav | ins_multu |
       ins_mult | ins_div | ins_divu | ins_mthi | ins_mtlo) -> AluSrc1Sel.regfile_read1,
     ins_jal -> AluSrc1Sel.pc_delay,

@@ -9,6 +9,7 @@ import java.io.{File, PrintWriter}
 import scala.io.Source
 
 class CpuTopBundle extends Bundle {
+  val interrupt      : UInt = Input(UInt(6.W))
   val inst_sram_en   : Bool = Output(Bool())
   val inst_sram_wen  : UInt = Output(UInt(4.W))
   val inst_sram_addr : UInt = Output(UInt(32.W))
@@ -25,6 +26,8 @@ class CpuTopBundle extends Bundle {
   val debug_wb_rf_wen  : UInt = Output(UInt(4.W))
   val debug_wb_rf_wnum : UInt = Output(UInt(5.W))
   val debug_wb_rf_wdata: UInt = Output(UInt(32.W))
+
+  forceName(interrupt, "int")
 
   forceName(inst_sram_en, "inst_sram_en")
   forceName(inst_sram_wen, "inst_sram_wen")
