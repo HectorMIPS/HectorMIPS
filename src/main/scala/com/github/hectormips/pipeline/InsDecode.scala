@@ -166,8 +166,8 @@ class InsDecode extends Module {
     byPassData(rt, io.bypass_bus.bp_wb_id),
   )))
   val regfile1_eq_regfile2: Bool = regfile_read1_with_bypass === regfile_read2_with_bypass
-  val regfile1_gt_0       : Bool = regfile_read1_with_bypass > 0.U
-  val regfile1_ge_0       : Bool = regfile_read1_with_bypass >= 0.U
+  val regfile1_gt_0       : Bool = regfile_read1_with_bypass.asSInt() > 0.S
+  val regfile1_ge_0       : Bool = regfile_read1_with_bypass.asSInt() >= 0.S
   offset := (io.if_id_in.ins_if_id(15, 0) << 2).asSInt()
   imm_signed := io.if_id_in.ins_if_id(15, 0).asSInt()
   io.id_pf_out.jump_sel_id_pf := Mux1H(Seq(
