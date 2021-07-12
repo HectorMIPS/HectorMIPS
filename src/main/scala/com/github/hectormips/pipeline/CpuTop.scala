@@ -172,15 +172,16 @@ class CpuTop(pc_init: Int, reg_init: Int = 0) extends MultiIOModule {
 
     val ex_module            : InsExecute        = Module(new InsExecute)
     val ex_divider_state_next: DividerState.Type = Wire(DividerState())
-    val ex_divider_ready     : Bool              = ex_module.io.divider_tready
     val ex_divider_state_reg : DividerState.Type = RegEnable(next = ex_divider_state_next, init = DividerState.waiting,
       enable = ex_module.io.divider_required)
     ex_divider_state_next := MuxCase(ex_divider_state_reg, Seq(
       (ex_divider_state_reg === DividerState.waiting && ex_module.io.divider_required) -> DividerState.inputting,
-      (ex_divider_state_reg === DividerState.inputting && ex_module.io.divider_tready) -> DividerState.processing,
-      (ex_divider_state_reg === DividerState.processing && ex_module.io.this_allowin) -> DividerState.waiting
+      (ex_divider_state_reg === DividerState.inputting && ex_module.io.divider_tready) -> DividerState.handshaking,
+      (ex_divider_state_reg === DividerState.handshaking && !ex_module.io.divider_tready) -> DividerState.calculating,
+      (ex_divider_state_reg === DividerState.calculating && ex_module.io.this_allowin) -> DividerState.waiting
     ))
-    ex_module.io.divider_tvalid := ex_divider_state_next === DividerState.inputting
+    ex_module.io.divider_tvalid := ex_divider_state_next === DividerState.inputting ||
+      ex_divider_state_next === DividerState.handshaking
     // 直接接入ram的通路
     ex_module.io.id_ex_in := ex_reg
     ex_module.io.hi_in := hi

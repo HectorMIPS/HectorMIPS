@@ -59,9 +59,10 @@ class DecodeExecuteBundle extends WithValid {
 }
 
 object DividerState extends ChiselEnum {
-  val waiting   : Type = Value(0.U)
-  val inputting : Type = Value(1.U)
-  val processing: Type = Value(2.U)
+  val waiting    : Type = Value(0.U)
+  val inputting  : Type = Value(1.U)
+  val handshaking: Type = Value(2.U)
+  val calculating: Type = Value(4.U)
 }
 
 class InsExecuteBundle extends WithAllowin {

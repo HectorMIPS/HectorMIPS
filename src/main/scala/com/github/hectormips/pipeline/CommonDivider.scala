@@ -50,6 +50,12 @@ class CommonDivider extends Module {
   ip_divider_signed.io.s_axis_dividend_tdata := io.dividend
   ip_divider_signed.io.s_axis_dividend_tvalid := io.tvalid
 
+  ip_divider_unsigned.io.s_axis_divisor_tdata := io.divisor
+  ip_divider_unsigned.io.s_axis_divisor_tvalid := io.tvalid
+
+  ip_divider_unsigned.io.s_axis_dividend_tdata := io.dividend
+  ip_divider_unsigned.io.s_axis_dividend_tvalid := io.tvalid
+
   io.tready := Mux(io.is_signed, ip_divider_signed.io.s_axis_divisor_tready && ip_divider_signed.io.s_axis_dividend_tready,
     ip_divider_unsigned.io.s_axis_divisor_tready && ip_divider_unsigned.io.s_axis_dividend_tready)
 
