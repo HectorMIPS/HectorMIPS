@@ -190,4 +190,43 @@ class SocTopTest extends FlatSpec with ChiselScalatestTester with Matchers {
     }
 
   }
+  it should "run exception commands" in {
+
+    test(new SocTop("resource/inst7.hex.txt")).withAnnotations(Seq(WriteVcdAnnotation)) { c => {
+      c.clock.step(5)
+      printPc(c.io.debug_wb_pc.peek())
+      // addiu s2, s2, 0x120
+      c.io.debug_wb_rf_wen.expect(0xf.U)
+      c.io.debug_wb_rf_wdata.expect(0x125.U)
+
+      // mtc0 s2, c0_epc
+      c.clock.step(1)
+
+      // addiu s2, s2, 0x120
+      // addiu s2, s2, 0x120
+      // addiu s2, s2, 0x120
+      c.clock.step(4)
+      // mtc0 s2, c0_epc
+      c.io.debug_wb_rf_wnum.expect(18.U)
+      c.io.debug_wb_rf_wen.expect(0xf.U)
+      c.io.debug_wb_rf_wdata.expect(0x125.U)
+
+      // 18: mfc0 s3, c0_epc
+      c.clock.step()
+      c.io.debug_wb_rf_wnum.expect(19.U)
+      c.io.debug_wb_rf_wen.expect(0xf.U)
+      c.io.debug_wb_rf_wdata.expect(0x125.U)
+
+      // next inst needs another 3 cycles from id-ex-ms-wb
+      c.clock.step(3)
+      // addi s3, s3, 0x130
+      c.io.debug_wb_rf_wnum.expect(19.U)
+      c.io.debug_wb_rf_wen.expect(0xf.U)
+      c.io.debug_wb_rf_wdata.expect(0x255.U)
+
+
+    }
+    }
+
+  }
 }

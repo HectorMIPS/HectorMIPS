@@ -48,9 +48,11 @@ class FetchDecodeBundle extends WithValid {
 }
 
 class BypassMsgBundle extends Bundle {
-  val reg_addr : UInt = UInt(5.W)
-  val reg_data : UInt = UInt(32.W)
-  val reg_valid: Bool = Bool()
+  val reg_addr   : UInt = UInt(5.W)
+  val reg_data   : UInt = UInt(32.W)
+  val reg_valid  : Bool = Bool()
+  // 当需要读的数据来自于cp0时，需要强制强制暂停前面的所有指令
+  val force_stall: Bool = Bool()
 }
 
 class DecodeBypassBundle extends Bundle {
@@ -142,6 +144,8 @@ class InsDecode extends Module {
   val ins_lhu     : Bool            = opcode === 0x25.U
   val ins_sb      : Bool            = opcode === 0x28.U
   val ins_sh      : Bool            = opcode === 0x29.U
+  val ins_mfc0    : Bool            = opcode === 0x10.U && rs === 0.U && io.if_id_in.ins_if_id(10, 3) === 0.U
+  val ins_mtc0    : Bool            = opcode === 0x10.U && rs === 0x04.U && io.if_id_in.ins_if_id(10, 3) === 0.U
 
 
   // 使用sint进行有符号拓展
@@ -176,7 +180,7 @@ class InsDecode extends Module {
       ins_slt | ins_sltu | ins_sll | ins_srl | ins_sra | ins_lui | ins_and | ins_or |
       ins_xor | ins_nor | ins_slti | ins_sltiu | ins_andi | ins_ori | ins_xori | ins_sllv |
       ins_srlv | ins_srav | ins_mult | ins_multu | ins_div | ins_divu | ins_mfhi | ins_mflo |
-      ins_mthi | ins_mtlo) -> InsJumpSel.delay_slot_pc,
+      ins_mthi | ins_mtlo | ins_mfc0 | ins_mtc0) -> InsJumpSel.delay_slot_pc,
     ((ins_beq && regfile1_eq_regfile2) |
       (ins_bne && !regfile1_eq_regfile2) |
       (ins_bgtz && regfile1_gt_0) |
@@ -217,12 +221,12 @@ class InsDecode extends Module {
   val alu_src1: UInt            = Wire(UInt(32.W))
   val alu_src2: UInt            = Wire(UInt(32.W))
 
-  val bp_ex_id_reg_addr   : UInt = io.bypass_bus.bp_ex_id.reg_addr
-  val branch_inst_conflict: Bool = io.bypass_bus.valid_lw_ex_id && bp_ex_id_reg_addr =/= 0.U &&
+  val bp_ex_id_reg_addr : UInt = io.bypass_bus.bp_ex_id.reg_addr
+  val branch_inst_hazard: Bool = io.bypass_bus.valid_lw_ex_id && bp_ex_id_reg_addr =/= 0.U &&
     (((ins_jr || ins_jalr) && rs === bp_ex_id_reg_addr) ||
       ((ins_beq || ins_bne) && (rs === bp_ex_id_reg_addr || rt === bp_ex_id_reg_addr)) ||
       ((ins_bgez || ins_bgtz || ins_blez || ins_bltz || ins_bltzal || ins_bgezal) && (rs === bp_ex_id_reg_addr)))
-  val normal_inst_conflict: Bool = io.bypass_bus.valid_lw_ex_id && io.bypass_bus.bp_ex_id.reg_addr =/= 0.U &&
+  val normal_inst_hazard: Bool = io.bypass_bus.valid_lw_ex_id && io.bypass_bus.bp_ex_id.reg_addr =/= 0.U &&
     ((src1_sel === AluSrc1Sel.regfile_read1 && rs === io.bypass_bus.bp_ex_id.reg_addr) ||
       (src2_sel === AluSrc2Sel.regfile_read2 && rt === io.bypass_bus.bp_ex_id.reg_addr)) &&
     // 当ex阶段的输出有效的时候说明lw指令还停留在ex阶段
@@ -231,8 +235,17 @@ class InsDecode extends Module {
   // 译码输出准备完毕条件：
   //  上一条lw的目的操作数为0
   //  上一条lw不与本指令的操作寄存器相关
+  //  前递路径中有需要从cp0寄存器读入的数据且还没有在wb阶段准备好
   //  如果不满足以上条件，则译码阶段没有准备好
-  ready_go := !normal_inst_conflict && !branch_inst_conflict
+  def hasBypassHazard(bypass_addr: UInt): Bool = {
+    bypass_addr =/= 0.U && ((src1_sel === AluSrc1Sel.regfile_read1 && bypass_addr === rs) ||
+      (src2_sel === AluSrc2Sel.regfile_read2 && bypass_addr === rt))
+  }
+
+  ready_go := !normal_inst_hazard && !branch_inst_hazard &&
+    !(((hasBypassHazard(io.bypass_bus.bp_ex_id.reg_addr) && io.bypass_bus.bp_ex_id.reg_valid && io.bypass_bus.bp_ex_id.force_stall) ||
+      (hasBypassHazard(io.bypass_bus.bp_ms_id.reg_addr) && io.bypass_bus.bp_ms_id.reg_valid && io.bypass_bus.bp_ms_id.force_stall)) &&
+      !(hasBypassHazard(io.bypass_bus.bp_wb_id.reg_addr) && io.bypass_bus.bp_wb_id.reg_valid && !io.bypass_bus.bp_wb_id.force_stall))
 
 
   src1_sel := Mux1H(Seq(
@@ -242,13 +255,13 @@ class InsDecode extends Module {
       ins_andi | ins_ori | ins_xori | ins_sllv | ins_srlv | ins_srav | ins_multu |
       ins_mult | ins_div | ins_divu | ins_mthi | ins_mtlo) -> AluSrc1Sel.regfile_read1,
     (ins_jal | ins_bgezal | ins_bltzal | ins_jalr) -> AluSrc1Sel.pc_delay,
-    (ins_sll | ins_srl | ins_sra) -> AluSrc1Sel.sa_32,
+    (ins_sll | ins_srl | ins_sra | ins_mtc0) -> AluSrc1Sel.sa_32,
   ))
 
   src2_sel := Mux1H(Seq(
     (ins_addu | ins_add | ins_subu | ins_sub | ins_slt | ins_sltu | ins_sll | ins_srl |
       ins_sra | ins_and | ins_or | ins_xor | ins_nor | ins_sllv | ins_srlv | ins_srav |
-      ins_mult | ins_multu | ins_div | ins_divu) -> AluSrc2Sel.regfile_read2,
+      ins_mult | ins_multu | ins_div | ins_divu | ins_mtc0) -> AluSrc2Sel.regfile_read2,
     (ins_addiu | ins_addi | ins_lw | ins_lb |
       ins_lbu | ins_lh | ins_lhu | ins_sw | ins_sh | ins_sb | ins_lui | ins_slti |
       ins_sltiu) -> AluSrc2Sel.imm_32_signed_extend,
@@ -289,7 +302,7 @@ class InsDecode extends Module {
   io.id_ex_out.alu_op_id_ex := Mux1H(Seq(
     (ins_addu | ins_add | ins_addiu | ins_addi | ins_lw | ins_lb |
       ins_lbu | ins_lh | ins_lhu | ins_sw | ins_sh | ins_sb |
-      ins_jal | ins_bltzal | ins_bgezal | ins_jalr) -> AluOp.op_add,
+      ins_jal | ins_bltzal | ins_bgezal | ins_jalr | ins_mtc0) -> AluOp.op_add,
     (ins_subu | ins_sub) -> AluOp.op_sub,
     (ins_slt | ins_slti) -> AluOp.op_slt,
     (ins_sltu | ins_sltiu) -> AluOp.op_sltu,
@@ -310,14 +323,14 @@ class InsDecode extends Module {
     ins_lw | ins_lb |
     ins_lbu | ins_lh | ins_lhu | ins_jal | ins_bgezal | ins_bltzal | ins_slt | ins_sltu | ins_sll | ins_srl | ins_sra | ins_lui | ins_and | ins_or |
     ins_xor | ins_nor | ins_sltiu | ins_slti | ins_andi | ins_ori | ins_xori | ins_sllv | ins_srlv |
-    ins_srav | ins_mfhi | ins_mflo | ins_jalr
+    ins_srav | ins_mfhi | ins_mflo | ins_jalr | ins_mfc0
   io.id_ex_out.regfile_waddr_sel_id_ex := Mux1H(Seq(
     (ins_addu | ins_add | ins_subu | ins_sub | ins_slt | ins_sltu | ins_sll | ins_srl |
       ins_sra | ins_and | ins_or | ins_xor | ins_nor | ins_sllv | ins_srlv |
       ins_srav | ins_mfhi | ins_mflo | ins_jalr) -> RegFileWAddrSel.inst_rd,
     (ins_addiu | ins_addi | ins_lw | ins_lb |
       ins_lbu | ins_lh | ins_lhu | ins_lui | ins_slti | ins_sltiu | ins_andi | ins_ori |
-      ins_xori) -> RegFileWAddrSel.inst_rt,
+      ins_xori | ins_mfc0) -> RegFileWAddrSel.inst_rt,
     (ins_jal | ins_bgezal | ins_bltzal) -> RegFileWAddrSel.const_31
   ))
 
@@ -368,7 +381,12 @@ class InsDecode extends Module {
   io.id_ex_out.bus_valid := io.if_id_in.bus_valid && !reset.asBool() && ready_go
 
   // 只有在分支命令产生冲突时才向预取阶段发送stall
-  io.id_pf_out.stall_id_pf := branch_inst_conflict
+  io.id_pf_out.stall_id_pf := branch_inst_hazard
+
+  io.id_ex_out.cp0_wen_id_ex := ins_mtc0
+  io.id_ex_out.cp0_addr_id_ex := rd
+  io.id_ex_out.cp0_sel_id_ex := io.if_id_in.ins_if_id(2, 0)
+  io.id_ex_out.regfile_wdata_from_cp0_id_ex := ins_mfc0
 }
 
 object InsDecode extends App {

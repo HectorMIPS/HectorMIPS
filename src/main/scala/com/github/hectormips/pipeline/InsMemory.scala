@@ -26,6 +26,10 @@ class ExecuteMemoryBundle extends WithValid {
   val mem_rdata_offset                : UInt                 = UInt(2.W)
   val mem_rdata_sel_ex_ms             : MemRDataSel.Type     = MemRDataSel() // 假设数据已经将指定地址对齐到最低位
   val mem_rdata_extend_is_signed_ex_ms: Bool                 = Bool()
+  val cp0_wen_ex_ms                   : Bool                 = Bool()
+  val cp0_addr_ex_ms                  : UInt                 = UInt(5.W)
+  val cp0_sel_ex_ms                   : UInt                 = UInt(3.W)
+  val regfile_wdata_from_cp0_ex_ms    : Bool                 = Bool()
 
   override def defaults(): Unit = {
     super.defaults()
@@ -39,6 +43,10 @@ class ExecuteMemoryBundle extends WithValid {
     mem_rdata_offset := 0.U
     mem_rdata_sel_ex_ms := MemRDataSel.word
     mem_rdata_extend_is_signed_ex_ms := 0.B
+    cp0_wen_ex_ms := 0.B
+    cp0_addr_ex_ms := 0.U
+    cp0_sel_ex_ms := 0.U
+    regfile_wdata_from_cp0_ex_ms := 0.B
   }
 }
 
@@ -61,8 +69,11 @@ class InsMemory extends Module {
   for (i <- 0 until 4) {
     mem_rdata_vec(i) := mem_rdata_fixed(31 - i * 8, 24 - i * 8)
   }
-  mem_rdata_fixed := (io.mem_rdata >> io.ex_ms_in.mem_rdata_offset).asUInt()
-  val mem_rdata_out   : UInt = Wire(UInt(32.W))
+  val mem_rdata_offset_byte: UInt = Wire(UInt(5.W))
+  // 以字节为单位进行位移操作
+  mem_rdata_offset_byte := io.ex_ms_in.mem_rdata_offset << 3.U
+  mem_rdata_fixed := (io.mem_rdata >> mem_rdata_offset_byte).asUInt()
+  val mem_rdata_out: UInt = Wire(UInt(32.W))
 
   def extendBySignFlag(sign_bit: Bool, width: Int): UInt = {
     VecInit(Seq.fill(width)(io.ex_ms_in.mem_rdata_extend_is_signed_ex_ms & sign_bit)).asUInt()
@@ -91,4 +102,10 @@ class InsMemory extends Module {
     (io.ex_ms_in.regfile_waddr_sel_ex_ms === RegFileWAddrSel.inst_rd) -> io.ex_ms_in.inst_rd_ex_ms,
     (io.ex_ms_in.regfile_waddr_sel_ex_ms === RegFileWAddrSel.inst_rt) -> io.ex_ms_in.inst_rt_ex_ms,
     (io.ex_ms_in.regfile_waddr_sel_ex_ms === RegFileWAddrSel.const_31) -> 31.U))
+  io.bypass_ms_id.force_stall := io.ms_wb_out.regfile_wdata_from_cp0_ms_wb
+
+  io.ms_wb_out.cp0_addr_ms_wb := io.ex_ms_in.cp0_addr_ex_ms
+  io.ms_wb_out.cp0_wen_ms_wb := io.ex_ms_in.cp0_wen_ex_ms
+  io.ms_wb_out.cp0_sel_ms_wb := io.ex_ms_in.cp0_sel_ex_ms
+  io.ms_wb_out.regfile_wdata_from_cp0_ms_wb := io.ex_ms_in.regfile_wdata_from_cp0_ex_ms
 }

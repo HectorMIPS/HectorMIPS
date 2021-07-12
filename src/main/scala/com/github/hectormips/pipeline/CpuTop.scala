@@ -178,7 +178,8 @@ class CpuTop(pc_init: Int, reg_init: Int = 0) extends MultiIOModule {
       (ex_divider_state_reg === DividerState.waiting && ex_module.io.divider_required) -> DividerState.inputting,
       (ex_divider_state_reg === DividerState.inputting && ex_module.io.divider_tready) -> DividerState.handshaking,
       (ex_divider_state_reg === DividerState.handshaking && !ex_module.io.divider_tready) -> DividerState.calculating,
-      (ex_divider_state_reg === DividerState.calculating && ex_module.io.this_allowin) -> DividerState.waiting
+      (ex_divider_state_reg === DividerState.calculating && ex_module.io.this_allowin) -> DividerState.waiting,
+      ex_allowin -> DividerState.waiting
     ))
     ex_module.io.divider_tvalid := ex_divider_state_next === DividerState.inputting ||
       ex_divider_state_next === DividerState.handshaking
@@ -217,12 +218,15 @@ class CpuTop(pc_init: Int, reg_init: Int = 0) extends MultiIOModule {
     bypass_bus.bp_ms_id := ms_module.io.bypass_ms_id
 
     // 写回
-    val wb_reg   : MemoryWriteBackBundle = RegEnableWithValid(next = ms_wb_bus, enable = wb_allowin && ms_wb_bus.bus_valid, init = {
+    val wb_reg: MemoryWriteBackBundle = RegEnableWithValid(next = ms_wb_bus, enable = wb_allowin && ms_wb_bus.bus_valid, init = {
       val bundle = Wire(new MemoryWriteBackBundle)
       bundle.defaults()
       bundle
     }, valid_enable = wb_allowin)
-    val wb_module: InsWriteBack          = Module(new InsWriteBack)
+
+    val cp0: CP0 = Module(new CP0)
+
+    val wb_module: InsWriteBack = Module(new InsWriteBack)
     wb_module.io.ms_wb_in := wb_reg
     regfile.io.wdata := wb_module.io.regfile_wdata
     regfile.io.waddr := wb_module.io.regfile_waddr
@@ -230,6 +234,11 @@ class CpuTop(pc_init: Int, reg_init: Int = 0) extends MultiIOModule {
     wb_module.io.next_allowin := 1.B
     wb_allowin := wb_module.io.this_allowin
     bypass_bus.bp_wb_id := wb_module.io.bypass_wb_id
+    cp0.io.wen := wb_module.io.cp0_wen
+    cp0.io.wdata := wb_module.io.cp0_wdata
+    cp0.io.regsel := wb_module.io.cp0_sel
+    cp0.io.regaddr := wb_module.io.cp0_addr
+    wb_module.io.cp0_rdata := cp0.io.rdata
 
     io.debug_wb_pc := wb_module.io.pc_wb
     io.debug_wb_rf_wnum := wb_module.io.regfile_waddr

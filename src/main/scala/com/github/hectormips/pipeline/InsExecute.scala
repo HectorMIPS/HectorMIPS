@@ -32,6 +32,10 @@ class DecodeExecuteBundle extends WithValid {
   val hilo_sel                        : HiloSel.Type         = HiloSel()
   val mem_rdata_sel_id_ex             : MemRDataSel.Type     = MemRDataSel() // 假设数据已经将指定地址对齐到最低位
   val mem_rdata_extend_is_signed_id_ex: Bool                 = Bool()
+  val cp0_wen_id_ex                   : Bool                 = Bool()
+  val cp0_addr_id_ex                  : UInt                 = UInt(5.W)
+  val cp0_sel_id_ex                   : UInt                 = UInt(3.W)
+  val regfile_wdata_from_cp0_id_ex    : Bool                 = Bool()
 
   override def defaults(): Unit = {
     alu_op_id_ex := AluOp.op_add
@@ -60,7 +64,10 @@ class DecodeExecuteBundle extends WithValid {
     mem_rdata_sel_id_ex := MemRDataSel.word
     mem_rdata_extend_is_signed_id_ex := 0.B
 
-
+    cp0_wen_id_ex := 0.B
+    cp0_addr_id_ex := 0.U
+    cp0_sel_id_ex := 0.U
+    regfile_wdata_from_cp0_id_ex := 0.B
     super.defaults()
   }
 }
@@ -214,8 +221,14 @@ class InsExecute extends Module {
     (io.id_ex_in.regfile_waddr_sel_id_ex === RegFileWAddrSel.inst_rd) -> io.id_ex_in.inst_rd_id_ex,
     (io.id_ex_in.regfile_waddr_sel_id_ex === RegFileWAddrSel.inst_rt) -> io.id_ex_in.inst_rt_id_ex,
     (io.id_ex_in.regfile_waddr_sel_id_ex === RegFileWAddrSel.const_31) -> 31.U))
+  io.bypass_ex_id.force_stall := io.id_ex_in.regfile_wdata_from_cp0_id_ex
 
   val ready_go: Bool = Mux(divider_required, divider.io.out_valid, 1.B)
   io.this_allowin := ready_go && io.next_allowin && !reset.asBool()
   io.ex_ms_out.bus_valid := ready_go && bus_valid
+
+  io.ex_ms_out.cp0_addr_ex_ms := io.id_ex_in.cp0_addr_id_ex
+  io.ex_ms_out.cp0_wen_ex_ms := io.id_ex_in.cp0_wen_id_ex
+  io.ex_ms_out.cp0_sel_ex_ms := io.id_ex_in.cp0_sel_id_ex
+  io.ex_ms_out.regfile_wdata_from_cp0_ex_ms := io.id_ex_in.regfile_wdata_from_cp0_id_ex
 }
