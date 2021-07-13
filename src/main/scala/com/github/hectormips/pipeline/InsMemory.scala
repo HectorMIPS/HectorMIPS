@@ -55,7 +55,8 @@ class InsMemoryBundle extends WithAllowin {
   val ex_ms_in : ExecuteMemoryBundle   = Input(new ExecuteMemoryBundle)
   val ms_wb_out: MemoryWriteBackBundle = Output(new MemoryWriteBackBundle)
 
-  val bypass_ms_id: BypassMsgBundle = Output(new BypassMsgBundle)
+  val bypass_ms_id           : BypassMsgBundle = Output(new BypassMsgBundle)
+  val cp0_hazard_bypass_ms_ex: CP0HazardBypass = Output(new CP0HazardBypass)
 }
 
 class InsMemory extends Module {
@@ -108,4 +109,7 @@ class InsMemory extends Module {
   io.ms_wb_out.cp0_wen_ms_wb := io.ex_ms_in.cp0_wen_ex_ms
   io.ms_wb_out.cp0_sel_ms_wb := io.ex_ms_in.cp0_sel_ex_ms
   io.ms_wb_out.regfile_wdata_from_cp0_ms_wb := io.ex_ms_in.regfile_wdata_from_cp0_ex_ms
+
+  io.cp0_hazard_bypass_ms_ex.bus_valid := bus_valid
+  io.cp0_hazard_bypass_ms_ex.cp0_en := io.ex_ms_in.regfile_wdata_from_cp0_ex_ms || io.ex_ms_in.cp0_wen_ex_ms
 }

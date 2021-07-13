@@ -36,7 +36,7 @@ class InsWriteBackBundle extends WithAllowin {
 
   val regfile_wdata: UInt = Output(UInt(32.W))
   val regfile_waddr: UInt = Output(UInt(5.W))
-  val regfile_we   : Bool = Output(Bool())
+  val regfile_wen  : Bool = Output(Bool())
   val wb_valid     : Bool = Output(Bool())
   val pc_wb        : UInt = Output(UInt(32.W))
 
@@ -46,12 +46,13 @@ class InsWriteBackBundle extends WithAllowin {
   val cp0_wdata: UInt = Output(UInt(32.W))
   val cp0_sel  : UInt = Output(UInt(3.W))
 
-  val bypass_wb_id: BypassMsgBundle = Output(new BypassMsgBundle)
+  val bypass_wb_id           : BypassMsgBundle = Output(new BypassMsgBundle)
+  val cp0_hazard_bypass_wb_ex: CP0HazardBypass = Output(new CP0HazardBypass)
 }
 
 class InsWriteBack extends Module {
   val io: InsWriteBackBundle = IO(new InsWriteBackBundle)
-  io.regfile_we := io.ms_wb_in.regfile_we_ms_wb && io.ms_wb_in.bus_valid
+  io.regfile_wen := io.ms_wb_in.regfile_we_ms_wb && io.ms_wb_in.bus_valid
   io.regfile_waddr := 0.U
   switch(io.ms_wb_in.regfile_waddr_sel_ms_wb) {
     is(RegFileWAddrSel.inst_rd) {
@@ -89,4 +90,7 @@ class InsWriteBack extends Module {
     (io.ms_wb_in.regfile_waddr_sel_ms_wb === RegFileWAddrSel.const_31) -> 31.U))
   // 此时一定可以从cp0取得数据，force_stall用于反馈是否可以结束暂停
   io.bypass_wb_id.force_stall := !io.ms_wb_in.regfile_wdata_from_cp0_ms_wb
+
+  io.cp0_hazard_bypass_wb_ex.bus_valid := bus_valid
+  io.cp0_hazard_bypass_wb_ex.cp0_en := io.ms_wb_in.regfile_wdata_from_cp0_ms_wb || io.ms_wb_in.cp0_wen_ms_wb
 }

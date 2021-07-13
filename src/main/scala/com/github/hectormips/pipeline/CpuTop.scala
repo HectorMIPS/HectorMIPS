@@ -85,18 +85,26 @@ class CpuTop(pc_init: Int, reg_init: Int = 0) extends MultiIOModule {
     val lo     : UInt = RegEnable(lo_next, 0.U, lo_wen)
 
     // 连线
-    val if_id_bus : FetchDecodeBundle     = Wire(new FetchDecodeBundle)
-    val id_ex_bus : DecodeExecuteBundle   = Wire(new DecodeExecuteBundle)
-    val ex_ms_bus : ExecuteMemoryBundle   = Wire(new ExecuteMemoryBundle)
-    val ms_wb_bus : MemoryWriteBackBundle = Wire(new MemoryWriteBackBundle)
-    val id_pf_bus : DecodePreFetchBundle  = Wire(new DecodePreFetchBundle)
-    val if_allowin: Bool                  = Wire(Bool())
-    val id_allowin: Bool                  = Wire(Bool())
-    val ex_allowin: Bool                  = Wire(Bool())
-    val ms_allowin: Bool                  = Wire(Bool())
-    val wb_allowin: Bool                  = Wire(Bool())
-    val bypass_bus: DecodeBypassBundle    = Wire(new DecodeBypassBundle)
-    val lw_ex_id  : Bool                  = Wire(Bool())
+    val if_id_bus                    : FetchDecodeBundle     = Wire(new FetchDecodeBundle)
+    val id_ex_bus                    : DecodeExecuteBundle   = Wire(new DecodeExecuteBundle)
+    val ex_ms_bus                    : ExecuteMemoryBundle   = Wire(new ExecuteMemoryBundle)
+    val ms_wb_bus                    : MemoryWriteBackBundle = Wire(new MemoryWriteBackBundle)
+    val id_pf_bus                    : DecodePreFetchBundle  = Wire(new DecodePreFetchBundle)
+    val if_allowin                   : Bool                  = Wire(Bool())
+    val id_allowin                   : Bool                  = Wire(Bool())
+    val ex_allowin                   : Bool                  = Wire(Bool())
+    val ms_allowin                   : Bool                  = Wire(Bool())
+    val wb_allowin                   : Bool                  = Wire(Bool())
+    val bypass_bus                   : DecodeBypassBundle    = Wire(new DecodeBypassBundle)
+    val lw_ex_id                     : Bool                  = Wire(Bool())
+    val cp0_ex                       : CP0ExecuteBundle      = Wire(new CP0ExecuteBundle)
+    val ex_cp0                       : ExecuteCP0Bundle      = Wire(new ExecuteCP0Bundle)
+    val pipeline_flush_ex            : Bool                  = Wire(Bool()) // 由执行阶段发出的流水线清空信号
+    val to_exception_service_en_ex_pf: Bool                  = Wire(Bool())
+    val to_epc_en_ex_pf              : Bool                  = Wire(Bool())
+    val epc_cp0_pf                   : UInt                  = Wire(UInt(32.W))
+    val cp0_hazard_bypass_ms_ex      : CP0HazardBypass       = Wire(new CP0HazardBypass)
+    val cp0_hazard_bypass_wb_ex      : CP0HazardBypass       = Wire(new CP0HazardBypass)
     bypass_bus.valid_lw_ex_id := lw_ex_id
 
     def addr_mapping(physical_addr: UInt): UInt = {
@@ -116,6 +124,10 @@ class CpuTop(pc_init: Int, reg_init: Int = 0) extends MultiIOModule {
     pf_module.io.id_pf_in := id_pf_bus
     pf_module.io.pc := pc
     pf_module.io.next_allowin := if_allowin
+    pf_module.io.to_exception_service_en_ex_pf := to_exception_service_en_ex_pf
+    pf_module.io.to_epc_en_ex_pf := to_epc_en_ex_pf
+    pf_module.io.cp0_pf_epc := epc_cp0_pf
+    pf_module.io.flush := pipeline_flush_ex
     io.inst_sram_addr := addr_mapping(pf_module.io.ins_ram_addr)
     io.inst_sram_en := pf_module.io.ins_ram_en
     io.inst_sram_wen := "b0000".U(4.W)
@@ -134,6 +146,8 @@ class CpuTop(pc_init: Int, reg_init: Int = 0) extends MultiIOModule {
     if_module.io.ins_ram_data := io.inst_sram_rdata
     if_module.io.pc_debug_pf_if := pf_module.io.pc_debug_pf_if
     if_module.io.next_allowin := id_allowin
+    if_module.io.exception_flag_pf_if := pf_module.io.exception_flag_pf_if
+    if_module.io.flush := pipeline_flush_ex
     if_allowin := if_module.io.this_allowin
     if_id_bus := if_module.io.if_id_out
     if_id_bus.bus_valid := if_module.io.if_id_out.bus_valid && if_valid_reg
@@ -152,6 +166,7 @@ class CpuTop(pc_init: Int, reg_init: Int = 0) extends MultiIOModule {
     id_module.io.regfile_read2 := regfile.io.rdata2
     id_module.io.bypass_bus := bypass_bus
     id_module.io.ex_out_valid := ex_ms_bus.bus_valid
+    id_module.io.flush := pipeline_flush_ex
     // 回馈给预取阶段的输出
     id_pf_bus := id_module.io.id_pf_out
 
@@ -187,9 +202,12 @@ class CpuTop(pc_init: Int, reg_init: Int = 0) extends MultiIOModule {
     ex_module.io.id_ex_in := ex_reg
     ex_module.io.hi_in := hi
     ex_module.io.lo_in := lo
+    ex_module.io.cp0_hazard_bypass_ms_ex := cp0_hazard_bypass_ms_ex
+    ex_module.io.cp0_hazard_bypass_wb_ex := cp0_hazard_bypass_wb_ex
     io.data_sram_en := ex_module.io.mem_en
     io.data_sram_wen := ex_module.io.mem_wen
     io.data_sram_addr := addr_mapping(ex_module.io.mem_addr)
+
     //  io.data_sram_wdata := ex_module.io.mem_wdata
     // sw => wdata := regfile2
     io.data_sram_wdata := ex_module.io.mem_wdata
@@ -201,6 +219,11 @@ class CpuTop(pc_init: Int, reg_init: Int = 0) extends MultiIOModule {
     lo_next := ex_module.io.lo_out
     hi_wen := ex_module.io.hi_wen
     lo_wen := ex_module.io.lo_wen
+    ex_module.io.cp0_ex_in := cp0_ex
+    ex_cp0 := ex_module.io.ex_cp0_out
+    pipeline_flush_ex := ex_module.io.pipeline_flush
+    to_exception_service_en_ex_pf := ex_module.io.to_exception_service_en_ex_pf
+    to_epc_en_ex_pf := ex_module.io.to_epc_en_ex_pf
 
 
     // 访存
@@ -215,6 +238,7 @@ class CpuTop(pc_init: Int, reg_init: Int = 0) extends MultiIOModule {
     ms_module.io.mem_rdata := io.data_sram_rdata
     ms_wb_bus := ms_module.io.ms_wb_out
     ms_allowin := ms_module.io.this_allowin
+    cp0_hazard_bypass_ms_ex := ms_module.io.cp0_hazard_bypass_ms_ex
     bypass_bus.bp_ms_id := ms_module.io.bypass_ms_id
 
     // 写回
@@ -225,12 +249,15 @@ class CpuTop(pc_init: Int, reg_init: Int = 0) extends MultiIOModule {
     }, valid_enable = wb_allowin)
 
     val cp0: CP0 = Module(new CP0)
+    cp0.io.ex_cp0_in := ex_cp0
+    cp0_ex := cp0.io.cp0_ex_out
+    epc_cp0_pf := cp0.io.epc
 
     val wb_module: InsWriteBack = Module(new InsWriteBack)
     wb_module.io.ms_wb_in := wb_reg
     regfile.io.wdata := wb_module.io.regfile_wdata
     regfile.io.waddr := wb_module.io.regfile_waddr
-    regfile.io.we := wb_module.io.regfile_we
+    regfile.io.we := wb_module.io.regfile_wen
     wb_module.io.next_allowin := 1.B
     wb_allowin := wb_module.io.this_allowin
     bypass_bus.bp_wb_id := wb_module.io.bypass_wb_id
@@ -239,10 +266,11 @@ class CpuTop(pc_init: Int, reg_init: Int = 0) extends MultiIOModule {
     cp0.io.regsel := wb_module.io.cp0_sel
     cp0.io.regaddr := wb_module.io.cp0_addr
     wb_module.io.cp0_rdata := cp0.io.rdata
+    cp0_hazard_bypass_wb_ex := wb_module.io.cp0_hazard_bypass_wb_ex
 
     io.debug_wb_pc := wb_module.io.pc_wb
     io.debug_wb_rf_wnum := wb_module.io.regfile_waddr
-    io.debug_wb_rf_wen := VecInit(Seq.fill(4)(wb_module.io.regfile_we)).asUInt()
+    io.debug_wb_rf_wen := VecInit(Seq.fill(4)(wb_module.io.regfile_wen)).asUInt()
     io.debug_wb_rf_wdata := wb_module.io.regfile_wdata
 
     id_module.io.next_allowin := ex_allowin

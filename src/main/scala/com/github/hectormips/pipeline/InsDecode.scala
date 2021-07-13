@@ -34,7 +34,7 @@ object HiloSel extends ChiselEnum {
   val lo: Type = Value(2.U)
 }
 
-class FetchDecodeBundle extends WithValid {
+class FetchDecodeBundle extends WithValidAndException {
   val ins_if_id     : UInt = UInt(32.W)
   val pc_if_id      : UInt = UInt(32.W) // 延迟槽pc
   val pc_debug_if_id: UInt = UInt(32.W) // 转移pc
@@ -76,6 +76,7 @@ class InsDecodeBundle extends WithAllowin {
   val id_ex_out   : DecodeExecuteBundle = Output(new DecodeExecuteBundle)
   val ins_opcode  : UInt                = Output(UInt(6.W))
   val ex_out_valid: Bool                = Input(Bool())
+  val flush       : Bool                = Input(Bool())
 
 
   val decode_to_fetch_next_pc: Vec[UInt] = Output(Vec(2, UInt(32.W))) // 回馈给取值的pc通路
@@ -146,6 +147,10 @@ class InsDecode extends Module {
   val ins_sh      : Bool            = opcode === 0x29.U
   val ins_mfc0    : Bool            = opcode === 0x10.U && rs === 0.U && io.if_id_in.ins_if_id(10, 3) === 0.U
   val ins_mtc0    : Bool            = opcode === 0x10.U && rs === 0x04.U && io.if_id_in.ins_if_id(10, 3) === 0.U
+  val ins_nop     : Bool            = io.if_id_in.ins_if_id === 0.U
+  val ins_syscall : Bool            = opcode === 0.U && func === 0x0c.U
+  val ins_break   : Bool            = opcode === 0.U && func === 0x0d.U
+  val ins_eret    : Bool            = io.if_id_in.ins_if_id === 0x42000018.U
 
 
   // 使用sint进行有符号拓展
@@ -203,7 +208,7 @@ class InsDecode extends Module {
   io.id_pf_out.jump_val_id_pf(0) := io.if_id_in.pc_if_id + offset.asUInt()
   io.id_pf_out.jump_val_id_pf(1) := Cat(Seq(io.if_id_in.pc_if_id(31, 28), instr_index, "b00".U(2.W)))
   io.id_pf_out.jump_val_id_pf(2) := regfile_read1_with_bypass
-  io.id_pf_out.bus_valid := io.if_id_in.bus_valid
+  io.id_pf_out.bus_valid := io.if_id_in.bus_valid && !io.flush
 
   io.id_pf_out.jump_taken := (ins_beq && regfile1_eq_regfile2) ||
     (ins_bne && !regfile1_eq_regfile2) ||
@@ -237,15 +242,24 @@ class InsDecode extends Module {
   //  上一条lw不与本指令的操作寄存器相关
   //  前递路径中有需要从cp0寄存器读入的数据且还没有在wb阶段准备好
   //  如果不满足以上条件，则译码阶段没有准备好
+
+  val jump_use_regfile_read1: Bool = ins_beq | ins_bne | ins_bgez | ins_bgtz |
+    ins_blez | ins_bltz | ins_bgezal | ins_bltzal | ins_jr | ins_jalr
+  val jump_use_regfile_read2: Bool = ins_beq | ins_bne
+
+  // 由于syscall在exe生效，而mtc0在写回生效，需要等待其先写入结束
   def hasBypassHazard(bypass_addr: UInt): Bool = {
-    bypass_addr =/= 0.U && ((src1_sel === AluSrc1Sel.regfile_read1 && bypass_addr === rs) ||
-      (src2_sel === AluSrc2Sel.regfile_read2 && bypass_addr === rt))
+    bypass_addr =/= 0.U && (((src1_sel === AluSrc1Sel.regfile_read1 || jump_use_regfile_read1) &&
+      bypass_addr === rs) ||
+      ((src2_sel === AluSrc2Sel.regfile_read2 || jump_use_regfile_read2) && bypass_addr === rt))
   }
 
-  ready_go := !normal_inst_hazard && !branch_inst_hazard &&
-    !(((hasBypassHazard(io.bypass_bus.bp_ex_id.reg_addr) && io.bypass_bus.bp_ex_id.reg_valid && io.bypass_bus.bp_ex_id.force_stall) ||
-      (hasBypassHazard(io.bypass_bus.bp_ms_id.reg_addr) && io.bypass_bus.bp_ms_id.reg_valid && io.bypass_bus.bp_ms_id.force_stall)) &&
-      !(hasBypassHazard(io.bypass_bus.bp_wb_id.reg_addr) && io.bypass_bus.bp_wb_id.reg_valid && !io.bypass_bus.bp_wb_id.force_stall))
+  val bp_ex_id_stall_required: Bool = hasBypassHazard(io.bypass_bus.bp_ex_id.reg_addr) &&
+    io.bypass_bus.bp_ex_id.reg_valid && io.bypass_bus.bp_ex_id.force_stall
+  val bp_ms_id_stall_required: Bool = hasBypassHazard(io.bypass_bus.bp_ms_id.reg_addr) &&
+    io.bypass_bus.bp_ms_id.reg_valid && io.bypass_bus.bp_ms_id.force_stall
+
+  ready_go := !normal_inst_hazard && !branch_inst_hazard && (!bp_ex_id_stall_required && !bp_ms_id_stall_required)
 
 
   src1_sel := Mux1H(Seq(
@@ -378,7 +392,7 @@ class InsDecode extends Module {
   ))
 
   io.this_allowin := io.next_allowin && !reset.asBool() && ready_go
-  io.id_ex_out.bus_valid := io.if_id_in.bus_valid && !reset.asBool() && ready_go
+  io.id_ex_out.bus_valid := io.if_id_in.bus_valid && !reset.asBool() && ready_go && !io.flush
 
   // 只有在分支命令产生冲突时才向预取阶段发送stall
   io.id_pf_out.stall_id_pf := branch_inst_hazard
@@ -387,6 +401,74 @@ class InsDecode extends Module {
   io.id_ex_out.cp0_addr_id_ex := rd
   io.id_ex_out.cp0_sel_id_ex := io.if_id_in.ins_if_id(2, 0)
   io.id_ex_out.regfile_wdata_from_cp0_id_ex := ins_mfc0
+
+  // 相信我 其实我也不想写这么长
+  val ins_valid: Bool = ins_addu ||
+    ins_add ||
+    ins_addiu ||
+    ins_addi ||
+    ins_subu ||
+    ins_sub ||
+    ins_lw ||
+    ins_sw ||
+    ins_beq ||
+    ins_bne ||
+    ins_jal ||
+    ins_jr ||
+    ins_slt ||
+    ins_sltu ||
+    ins_sll ||
+    ins_srl ||
+    ins_sra ||
+    ins_lui ||
+    ins_and ||
+    ins_or ||
+    ins_xor ||
+    ins_nor ||
+    ins_slti ||
+    ins_sltiu ||
+    ins_andi ||
+    ins_ori ||
+    ins_xori ||
+    ins_sllv ||
+    ins_srlv ||
+    ins_srav ||
+    ins_mult ||
+    ins_multu ||
+    ins_div ||
+    ins_divu ||
+    ins_mfhi ||
+    ins_mflo ||
+    ins_mthi ||
+    ins_mtlo ||
+    ins_bgez ||
+    ins_bgtz ||
+    ins_blez ||
+    ins_bltz ||
+    ins_j ||
+    ins_bltzal ||
+    ins_bgezal ||
+    ins_jalr ||
+    ins_lb ||
+    ins_lbu ||
+    ins_lh ||
+    ins_lhu ||
+    ins_sb ||
+    ins_sh ||
+    ins_mfc0 ||
+    ins_mtc0 ||
+    ins_nop ||
+    ins_syscall ||
+    ins_break ||
+    ins_eret
+
+  io.id_ex_out.overflow_detection_en := ins_add | ins_addi | ins_sub
+  io.id_ex_out.ins_eret := ins_eret
+
+  io.id_ex_out.exception_flags := io.if_id_in.exception_flags |
+    Mux(ins_valid, 0.U, ExceptionConst.EXCEPTION_RESERVE_INST) |
+    Mux(ins_syscall, ExceptionConst.EXCEPTION_SYSCALL, 0.U) |
+    Mux(ins_break, ExceptionConst.EXCEPTION_TRAP, 0.U)
 }
 
 object InsDecode extends App {
