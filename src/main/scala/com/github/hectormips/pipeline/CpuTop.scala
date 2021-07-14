@@ -105,6 +105,9 @@ class CpuTop(pc_init: Int, reg_init: Int = 0) extends MultiIOModule {
     val epc_cp0_pf                   : UInt                  = Wire(UInt(32.W))
     val cp0_hazard_bypass_ms_ex      : CP0HazardBypass       = Wire(new CP0HazardBypass)
     val cp0_hazard_bypass_wb_ex      : CP0HazardBypass       = Wire(new CP0HazardBypass)
+    val cp0_status_im                : UInt                  = Wire(UInt(8.W))
+    val cp0_cause_ip                 : UInt                  = Wire(UInt(6.W))
+    val is_delay_slot_id_if          : Bool                  = Wire(Bool())
     bypass_bus.valid_lw_ex_id := lw_ex_id
 
     def addr_mapping(physical_addr: UInt): UInt = {
@@ -148,6 +151,7 @@ class CpuTop(pc_init: Int, reg_init: Int = 0) extends MultiIOModule {
     if_module.io.next_allowin := id_allowin
     if_module.io.exception_flag_pf_if := pf_module.io.exception_flag_pf_if
     if_module.io.flush := pipeline_flush_ex
+    if_module.io.is_delay_slot_id_if:=is_delay_slot_id_if
     if_allowin := if_module.io.this_allowin
     if_id_bus := if_module.io.if_id_out
     if_id_bus.bus_valid := if_module.io.if_id_out.bus_valid && if_valid_reg
@@ -169,6 +173,7 @@ class CpuTop(pc_init: Int, reg_init: Int = 0) extends MultiIOModule {
     id_module.io.flush := pipeline_flush_ex
     // 回馈给预取阶段的输出
     id_pf_bus := id_module.io.id_pf_out
+    is_delay_slot_id_if := id_module.io.is_delay_slot_id_if
 
     // 请求寄存器堆
     regfile.io.raddr1 := id_module.io.id_ex_out.inst_rs_id_ex
@@ -204,6 +209,8 @@ class CpuTop(pc_init: Int, reg_init: Int = 0) extends MultiIOModule {
     ex_module.io.lo_in := lo
     ex_module.io.cp0_hazard_bypass_ms_ex := cp0_hazard_bypass_ms_ex
     ex_module.io.cp0_hazard_bypass_wb_ex := cp0_hazard_bypass_wb_ex
+    ex_module.io.cp0_cause_ip := cp0_cause_ip
+    ex_module.io.cp0_status_im := cp0_status_im
     io.data_sram_en := ex_module.io.mem_en
     io.data_sram_wen := ex_module.io.mem_wen
     io.data_sram_addr := addr_mapping(ex_module.io.mem_addr)
@@ -252,6 +259,9 @@ class CpuTop(pc_init: Int, reg_init: Int = 0) extends MultiIOModule {
     cp0.io.ex_cp0_in := ex_cp0
     cp0_ex := cp0.io.cp0_ex_out
     epc_cp0_pf := cp0.io.epc
+    cp0.io.int_in := io.interrupt
+    cp0_cause_ip := cp0.io.cause_ip
+    cp0_status_im := cp0.io.status_im
 
     val wb_module: InsWriteBack = Module(new InsWriteBack)
     wb_module.io.ms_wb_in := wb_reg

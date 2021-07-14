@@ -24,6 +24,9 @@ class CP0Bundle extends Bundle {
   val ex_cp0_in : ExecuteCP0Bundle = Input(new ExecuteCP0Bundle)
   val cp0_ex_out: CP0ExecuteBundle = Output(new CP0ExecuteBundle)
   val epc       : UInt             = Output(UInt(32.W))
+  val status_im : UInt             = Output(UInt(8.W))
+  val cause_ip  : UInt             = Output(UInt(6.W))
+  val int_in    : UInt             = Input(UInt(6.W))
 
 }
 
@@ -88,7 +91,7 @@ class CP0 extends Module {
   }
 
   when(io.ex_cp0_in.exception_occur) {
-    when(io.ex_cp0_in.exc_code === ExcCodeConst.ADEL) {
+    when(io.ex_cp0_in.exc_code === ExcCodeConst.ADEL || io.ex_cp0_in.exc_code === ExcCodeConst.ADES) {
       badvaddr := io.ex_cp0_in.badvaddr
     }
   }
@@ -112,6 +115,10 @@ class CP0 extends Module {
   }
   io.epc := epc
   io.cp0_ex_out.epc := epc
+  io.cause_ip := Cat(io.int_in, cause(9, 8))
+  io.status_im := status(15, 8)
+  io.cp0_ex_out.status_ie := status(0)
+
 
   io.rdata := 0.U
   io.rdata := Mux1H(Seq(

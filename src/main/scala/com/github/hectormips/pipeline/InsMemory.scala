@@ -9,7 +9,7 @@ object MemorySrc extends ChiselEnum {
   val mem_addr: Type = Value(2.U)
 }
 
-object MemRDataSel extends ChiselEnum {
+object MemDataSel extends ChiselEnum {
   val byte : Type = Value(1.U)
   val hword: Type = Value(2.U)
   val word : Type = Value(4.U)
@@ -24,7 +24,7 @@ class ExecuteMemoryBundle extends WithValid {
   val regfile_we_ex_ms                : Bool                 = Bool()
   val pc_ex_ms_debug                  : UInt                 = UInt(32.W)
   val mem_rdata_offset                : UInt                 = UInt(2.W)
-  val mem_rdata_sel_ex_ms             : MemRDataSel.Type     = MemRDataSel() // 假设数据已经将指定地址对齐到最低位
+  val mem_rdata_sel_ex_ms             : MemDataSel.Type      = MemDataSel() // 假设数据已经将指定地址对齐到最低位
   val mem_rdata_extend_is_signed_ex_ms: Bool                 = Bool()
   val cp0_wen_ex_ms                   : Bool                 = Bool()
   val cp0_addr_ex_ms                  : UInt                 = UInt(5.W)
@@ -41,7 +41,7 @@ class ExecuteMemoryBundle extends WithValid {
     regfile_we_ex_ms := 0.B
     pc_ex_ms_debug := 0.U
     mem_rdata_offset := 0.U
-    mem_rdata_sel_ex_ms := MemRDataSel.word
+    mem_rdata_sel_ex_ms := MemDataSel.word
     mem_rdata_extend_is_signed_ex_ms := 0.B
     cp0_wen_ex_ms := 0.B
     cp0_addr_ex_ms := 0.U
@@ -81,9 +81,9 @@ class InsMemory extends Module {
   }
 
   mem_rdata_out := MuxCase(mem_rdata_fixed, Seq(
-    (io.ex_ms_in.mem_rdata_sel_ex_ms === MemRDataSel.byte) -> Cat(extendBySignFlag(mem_rdata_fixed(7), 24), mem_rdata_fixed(7, 0)),
-    (io.ex_ms_in.mem_rdata_sel_ex_ms === MemRDataSel.hword) -> Cat(extendBySignFlag(mem_rdata_fixed(15), 16), mem_rdata_fixed(15, 0)),
-    (io.ex_ms_in.mem_rdata_sel_ex_ms === MemRDataSel.word) -> mem_rdata_fixed
+    (io.ex_ms_in.mem_rdata_sel_ex_ms === MemDataSel.byte) -> Cat(extendBySignFlag(mem_rdata_fixed(7), 24), mem_rdata_fixed(7, 0)),
+    (io.ex_ms_in.mem_rdata_sel_ex_ms === MemDataSel.hword) -> Cat(extendBySignFlag(mem_rdata_fixed(15), 16), mem_rdata_fixed(15, 0)),
+    (io.ex_ms_in.mem_rdata_sel_ex_ms === MemDataSel.word) -> mem_rdata_fixed
   ))
 
 
@@ -111,5 +111,8 @@ class InsMemory extends Module {
   io.ms_wb_out.regfile_wdata_from_cp0_ms_wb := io.ex_ms_in.regfile_wdata_from_cp0_ex_ms
 
   io.cp0_hazard_bypass_ms_ex.bus_valid := bus_valid
-  io.cp0_hazard_bypass_ms_ex.cp0_en := io.ex_ms_in.regfile_wdata_from_cp0_ex_ms || io.ex_ms_in.cp0_wen_ex_ms
+  io.cp0_hazard_bypass_ms_ex.cp0_en := io.ex_ms_in.regfile_wdata_from_cp0_ex_ms ||
+    io.ex_ms_in.cp0_wen_ex_ms
+  io.cp0_hazard_bypass_ms_ex.cp0_ip_wen := io.ex_ms_in.cp0_addr_ex_ms === CP0Const.CP0_REGADDR_CAUSE &&
+    io.ex_ms_in.cp0_sel_ex_ms === 0.U && io.ex_ms_in.cp0_wen_ex_ms
 }

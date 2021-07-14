@@ -93,4 +93,6 @@ class InsWriteBack extends Module {
 
   io.cp0_hazard_bypass_wb_ex.bus_valid := bus_valid
   io.cp0_hazard_bypass_wb_ex.cp0_en := io.ms_wb_in.regfile_wdata_from_cp0_ms_wb || io.ms_wb_in.cp0_wen_ms_wb
+  io.cp0_hazard_bypass_wb_ex.cp0_ip_wen := io.ms_wb_in.cp0_addr_ms_wb === CP0Const.CP0_REGADDR_CAUSE &&
+    io.ms_wb_in.cp0_sel_ms_wb === 0.U && io.ms_wb_in.cp0_wen_ms_wb
 }

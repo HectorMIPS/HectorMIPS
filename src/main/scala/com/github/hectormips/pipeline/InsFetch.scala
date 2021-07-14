@@ -84,7 +84,7 @@ class InsPreFetch extends Module {
   io.pf_if_valid := ready_go && !reset.asBool() && io.in_valid && !io.flush
   io.this_allowin := !reset.asBool() && io.next_allowin
   io.pc_debug_pf_if := io.pc
-  io.exception_flag_pf_if := Mux(pc_out(1, 0) === 0.U, 0.U, ExceptionConst.EXCEPTION_FETCH_ADDR)
+  io.exception_flag_pf_if := 0.U
 
 }
 
@@ -96,6 +96,7 @@ class InsSufFetchBundle extends WithAllowin {
   val if_id_out           : FetchDecodeBundle = Output(new FetchDecodeBundle)
   val pc_debug_pf_if      : UInt              = Input(UInt(32.W))
   val exception_flag_pf_if: UInt              = Input(UInt(ExceptionConst.EXCEPTION_FLAG_WIDTH.W))
+  val is_delay_slot_id_if : Bool              = Input(Bool())
   val flush               : Bool              = Input(Bool())
 }
 
@@ -108,5 +109,6 @@ class InsSufFetch extends Module {
   io.if_id_out.bus_valid := !reset.asBool() && io.pf_if_valid && !io.flush
   io.if_id_out.pc_debug_if_id := io.pc_debug_pf_if
   io.if_id_out.exception_flags := io.exception_flag_pf_if
+  io.if_id_out.is_delay_slot := io.is_delay_slot_id_if
   io.this_allowin := !reset.asBool() && io.next_allowin
 }

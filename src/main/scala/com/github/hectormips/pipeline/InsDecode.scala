@@ -38,12 +38,14 @@ class FetchDecodeBundle extends WithValidAndException {
   val ins_if_id     : UInt = UInt(32.W)
   val pc_if_id      : UInt = UInt(32.W) // 延迟槽pc
   val pc_debug_if_id: UInt = UInt(32.W) // 转移pc
+  val is_delay_slot : Bool = Bool()
 
   override def defaults(): Unit = {
     super.defaults()
     ins_if_id := 0.U
     pc_if_id := 0xbfbffffc.S(32.W).asUInt()
     pc_debug_if_id := 0xbfbffffcL.U
+    is_delay_slot := 0.U
   }
 }
 
@@ -71,12 +73,13 @@ class InsDecodeBundle extends WithAllowin {
   val regfile_read2: UInt                 = Input(UInt(32.W))
   val id_pf_out    : DecodePreFetchBundle = Output(new DecodePreFetchBundle)
 
-  val iram_en     : Bool                = Output(Bool())
-  val iram_we     : Bool                = Output(Bool())
-  val id_ex_out   : DecodeExecuteBundle = Output(new DecodeExecuteBundle)
-  val ins_opcode  : UInt                = Output(UInt(6.W))
-  val ex_out_valid: Bool                = Input(Bool())
-  val flush       : Bool                = Input(Bool())
+  val iram_en            : Bool                = Output(Bool())
+  val iram_we            : Bool                = Output(Bool())
+  val id_ex_out          : DecodeExecuteBundle = Output(new DecodeExecuteBundle)
+  val ins_opcode         : UInt                = Output(UInt(6.W))
+  val ex_out_valid       : Bool                = Input(Bool())
+  val flush              : Bool                = Input(Bool())
+  val is_delay_slot_id_if: Bool                = Output(Bool()) // 处于if阶段的指令是否是延迟槽指令
 
 
   val decode_to_fetch_next_pc: Vec[UInt] = Output(Vec(2, UInt(32.W))) // 回馈给取值的pc通路
@@ -217,6 +220,8 @@ class InsDecode extends Module {
     ((ins_bltz | ins_bltzal) && !regfile1_ge_0) ||
     (ins_blez && !regfile1_gt_0) ||
     ins_jr || ins_jal || ins_j || ins_jalr
+  io.is_delay_slot_id_if := ins_beq | ins_bne | ins_bgtz | ins_bgez | ins_bgezal | ins_bltz |
+    ins_bltzal | ins_blez | ins_jal | ins_j | ins_bgtz | ins_jr | ins_jalr
 
   io.iram_en := 1.B
   io.iram_we := 0.B
@@ -365,11 +370,11 @@ class InsDecode extends Module {
   ))
   io.id_ex_out.regfile_wsrc_sel_id_ex := ins_lw | ins_lb |
     ins_lbu | ins_lh | ins_lhu
-  io.id_ex_out.mem_rdata_sel_id_ex := MuxCase(MemRDataSel.word, Seq(
-    (ins_lb | ins_lbu) -> MemRDataSel.byte,
-    (ins_lh | ins_lhu) -> MemRDataSel.hword,
-    ins_lw -> MemRDataSel.word
-  ))
+  io.id_ex_out.mem_rdata_sel_id_ex := MuxCase(MemDataSel.word, Seq(
+    (ins_lb | ins_lbu | ins_sb) -> MemDataSel.byte,
+    (ins_lh | ins_lhu | ins_sh) -> MemDataSel.hword,
+    (ins_lw | ins_sw) -> MemDataSel.word
+  )) // 正常情况下只在load指令时起效，可以用这个参数来捎带传输load指令的位选择宽度
   io.id_ex_out.mem_rdata_extend_is_signed_id_ex := ins_lb | ins_lh
 
   io.id_ex_out.hi_wen := ins_multu | ins_mult | ins_div | ins_divu | ins_mthi
@@ -462,10 +467,12 @@ class InsDecode extends Module {
     ins_break ||
     ins_eret
 
+  io.id_ex_out.is_delay_slot := io.if_id_in.is_delay_slot
   io.id_ex_out.overflow_detection_en := ins_add | ins_addi | ins_sub
   io.id_ex_out.ins_eret := ins_eret
 
   io.id_ex_out.exception_flags := io.if_id_in.exception_flags |
+    Mux(io.if_id_in.pc_debug_if_id(1, 0) === 0.U, 0.U, ExceptionConst.EXCEPTION_FETCH_ADDR) |
     Mux(ins_valid, 0.U, ExceptionConst.EXCEPTION_RESERVE_INST) |
     Mux(ins_syscall, ExceptionConst.EXCEPTION_SYSCALL, 0.U) |
     Mux(ins_break, ExceptionConst.EXCEPTION_TRAP, 0.U)
