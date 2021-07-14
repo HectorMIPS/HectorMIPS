@@ -35,3 +35,24 @@ jobs:
           name: mycpu_top
           path: mycpu_top.v
 
+  func_test:
+    name: func_test
+    needs: test_and_generate
+    runs-on: self-hosted
+    env:
+      SIM_DIR: /home/hch/sim
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Download mycpu_top
+        uses: actions/download-artifact@v2
+        with:
+          name: mycpu_top
+      - name: copy to default location
+        run: cp mycpu_top.v ${{SIM_DIR}}/xsim/srcs/
+      - name: Into test dir
+        run: cd ${{SIM_DIR}}/xsim
+      - name: Cleanup
+        run: make clean
+      - name: Run Test
+        run: make
