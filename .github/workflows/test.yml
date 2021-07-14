@@ -3,8 +3,8 @@ name: Continuous Integration
 on: [push, pull_request]
 
 jobs:
-  ci:
-    name: ci
+  test_and_generate:
+    name: test_and_generate
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -25,3 +25,13 @@ jobs:
         run: sbt test
       - name: mill Test
         run: mill _.test
+      - name: mill Test
+        run: mill _.test
+      - name: generate mycpu_top.v
+        run: sbt 'runMain com.github.hectormips.pipeline.CpuTop'
+      - name: upload
+        uses: actions/upload-artifact@v2
+        with:
+          name: mycpu_top
+          path: mycpu_top.v
+
