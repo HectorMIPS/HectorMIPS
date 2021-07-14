@@ -50,9 +50,11 @@ jobs:
           name: mycpu_top
       - name: copy to default location
         run: cp mycpu_top.v ${{env.SIM_DIR}}/xsim/srcs/
-      - name: Into test dir
-        run: cd ${{env.SIM_DIR}}/xsim
       - name: Cleanup
-        run: make clean
+        run: |
+          make clean
+          cd ${{env.SIM_DIR}}/xsim
       - name: Run Test
-        run: make
+        run: |
+          make
+          cd ${{env.SIM_DIR}}/xsim
