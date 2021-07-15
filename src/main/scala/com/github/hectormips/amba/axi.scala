@@ -154,6 +154,25 @@ class ICachePort extends Bundle{
   val rdata   = Output(UInt(32.W)) //返回数据
   val data_ok = Output(Bool()) //等到ok以后才能撤去数据
 }
+class DCachePort extends Bundle{
+  val rdata   = Output(UInt(32.W)) //返回数据
+  val wdata   = Input(UInt(32.W))
+  val wstrb   = Input(UInt(4.W)) //字节使能
+  val data_ok = Output(Bool()) //等到ok以后才能撤去数据
+}
+class DCache2AXI extends Module{
+  val io =IO(new Bundle{
+    val valid = Input(Bool())
+    val addr    = Input(UInt(32.W)) //等到ok以后才能撤去数据
+    val addr_ok = Output(Bool()) //等到ok以后才能撤去数据
+    val rdata   = Output(UInt(32.W)) //读数据
+    val wdata   = Input(UInt(32.W)) //写数据
+    val wstrb   = Input(UInt(4.W)) //写字节使能
+    val data_ok = Output(Bool()) // 返回数据(写成功；读返回数据)
+    val axi     = new AXIMaster()
+  })
+}
+
 
 /**
  * SRAM-AXI转接桥
@@ -173,11 +192,10 @@ class ICache2AXI(
     val addr_ok = Output(Bool()) //等到ok以后才能撤去数据
     val inst    = Vec(portNum,new ICachePort)
     val axi     = new AXIMaster()
+    val debug_timer = Output(UInt(10.W))
   })
-  def rename():Unit={
-
-  }
   // 初始值
+
   def initIO():Unit={
     io.axi.initDefault()
     for(i<-0 until portNum){
@@ -185,14 +203,17 @@ class ICache2AXI(
       io.inst(i).rdata := regRdata(i)
     }
     io.addr_ok := false.B
-    io.axi.readAddr.valid := false.B
-    io.axi.readData.ready := false.B
+    io.axi.readAddr.valid := readAddrValidReg
+    io.axi.readData.ready := readDataReadyReg
     io.axi.readAddr.bits.burst := 1.U
   }
 
 
 
   // 第一个接口
+  val stay_for_one_cycle =RegInit(false.B)
+  val readAddrValidReg = RegInit(false.B)
+  val readDataReadyReg = RegInit(false.B)
   val rd_ps = RegInit(AxiReadState.IDLE)
   val rd_id = 0.U
   val counter = RegInit(0.U(portNum.W))
@@ -205,34 +226,38 @@ class ICache2AXI(
   printf("[%d]rd1_ps=%d,last=%d,data=%x,ready=%d,valid=%d\n",
     debug_timer,rd_ps.asUInt(),io.axi.readData.bits.last.asUInt(),io.axi.readData.bits.data.asUInt(),
     io.axi.readData.ready,io.valid.asUInt())
-
+  io.debug_timer := debug_timer
+  when(io.axi.readAddr.fire()){
+    readAddrValidReg := false.B
+  }
+  readDataReadyReg := false.B
 
   switch(rd_ps) {
     is(AxiReadState.IDLE) {
       when(io.valid === true.B) {
         io.addr_ok := true.B
-        io.axi.readAddr.valid := true.B
+        readAddrValidReg := true.B
+        stay_for_one_cycle := true.B
         io.axi.readAddr.bits.addr := io.addr
-//        io.axi.readAddr.bits.size := io.axi.computeSize(io.size)
         io.axi.readAddr.bits.id := rd_id
-        io.axi.readAddr.bits.len := (portNum-1).U // 突发长度
+        io.axi.readAddr.bits.len := (portNum - 1).U // 突发长度
         io.axi.readAddr.bits.burst := 1.U //固定为01
         rd_ps := AxiReadState.READING
         counter := 0.U
       }.otherwise {
         io.addr_ok := false.B
-        io.axi.readData.ready := false.B
         io.axi.clearRead()
       }
     }
 
     is(AxiReadState.READING) {
-      io.addr_ok := false.B
+      //      io.addr_ok := false.B
+
       when(io.axi.readData.valid && io.axi.readData.bits.id === rd_id) {
         counter := counter + 1.U
-        io.axi.readData.ready := true.B
+        readDataReadyReg:= true.B
         //          rd_data := io.axi.readData.bits.data
-        regRdata(counter)        := io.axi.readData.bits.data
+        regRdata(counter) := io.axi.readData.bits.data
         regOK(counter) := true.B
         when(io.axi.readData.bits.last) {
           rd_ps := AxiReadState.END
@@ -241,13 +266,11 @@ class ICache2AXI(
     }
 
     is(AxiReadState.END) {
-        io.axi.readData.ready := false.B
-        when(io.valid === false.B) {
-          rd_ps := AxiReadState.IDLE
-          for(i <- 0 until portNum){
-            regOK(i) := false.B
-          }
-        }
+      //        io.axi.readData.ready := false.B
+      rd_ps := AxiReadState.IDLE
+      for (i <- 0 until portNum) {
+        regOK(i) := false.B
+      }
     }
   }
 }
