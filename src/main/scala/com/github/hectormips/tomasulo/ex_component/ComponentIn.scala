@@ -15,6 +15,7 @@ class ComponentIn(config: Config) extends Bundle {
   val valA         : UInt = UInt(32.W)
   val valB         : UInt = UInt(32.W)
   val exceptionFlag: UInt = UInt(ExceptionConst.EXCEPTION_FLAG_WIDTH.W)
+  val predictJump  : Bool = Bool()
 
   val dest: UInt = UInt(config.rob_width.W)
   val A   : UInt = UInt(32.W)
