@@ -14,15 +14,14 @@ class RegFileBundle extends Bundle {
   val waddr: UInt = Input(UInt(5.W))
   val wdata: UInt = Input(UInt(32.W))
 
-  val regs_debug: Vec[UInt] = Output(Vec(32, UInt(32.W)))
+//  val regs_debug: Vec[UInt] = Output(Vec(32, UInt(32.W)))
 }
 
 // 寄存器堆文件
 class RegFile(reg_init: Int) extends Module {
   val io  : RegFileBundle = IO(new RegFileBundle)
-  val regs: Vec[UInt]     = RegInit(
-    VecInit(Seq.fill(32)(5.U(32.W)))
-  )
+  val regs: Mem[UInt]      = Mem(32, UInt(32.W))
+
   regs(0) := reg_init.S.asUInt()
   when(io.we.asBool()) {
     when(io.waddr > 0.U) {
@@ -31,7 +30,6 @@ class RegFile(reg_init: Int) extends Module {
   }
   io.rdata1 := regs(io.raddr1)
   io.rdata2 := regs(io.raddr2)
-  io.regs_debug := regs
 }
 
 object RegFile extends App {
