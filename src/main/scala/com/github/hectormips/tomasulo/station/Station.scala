@@ -23,7 +23,7 @@ class Station(config:Config) extends Module {
   val io: StationIO = IO(new StationIO)
 
   val station_data: Mem[StationData] = Mem(config.station_size, new StationData(config))
-  val station_valid: Vec[Bool] = Wire(Vec(config.station_size, Bool))
+  val station_valid: Vec[Bool] = Wire(Vec(config.station_size, t lBool))
 
   for (i <- 0 until config.station_size) {
     station_valid(i) := station_data(i).busy && !station_data(i).qj.andR() && !station_data(i).qk.andR()
