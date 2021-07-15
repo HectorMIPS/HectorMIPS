@@ -2,15 +2,15 @@ package com.github.hectormips.utils
 
 import chisel3._
 import chiseltest._
-import org.scalatest._
 import chiseltest.experimental.TestOptionBuilder._
-import chiseltest.internal.VerilatorBackendAnnotation
+import chiseltest.internal.WriteVcdAnnotation
+import org.scalatest._
 
 class LruTest extends FlatSpec with ChiselScalatestTester with Matchers {
   behavior of "Lru"
 
   it should "Lru without valid" in {
-    test(new Lru(8)).withAnnotations(Seq(VerilatorBackendAnnotation)) { c =>
+    test(new Lru(8)).withAnnotations(Seq(WriteVcdAnnotation)) { c =>
       c.reset.poke(1.B)
       c.clock.step(5)
       c.reset.poke(0.B)
