@@ -48,18 +48,27 @@ class Station(config: Config) extends Module {
 
   io.ins_enable := (!station_data(io.ins_target).busy || station_valid(io.ins_target))
 
-  when( io.ins_valid && io.ins_enable) {
+  when(io.ins_valid && io.ins_enable) {
     val station_item = station_data(io.ins_target)
-    station_item.ins := io.ins_in.operation
     station_item.busy := 1.B
-    station_item.qj := io.ins_in.qj
-    station_item.qk := io.ins_in.qk
+    station_item.ins := io.ins_in.operation
     station_item.vj := io.ins_in.vj
     station_item.vk := io.ins_in.vk
+    station_item.qj := io.ins_in.qj
+    station_item.qk := io.ins_in.qk
     station_item.wait_qj := io.ins_in.wait_qj
     station_item.wait_qk := io.ins_in.wait_qk
     station_item.dest := io.ins_in.dest
-    station_item.A := io.ins_in.A
+
+    station_item.pc := io.ins_in.pc
+    station_item.target_pc := io.ins_in.target_pc
+
+    station_item.writeHI := io.ins_in.writeHI
+    station_item.writeLO := io.ins_in.writeLO
+    station_item.readHI := io.ins_in.readHI
+    station_item.readLO := io.ins_in.readLO
+
+    station_item.predictJump := io.ins_in.predictJump
   }.elsewhen(!io.ins_valid){
     for (i <- 0 until config.station_size) {
       when(component(i).io.in.ready){

@@ -17,6 +17,16 @@ class ComponentIn(config: Config) extends Bundle {
   val exceptionFlag: UInt = UInt(ExceptionConst.EXCEPTION_FLAG_WIDTH.W)
   val predictJump  : Bool = Bool()
 
+  // 当前pc值
+  val pc: UInt = UInt(32.W)
+  // 分支指令目的pc值
+  val target_pc: UInt = UInt(32.W)
+
+  // HILO 标志位
+  val writeHI: Bool = Bool()
+  val writeLO: Bool = Bool()
+  val readHI: Bool = Bool()
+  val readLO: Bool = Bool()
+
   val dest: UInt = UInt(config.rob_width.W)
-  val A   : UInt = UInt(32.W)
 }

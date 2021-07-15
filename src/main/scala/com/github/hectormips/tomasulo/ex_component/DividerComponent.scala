@@ -53,4 +53,15 @@ class DividerComponent(config: Config) extends Component(config) {
 
   io.out.valid := !divider_buffer_wen
   io.in.ready := divider_state_reg === DividerState.waiting && divider_buffer_wen
+
+  io.out.bits.writeLO := 0.B
+  io.out.bits.writeHI := 0.B
+  io.out.bits.readHI := 0.B
+  io.out.bits.readLO := 0.B
+  io.out.bits.writeHILO := 1.B
+
+  io.out.bits.is_jump := 0.U
+  io.out.bits.jump_success := DontCare
+  io.out.bits.pred_success := DontCare
+  io.out.bits.next_pc := DontCare
 }

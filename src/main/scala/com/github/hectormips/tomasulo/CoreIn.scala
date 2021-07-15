@@ -23,4 +23,5 @@ class CoreIn(config: Config) extends Bundle {
   val readHI        : Bool = Bool()
   val readLO        : Bool = Bool()
 
+  val predictJump   : Bool = Bool()
 }
