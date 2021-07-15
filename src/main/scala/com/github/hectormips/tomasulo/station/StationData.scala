@@ -22,19 +22,39 @@ class StationData(config: Config) extends Bundle {
   val wait_qk: Bool = Bool()
   // 要写入的ROB地址
   val dest: UInt = UInt(config.rob_width.W)
-  // 要访问存储器的地址（只有Load和Store有用
-  val A: UInt = UInt(32.W)
   // exception_Flag
   val exceptionFlag: UInt = UInt(ExceptionConst.EXCEPTION_FLAG_WIDTH.W)
+
+  // 当前pc值
+  val pc: UInt = UInt(32.W)
+  // 分支指令目的pc值
+  val target_pc: UInt = UInt(32.W)
+
+  // HILO 标志位
+  val writeHI: Bool = Bool()
+  val writeLO: Bool = Bool()
+  val readHI: Bool = Bool()
+  val readLO: Bool = Bool()
+
+  val predictJump   : Bool = Bool()
+
 
   def toComponent: ComponentIn = {
     val component_in = Wire(new ComponentIn(config))
     component_in.operation := ins
-    component_in.A := A
     component_in.valA := vj
     component_in.valB := vk
-    component_in.dest := dest
     component_in.exceptionFlag := exceptionFlag
+    component_in.predictJump := predictJump
+
+    component_in.pc := pc
+    component_in.target_pc := target_pc
+
+    component_in.writeLO  := writeLO
+    component_in.writeHI  := writeHI
+    component_in.readHI  := readHI
+    component_in.readLO  := readLO
+    component_in.dest := dest
     component_in
   }
 }

@@ -17,17 +17,17 @@ class CoreTest extends FlatSpec with ChiselScalatestTester with Matchers {
       c.reset.poke(0.B)
       c.clock.step(5)
 
-      c.io.ready.expect(1.B)
+      c.io.in.ready.expect(1.B)
 
-      c.io.valid.poke(1.B)
-      c.io.operation.poke(1.U)
-      c.io.pc.poke(1.U)
-      c.io.srcA.poke(0.U)
-      c.io.srcB.poke(0.U)
-      c.io.dest.poke(2.U)
-      c.io.station_target.poke(0.U)
+      c.io.in.valid.poke(1.B)
+      c.io.in.bits.operation.poke(1.U)
+      c.io.in.bits.pc.poke(1.U)
+      c.io.in.bits.srcA.poke(0.U)
+      c.io.in.bits.srcB.poke(0.U)
+      c.io.in.bits.dest.poke(2.U)
+      c.io.in.bits.station_target.poke(0.U)
       c.clock.step(2)
-      c.io.valid.poke(0.B)
+      c.io.in.valid.poke(0.B)
       c.clock.step(20)
     }
   }

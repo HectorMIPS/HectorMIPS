@@ -14,5 +14,13 @@ class RobData extends Bundle {
   val writeHILO : Bool = Bool()
   val readHI: Bool = Bool()
   val readLO: Bool = Bool()
+  val writeLO: Bool = Bool()
+  val writeHI: Bool = Bool()
+
+  // 跳转相关
+  val is_jump: Bool = Bool()
+  val jump_success: Bool = Bool()
+  val pred_success: Bool = Bool()
+  val next_pc : UInt = UInt(32.W)
 }
 

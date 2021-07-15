@@ -61,6 +61,7 @@ class AluComponent(config: Config) extends Component(config) {
 
   val (aluRes, overflowFlag) = doArithmetic(AluOp(io.in.bits.operation(AluOp.getWidth - 1, 0)),
     io.in.bits.valA, io.in.bits.valB)
+
   io.out.bits.exceptionFlag := io.in.bits.exceptionFlag |
     Mux(overflowFlag, ExceptionConst.EXCEPTION_INT_OVERFLOW, 0.U)
   io.out.bits.value := Cat(0.U(32.W), aluRes)
@@ -69,4 +70,14 @@ class AluComponent(config: Config) extends Component(config) {
   io.in.ready := io.out.ready
   io.out.valid := io.in.valid
 
+  io.out.bits.writeLO := io.in.bits.writeLO
+  io.out.bits.writeHI := io.in.bits.writeHI
+  io.out.bits.readHI := io.in.bits.readHI
+  io.out.bits.readLO := io.in.bits.readLO
+  io.out.bits.writeHILO := 0.B
+
+  io.out.bits.is_jump := 0.U
+  io.out.bits.jump_success := DontCare
+  io.out.bits.pred_success := DontCare
+  io.out.bits.next_pc := DontCare
 }

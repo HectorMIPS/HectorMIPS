@@ -71,4 +71,16 @@ class MemoryComponent(config: Config) extends Component(config) {
   io.out.bits.value := memDataBuf
   io.out.bits.exceptionFlag := io.in.bits.exceptionFlag |
     Mux(hasException(memoryOp = memOp), ExceptionConst.EXCEPTION_BAD_RAM_ADDR_READ, 0.B)
+
+
+  io.out.bits.writeLO := 0.B
+  io.out.bits.writeHI := 0.B
+  io.out.bits.readHI := 0.B
+  io.out.bits.readLO := 0.B
+  io.out.bits.writeHILO := 0.B
+
+  io.out.bits.is_jump := 0.U
+  io.out.bits.jump_success := DontCare
+  io.out.bits.pred_success := DontCare
+  io.out.bits.next_pc := DontCare
 }
