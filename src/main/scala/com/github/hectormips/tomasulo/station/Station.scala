@@ -6,24 +6,24 @@ import com.github.hectormips.tomasulo.Config
 import com.github.hectormips.tomasulo.rob.RobResultIn
 
 // 保留站
-class Station(config:Config) extends Module {
+class Station(config: Config) extends Module {
   class StationIO extends Bundle {
     // 指令进入保留站
-    val ins_valid: Bool = Input(Bool())
+    val ins_valid : Bool      = Input(Bool())
     // 指令的索引
-    val ins_target: UInt = Input(UInt(config.station_width.W))
-    val ins_in: StationIn = Input(new StationIn(config))
+    val ins_target: UInt      = Input(UInt(config.station_width.W))
+    val ins_in    : StationIn = Input(new StationIn(config))
     // 指令是否能够进入保留站
-    val ins_enable: Bool = Output(Bool())
+    val ins_enable: Bool      = Output(Bool())
 
-    val rob_write_valid: Bool = Input(Bool())
-    val rob_write: RobResultIn = Input(new RobResultIn(config))
+    val rob_write_valid: Bool        = Input(Bool())
+    val rob_write      : RobResultIn = Input(new RobResultIn(config))
   }
 
   val io: StationIO = IO(new StationIO)
 
-  val station_data: Mem[StationData] = Mem(config.station_size, new StationData(config))
-  val station_valid: Vec[Bool] = Wire(Vec(config.station_size, t lBool))
+  val station_data : Mem[StationData] = Mem(config.station_size, new StationData(config))
+  val station_valid: Vec[Bool]        = Wire(Vec(config.station_size, Bool()))
 
   for (i <- 0 until config.station_size) {
     station_valid(i) := station_data(i).busy && !station_data(i).qj.andR() && !station_data(i).qk.andR()
@@ -42,14 +42,14 @@ class Station(config:Config) extends Module {
     station_item.A := io.ins_in.A
   }
 
-  when (io.rob_write_valid){
+  when(io.rob_write_valid) {
     for (i <- 0 until config.station_size) {
       val item = station_data(i)
-      when(item.qj === io.rob_write.rob_target){
+      when(item.qj === io.rob_write.rob_target) {
         item.qj := 0.U
         item.vj := io.rob_write.value
       }
-      when(item.qk === io.rob_write.rob_target){
+      when(item.qk === io.rob_write.rob_target) {
         item.qk := 0.U
         item.vk := io.rob_write.value
       }

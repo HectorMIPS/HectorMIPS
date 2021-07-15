@@ -3,7 +3,7 @@ package com.github.hectormips.tomasulo.ex_component
 import chisel3._
 import com.github.hectormips.tomasulo.Config
 import com.github.hectormips.tomasulo.cp0.ExceptionConst
-import com.github.hectormips.tomasulo.ex_component.operation.{AluOp, DividerOp, MultiplierOp, MemoryOp}
+import com.github.hectormips.tomasulo.ex_component.operation.{AluOp, DividerOp, MemoryOp, MultiplierOp}
 
 
 class ComponentIn(config: Config) extends Bundle {
