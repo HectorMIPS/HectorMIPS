@@ -9,5 +9,7 @@ object MemoryOp extends ChiselEnum {
   val op_hword_signed  : Type = Value(0x4.U)
   val op_hword_unsigned: Type = Value(0x8.U)
   val op_word          : Type = Value(0x10.U)
-
+  val op_sw            : Type = Value(0x20.U)
+  val op_sh            : Type = Value(0x20.U)
+  val op_sb            : Type = Value(0x20.U)
 }
