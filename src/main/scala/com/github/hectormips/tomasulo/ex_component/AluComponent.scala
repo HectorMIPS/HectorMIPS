@@ -13,6 +13,7 @@ class AluComponent(config: Config) extends Component(config) {
     val valBExtended: UInt = Cat(valB(31), valB)
     val overflowFlag: Bool = Wire(Bool())
     overflowFlag := 0.B
+    aluRes := 0.U
     switch(aluOp) {
       is(AluOp.op_add) {
         val aluOutExtend: UInt = valAExtended + valBExtended
@@ -66,6 +67,6 @@ class AluComponent(config: Config) extends Component(config) {
   io.out.bits.rob_target := io.in.bits.dest
 
   io.in.ready := io.out.ready
-  io.out.valid := io.in.ready
+  io.out.valid := io.in.valid
 
 }

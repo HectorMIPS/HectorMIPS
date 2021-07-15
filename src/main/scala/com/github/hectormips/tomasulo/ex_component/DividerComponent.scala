@@ -11,7 +11,7 @@ import com.github.hectormips.tomasulo.ex_component.util.CommonDivider
 
 class DividerComponent(config: Config) extends Component(config) {
 
-  val divOp    : DividerOp.Type = DividerOp(io.in.bits.operation)
+  val divOp    : DividerOp.Type = DividerOp(io.in.bits.operation(DividerOp.getWidth -1 ,0))
   val is_signed: Bool           = divOp === DividerOp.div
   val divider  : CommonDivider  = Module(new CommonDivider)
 

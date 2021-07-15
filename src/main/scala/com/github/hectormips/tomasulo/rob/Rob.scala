@@ -21,9 +21,14 @@ class Rob(config: Config) extends Module {
 
     // 已经提交的指令
     val finished_ins: UInt = Output(UInt(config.rob_width.W))
+    val finished_ins_pc: UInt = Output(UInt(32.W))
     val finished_ins_valid: Bool = Output(Bool())
     val finished_ins_target: UInt = Output(UInt(5.W))
-    val finished_ins_value: UInt = Output(UInt(32.W))
+    val finished_ins_value: UInt = Output(UInt(64.W))
+    // HILO 相关
+    val finished_ins_writeHILO: Bool = Output(Bool())
+    val finished_ins_readHI: Bool = Output(Bool())
+    val finished_ins_readIO: Bool = Output(Bool())
 
     // 从ROB里面查询
     val src_1: UInt = Input(UInt(config.rob_width.W))
@@ -43,33 +48,32 @@ class Rob(config: Config) extends Module {
   val rob_data: Mem[RobData] = Mem(config.rob_size, new RobData)
 
   def add_ins(target: UInt, in: RobInsIn) {
-    val item: RobData = rob_data(target)
-    item.busy := 1.B
-    item.ins := in.ins
-    item.pc := in.pc
-    item.state := RobState.process
-    item.target := in.target
+    rob_data(target).busy := 1.B
+    rob_data(target).ins := in.operation
+    rob_data(target).pc := in.pc
+    rob_data(target).state := RobState.process
+    rob_data(target).target := in.target
   }
 
   val io: RobIO = IO(new RobIO)
 
   // 指令可以写入ROB
-  val enable_1: Bool = io.ins_in_valid && !rob_data(end).busy
+  val enable_1: Bool = !rob_data(end).busy
   io.ins_enable := enable_1
   io.ins_rob_target := end
 
   // 写入ROB结果
-  when(enable_1) {
+  when(enable_1 && io.ins_in_valid) {
     add_ins(end, io.ins_in)
     end := end + 1.U
   }
 
   def finish_ins(in: RobResultIn) {
-    when(in.rob_target.orR()) {
-      val item: RobData = rob_data(in.rob_target)
-      item.value := in.value
-      item.state := RobState.write
-    }
+    rob_data(in.rob_target).value := in.value
+    rob_data(in.rob_target).state := RobState.write
+    rob_data(in.rob_target).writeHILO := in.writeHILO
+    rob_data(in.rob_target).readHI := in.readHI
+    rob_data(in.rob_target).readLO := in.readLO
   }
 
   when(io.result_in_valid){
@@ -80,6 +84,10 @@ class Rob(config: Config) extends Module {
   io.finished_ins_valid := rob_data(start).busy && rob_data(start).state === RobState.write
   io.finished_ins_target := rob_data(start).target
   io.finished_ins_value := rob_data(start).value
+  io.finished_ins_pc := rob_data(start).pc
+  io.finished_ins_writeHILO := rob_data(start).writeHILO
+  io.finished_ins_readIO := rob_data(start).readLO
+  io.finished_ins_readHI := rob_data(start).readHI
 
   when(rob_data(start).busy) {
     when(rob_data(start).state === RobState.write) {

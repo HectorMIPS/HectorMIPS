@@ -8,6 +8,11 @@ class RobData extends Bundle {
   val pc: UInt = UInt(32.W)
   val state: RobState.Type = RobState()
   val target: UInt = UInt(5.W)
-  val value: UInt = UInt(32.W)
+  val value: UInt = UInt(64.W)
+
+  // HILO 标志位
+  val writeHILO : Bool = Bool()
+  val readHI: Bool = Bool()
+  val readLO: Bool = Bool()
 }
 

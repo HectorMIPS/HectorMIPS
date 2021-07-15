@@ -9,7 +9,7 @@ import com.github.hectormips.tomasulo.ex_component.operation.{AluOp, MultiplierO
 
 class MultiplierComponent(config: Config) extends Component(config) {
 
-  val multOp   : MultiplierOp.Type = MultiplierOp(io.in.bits.operation)
+  val multOp   : MultiplierOp.Type = MultiplierOp(io.in.bits.operation(MultiplierOp.getWidth -1, 0))
   val is_signed: Bool              = multOp === MultiplierOp.mult
 
   def signedExtend(is_signed: Bool, mult1: UInt): SInt = {
@@ -26,5 +26,5 @@ class MultiplierComponent(config: Config) extends Component(config) {
   io.out.bits.value := multRes(63, 0)
 
   io.in.ready := io.out.ready
-  io.out.valid := io.in.ready
+  io.out.valid := io.in.valid
 }
