@@ -5,9 +5,10 @@ import chiseltest._
 import org.scalatest._
 import chiseltest.experimental.TestOptionBuilder._
 import chiseltest.internal.WriteVcdAnnotation
+import com.github.hectormips.SocTop
 
-class SocTopTest extends FlatSpec with ChiselScalatestTester with Matchers {
-  behavior of "SocTop"
+class SocTopSRamTest extends FlatSpec with ChiselScalatestTester with Matchers {
+  behavior of "SocTopSRam"
 
   def printPc(pc: UInt): Unit = {
     println(s"pc ===> $pc")

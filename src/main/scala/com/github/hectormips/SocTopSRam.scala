@@ -1,9 +1,8 @@
-package com.github.hectormips.pipeline
+package com.github.hectormips
 
 import chisel3._
-import chisel3.stage.ChiselStage
-import chisel3.util._
 import chisel3.util.experimental.loadMemoryFromFile
+import com.github.hectormips.pipeline.SyncRam
 
 class SocTopBundle extends Bundle {
   val debug_wb_pc      : UInt = Output(UInt(32.W))
@@ -16,8 +15,8 @@ class SocTopBundle extends Bundle {
 class SocTop(ram_filename: String) extends MultiIOModule {
   val io: SocTopBundle = IO(new SocTopBundle())
   withReset(!reset.asBool()) {
-    val cpu     : CpuTop  = Module(new CpuTop(0xfffffffc, 5))
-    val inst_ram: SyncRam = Module(new SyncRam(0x2000L))
+    val cpu     : CpuTopSRam = Module(new CpuTopSRam(0xfffffffc, 5))
+    val inst_ram: SyncRam    = Module(new SyncRam(0x2000L))
     val data_ram: SyncRam = Module(new SyncRam(0x2000L))
     loadMemoryFromFile(inst_ram.ram, ram_filename)
 

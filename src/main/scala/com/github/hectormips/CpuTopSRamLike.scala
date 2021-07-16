@@ -1,26 +1,15 @@
-package com.github.hectormips.pipeline
+package com.github.hectormips
 
-import chisel3.util._
 import chisel3._
-import chisel3.util.experimental.forceName
 import chisel3.stage.ChiselStage
-
-import java.io.{File, PrintWriter}
-import scala.io.Source
+import chisel3.util._
+import chisel3.util.experimental.forceName
+import com.github.hectormips.pipeline._
 
 class CpuTopBundle extends Bundle {
-  val interrupt      : UInt = Input(UInt(6.W))
-  val inst_sram_en   : Bool = Output(Bool())
-  val inst_sram_wen  : UInt = Output(UInt(4.W))
-  val inst_sram_addr : UInt = Output(UInt(32.W))
-  val inst_sram_wdata: UInt = Output(UInt(32.W))
-  val inst_sram_rdata: UInt = Input(UInt(32.W))
-
-  val data_sram_en   : Bool = Output(Bool())
-  val data_sram_wen  : UInt = Output(UInt(4.W))
-  val data_sram_addr : UInt = Output(UInt(32.W))
-  val data_sram_wdata: UInt = Output(UInt(32.W))
-  val data_sram_rdata: UInt = Input(UInt(32.W))
+  val interrupt        : UInt       = Input(UInt(6.W))
+  val inst_sram_like_io: SRamLikeIO = new SRamLikeIO
+  val data_sram_like_io: SRamLikeIO = new SRamLikeIO
 
   val debug_wb_pc      : UInt = Output(UInt(32.W))
   val debug_wb_rf_wen  : UInt = Output(UInt(4.W))
@@ -28,18 +17,6 @@ class CpuTopBundle extends Bundle {
   val debug_wb_rf_wdata: UInt = Output(UInt(32.W))
 
   forceName(interrupt, "ext_int")
-
-  forceName(inst_sram_en, "inst_sram_en")
-  forceName(inst_sram_wen, "inst_sram_wen")
-  forceName(inst_sram_addr, "inst_sram_addr")
-  forceName(inst_sram_wdata, "inst_sram_wdata")
-  forceName(inst_sram_rdata, "inst_sram_rdata")
-
-  forceName(data_sram_en, "data_sram_en")
-  forceName(data_sram_wen, "data_sram_wen")
-  forceName(data_sram_addr, "data_sram_addr")
-  forceName(data_sram_wdata, "data_sram_wdata")
-  forceName(data_sram_rdata, "data_sram_rdata")
 
   forceName(debug_wb_pc, "debug_wb_pc")
   forceName(debug_wb_rf_wen, "debug_wb_rf_wen")
@@ -62,7 +39,7 @@ object RegEnableWithValid {
   }
 }
 
-class CpuTop(pc_init: Int, reg_init: Int = 0) extends MultiIOModule {
+class CpuTopSRam(pc_init: Int, reg_init: Int = 0) extends MultiIOModule {
   // 命名
   val io: CpuTopBundle = IO(new CpuTopBundle())
 
@@ -131,10 +108,10 @@ class CpuTop(pc_init: Int, reg_init: Int = 0) extends MultiIOModule {
     pf_module.io.to_epc_en_ex_pf := to_epc_en_ex_pf
     pf_module.io.cp0_pf_epc := epc_cp0_pf
     pf_module.io.flush := pipeline_flush_ex
-    io.inst_sram_addr := addr_mapping(pf_module.io.ins_ram_addr)
-    io.inst_sram_en := pf_module.io.ins_ram_en
-    io.inst_sram_wen := "b0000".U(4.W)
-    io.inst_sram_wdata := DontCare
+    io.inst_sram_like_io.addr_ok := addr_mapping(pf_module.io.ins_ram_addr)
+    io.inst_sram_like_io.req := pf_module.io.ins_ram_en
+    io.inst_sram_like_io.wr := 0.B
+    io.inst_sram_like_io.wdata := DontCare
     pc_wen := pf_module.io.pc_wen
     pc_next := pf_module.io.next_pc
 
@@ -146,12 +123,12 @@ class CpuTop(pc_init: Int, reg_init: Int = 0) extends MultiIOModule {
     // 由于是伪阶段，不需要寄存器来存储延迟槽指令pc
     if_module.io.pf_if_valid := if_valid_reg
     if_module.io.delay_slot_pc_pf_if := pf_module.io.delay_slot_pc_pf_if
-    if_module.io.ins_ram_data := io.inst_sram_rdata
+    if_module.io.ins_ram_data := io.inst_sram_like_io.rdata
     if_module.io.pc_debug_pf_if := pf_module.io.pc_debug_pf_if
     if_module.io.next_allowin := id_allowin
     if_module.io.exception_flag_pf_if := pf_module.io.exception_flag_pf_if
     if_module.io.flush := pipeline_flush_ex
-    if_module.io.is_delay_slot_id_if:=is_delay_slot_id_if
+    if_module.io.is_delay_slot_id_if := is_delay_slot_id_if
     if_allowin := if_module.io.this_allowin
     if_id_bus := if_module.io.if_id_out
     if_id_bus.bus_valid := if_module.io.if_id_out.bus_valid && if_valid_reg
@@ -211,13 +188,13 @@ class CpuTop(pc_init: Int, reg_init: Int = 0) extends MultiIOModule {
     ex_module.io.cp0_hazard_bypass_wb_ex := cp0_hazard_bypass_wb_ex
     ex_module.io.cp0_cause_ip := cp0_cause_ip
     ex_module.io.cp0_status_im := cp0_status_im
-    io.data_sram_en := ex_module.io.mem_en
-    io.data_sram_wen := ex_module.io.mem_wen
-    io.data_sram_addr := addr_mapping(ex_module.io.mem_addr)
+    io.data_sram_like_io.req := ex_module.io.mem_en
+    io.data_sram_like_io.wr := ex_module.io.mem_wen =/= 0.U
+    io.data_sram_like_io.addr := addr_mapping(ex_module.io.mem_addr)
 
     //  io.data_sram_wdata := ex_module.io.mem_wdata
     // sw => wdata := regfile2
-    io.data_sram_wdata := ex_module.io.mem_wdata
+    io.data_sram_like_io.wdata := ex_module.io.mem_wdata
     ex_ms_bus := ex_module.io.ex_ms_out
     ex_allowin := ex_module.io.this_allowin
     bypass_bus.bp_ex_id := ex_module.io.bypass_ex_id
@@ -242,7 +219,7 @@ class CpuTop(pc_init: Int, reg_init: Int = 0) extends MultiIOModule {
 
     val ms_module: InsMemory = Module(new InsMemory)
     ms_module.io.ex_ms_in := ms_reg
-    ms_module.io.mem_rdata := io.data_sram_rdata
+    ms_module.io.mem_rdata := io.data_sram_like_io.rdata
     ms_wb_bus := ms_module.io.ms_wb_out
     ms_allowin := ms_module.io.this_allowin
     cp0_hazard_bypass_ms_ex := ms_module.io.cp0_hazard_bypass_ms_ex
@@ -286,12 +263,15 @@ class CpuTop(pc_init: Int, reg_init: Int = 0) extends MultiIOModule {
     id_module.io.next_allowin := ex_allowin
     ex_module.io.next_allowin := ms_allowin
     ms_module.io.next_allowin := wb_allowin
+
+    io.inst_sram_like_io.clk := clock.asBool()
+    io.data_sram_like_io.clk := clock.asBool()
   }
 
 
   clock.suggestName("clk")
 }
 
-object CpuTop extends App {
-  val v_content = (new ChiselStage).emitVerilog(new CpuTop(0xbfbffffc))
+object CpuTopSRam extends App {
+  val v_content = (new ChiselStage).emitVerilog(new CpuTopSRam(0xbfbffffc))
 }
