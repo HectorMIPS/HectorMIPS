@@ -6,10 +6,7 @@ import chisel3._
 import chisel3.util._
 
 import chisel3.experimental.{ChiselEnum}
-class ICachePort extends Bundle{
-  val rdata   =  //返回数据
-  val data_ok = Output(Bool()) //等到ok以后才能撤去数据
-}
+
 
 /**
  * 存放cache data
