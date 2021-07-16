@@ -1,6 +1,7 @@
-package com.github.hectormips.tomasulo
+package com.github.hectormips.tomasulo.io
 
 import chisel3._
+import com.github.hectormips.tomasulo.Config
 import com.github.hectormips.tomasulo.cp0.ExceptionConst
 import com.github.hectormips.tomasulo.ex_component.ComponentInOperationWidth
 

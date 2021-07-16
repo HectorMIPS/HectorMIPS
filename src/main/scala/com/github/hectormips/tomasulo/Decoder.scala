@@ -6,12 +6,10 @@ import chisel3.util._
 import chisel3.util.Mux1H
 import com.github.hectormips.tomasulo.cp0.ExceptionConst
 import com.github.hectormips.tomasulo.ex_component.operation.{AluOp, DividerOp, JumpOp, MemoryOp, MultiplierOp}
+import com.github.hectormips.tomasulo.io.{CoreIn, DecoderIn}
 
 class Decoder(config: Config) extends Module {
-  class DecoderIn extends Bundle {
-    val inst: UInt = UInt(32.W)
-    val pc  : UInt = UInt(32.W)
-  }
+
 
   class DecoderIO extends Bundle {
     val in : DecoupledIO[DecoderIn] = Flipped(DecoupledIO(new DecoderIn))

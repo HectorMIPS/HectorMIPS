@@ -1,9 +1,8 @@
-package com.github.hectormips.tomasulo
+package com.github.hectormips.tomasulo.io
 
 import chisel3._
 import chisel3.util.DecoupledIO
-import com.github.hectormips.tomasulo.cp0.ExceptionConst
-import com.github.hectormips.tomasulo.ex_component.ComponentInOperationWidth
+import com.github.hectormips.tomasulo.Config
 
 class CoreIO(config: Config) extends Bundle {
   val clear : Bool = Output(Bool())

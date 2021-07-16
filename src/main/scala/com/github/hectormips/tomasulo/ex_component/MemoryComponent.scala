@@ -3,7 +3,7 @@ package com.github.hectormips.tomasulo.ex_component
 import chisel3._
 import chisel3.experimental.ChiselEnum
 import chisel3.util._
-import com.github.hectormips.tomasulo.Config
+import com.github.hectormips.tomasulo.{Config, CacheDataReadBufState}
 import com.github.hectormips.tomasulo.cp0.ExceptionConst
 import com.github.hectormips.tomasulo.ex_component.operation.MemoryOp
 
@@ -18,16 +18,13 @@ class MemoryComponent(config: Config) extends Component(config) {
 
   val memDataBuf: UInt = RegInit(UInt(32.W), init = 0.U(32.W))
 
-  object MemDataBufState extends ChiselEnum {
-    val waiting_for_input, waiting_for_reading, read_done = Value
 
-  }
 
-  val memDataBufState: MemDataBufState.Type = RegInit(MemDataBufState(), init = MemDataBufState.waiting_for_input)
+  val memDataBufState: CacheDataReadBufState.Type = RegInit(CacheDataReadBufState(), init = CacheDataReadBufState.waiting_for_input)
 
 
   dcacheReadIO.addr := memAddr4
-  dcacheReadIO.valid := io.in.valid && memDataBufState === MemDataBufState.waiting_for_reading
+  dcacheReadIO.valid := io.in.valid && memDataBufState === CacheDataReadBufState.waiting_for_reading
 
   def hasException(memoryOp: MemoryOp.Type): Bool = {
     MuxCase(0.B, Seq(
@@ -36,7 +33,7 @@ class MemoryComponent(config: Config) extends Component(config) {
     ))
   }
 
-  when(dcacheReadIO.data_ok && memDataBufState === MemDataBufState.waiting_for_input) {
+  when(dcacheReadIO.data_ok && memDataBufState === CacheDataReadBufState.waiting_for_input) {
     val memRawData = dcacheReadIO.rdata >> memOffset
     memDataBuf := memRawData
     switch(memOp) {
@@ -56,17 +53,17 @@ class MemoryComponent(config: Config) extends Component(config) {
         memDataBuf := Cat(VecInit(Seq.fill(24)(memRawData(7))).asUInt(), memRawData(7, 0))
       }
     }
-    memDataBufState := MemDataBufState.waiting_for_reading
+    memDataBufState := CacheDataReadBufState.waiting_for_reading
   }
-  when(io.out.ready && memDataBufState === MemDataBufState.waiting_for_reading) {
-    memDataBufState := MemDataBufState.read_done
+  when(io.out.ready && memDataBufState === CacheDataReadBufState.waiting_for_reading) {
+    memDataBufState := CacheDataReadBufState.read_done
   }
-  when(memDataBufState === MemDataBufState.read_done) {
-    memDataBufState := MemDataBufState.waiting_for_input
+  when(memDataBufState === CacheDataReadBufState.read_done) {
+    memDataBufState := CacheDataReadBufState.waiting_for_input
   }
 
-  io.in.ready := io.out.ready && memDataBufState === MemDataBufState.read_done
-  io.out.valid := memDataBufState === MemDataBufState.waiting_for_reading
+  io.in.ready := io.out.ready && memDataBufState === CacheDataReadBufState.read_done
+  io.out.valid := memDataBufState === CacheDataReadBufState.waiting_for_reading
   io.out.bits.rob_target := io.in.bits.dest
   io.out.bits.value := memDataBuf
   io.out.bits.exceptionFlag := io.in.bits.exceptionFlag |

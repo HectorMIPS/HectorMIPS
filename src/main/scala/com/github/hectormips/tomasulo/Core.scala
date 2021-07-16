@@ -6,6 +6,7 @@ import chisel3.stage.ChiselStage
 import com.github.hectormips.pipeline.RegFile
 import com.github.hectormips.tomasulo.cp0.ExceptionConst
 import com.github.hectormips.tomasulo.ex_component.ComponentInOperationWidth
+import com.github.hectormips.tomasulo.io.CoreIO
 import com.github.hectormips.tomasulo.qi.RegQi
 import com.github.hectormips.tomasulo.rob.{Rob, RobInsIn}
 import com.github.hectormips.tomasulo.station.{Station, StationIn}
