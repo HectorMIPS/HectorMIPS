@@ -58,7 +58,6 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   val cp0_hazard_bypass_wb_ex      : CP0HazardBypass       = Wire(new CP0HazardBypass)
   val cp0_status_im                : UInt                  = Wire(UInt(8.W))
   val cp0_cause_ip                 : UInt                  = Wire(UInt(6.W))
-  val is_delay_slot_id_if          : Bool                  = Wire(Bool())
 
   def addr_mapping(physical_addr: UInt): UInt = {
     val vaddr: UInt = Wire(UInt(32.W))
@@ -105,16 +104,24 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   pc_wen := pf_module.io.pc_wen
   pc_next := pf_module.io.next_pc
   when(!pipeline_flush_ex) {
-    when((id_pf_buffer.bus_valid && id_pf_buffer.jump_taken && id_pf_buffer_valid) ||
-      (id_pf_bus.bus_valid && id_pf_bus.jump_taken)) {
-      when(branch_state_reg === BranchState.no_branch) {
+    when((id_pf_buffer.bus_valid && id_pf_buffer.is_jump && id_pf_buffer_valid) ||
+      (id_pf_bus.bus_valid && id_pf_bus.is_jump)) {
+      when(branch_state_reg === BranchState.no_branch && (id_pf_buffer.bus_valid && id_pf_buffer.jump_taken &&
+        id_pf_buffer_valid) || (id_pf_bus.bus_valid && id_pf_bus.jump_taken)) {
         branch_state_reg := BranchState.delay_slot
+      }.elsewhen(branch_state_reg === BranchState.no_branch && (id_pf_buffer.bus_valid && !id_pf_buffer.jump_taken &&
+        id_pf_buffer_valid) || (id_pf_bus.bus_valid && !id_pf_bus.jump_taken)) {
+        branch_state_reg := BranchState.delay_slot_regular
       }.elsewhen(branch_state_reg === BranchState.delay_slot && fetch_state_reg === RamState.waiting_for_read && id_allowin) {
         branch_state_reg := BranchState.branch_target
       }.elsewhen(branch_state_reg === BranchState.branch_target && fetch_state_reg === RamState.waiting_for_read && id_allowin) {
         branch_state_reg := BranchState.no_branch
         id_pf_buffer_valid := 0.B
       }
+    }
+    when(branch_state_reg === BranchState.delay_slot_regular && fetch_state_reg === RamState.waiting_for_read && id_allowin) {
+      branch_state_reg := BranchState.no_branch
+      id_pf_buffer_valid := 0.B
     }
   }.otherwise {
     branch_state_reg := BranchState.no_branch
@@ -157,9 +164,10 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   if_module.io.pc_debug_pf_if := pf_module.io.pc_debug_pf_if
   if_module.io.next_allowin := id_allowin
   if_module.io.flush := pipeline_flush_ex
-  if_module.io.is_delay_slot_id_if := is_delay_slot_id_if
   if_module.io.ins_ram_data_ok := io.inst_sram_like_io.data_ok
   if_module.io.fetch_state := fetch_state_reg
+  if_module.io.is_delay_slot := branch_state_reg === BranchState.delay_slot ||
+    branch_state_reg === BranchState.delay_slot_regular
   if_allowin := if_module.io.this_allowin
   if_id_bus := if_module.io.if_id_out
   if_id_bus.bus_valid := if_module.io.if_id_out.bus_valid
@@ -182,7 +190,6 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   id_module.io.flush := pipeline_flush_ex
   // 回馈给预取阶段的输出
   id_pf_bus := id_module.io.id_pf_out
-  is_delay_slot_id_if := id_module.io.is_delay_slot_id_if
 
   // 请求寄存器堆
   regfile.io.raddr1 := id_module.io.id_ex_out.inst_rs_id_ex
@@ -228,15 +235,26 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   io.data_sram_like_io.wr := ex_module.io.mem_wen =/= 0.U
   io.data_sram_like_io.addr := addr_mapping(ex_module.io.mem_addr)
   io.data_sram_like_io.size := ex_module.io.mem_size
-  when(data_sram_state_reg === RamState.waiting_for_request && ex_module.io.mem_en && ex_module.io.id_ex_in.bus_valid) {
-    data_sram_state_reg := RamState.requesting
-  }.elsewhen(data_sram_state_reg === RamState.requesting && io.data_sram_like_io.addr_ok) {
-    when(ex_module.io.mem_wen =/= 0.U) {
+  when(!pipeline_flush_ex) {
+    when(data_sram_state_reg === RamState.waiting_for_request && ex_module.io.mem_en && ex_module.io.id_ex_in.bus_valid) {
+      data_sram_state_reg := RamState.requesting
+    }.elsewhen(data_sram_state_reg === RamState.requesting && io.data_sram_like_io.addr_ok) {
+      when(ex_module.io.mem_wen =/= 0.U) {
+        data_sram_state_reg := RamState.waiting_for_request
+      }.otherwise {
+        data_sram_state_reg := RamState.waiting_for_response
+      }
+    }.elsewhen(data_sram_state_reg === RamState.waiting_for_response && io.data_sram_like_io.data_ok) {
       data_sram_state_reg := RamState.waiting_for_request
-    }.otherwise {
-      data_sram_state_reg := RamState.waiting_for_response
     }
-  }.elsewhen(data_sram_state_reg === RamState.waiting_for_response && io.data_sram_like_io.data_ok) {
+  }.otherwise {
+    when(data_sram_state_reg === RamState.waiting_for_response) {
+      data_sram_state_reg := RamState.cancel
+    }.otherwise {
+      data_sram_state_reg := RamState.waiting_for_request
+    }
+  }
+  when(data_sram_state_reg === RamState.cancel && io.data_sram_like_io.data_ok) {
     data_sram_state_reg := RamState.waiting_for_request
   }
 

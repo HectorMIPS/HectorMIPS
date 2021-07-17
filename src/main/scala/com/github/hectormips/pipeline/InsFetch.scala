@@ -20,6 +20,7 @@ object InsJumpSel extends ChiselEnum {
 class DecodePreFetchBundle extends Bundle {
   val jump_sel_id_pf: InsJumpSel.Type = Output(InsJumpSel())
   val jump_val_id_pf: Vec[UInt]       = Output(Vec(3, UInt(32.W)))
+  val is_jump       : Bool            = Output(Bool())
   val bus_valid     : Bool            = Output(Bool())
   val jump_taken    : Bool            = Output(Bool())
   val stall_id_pf   : Bool            = Output(Bool())
@@ -27,7 +28,7 @@ class DecodePreFetchBundle extends Bundle {
 
 
 object BranchState extends ChiselEnum {
-  val no_branch, delay_slot, branch_target = Value
+  val no_branch, delay_slot, branch_target, delay_slot_regular = Value
 }
 
 class InsPreFetchBundle extends WithAllowin {
@@ -76,7 +77,8 @@ class InsPreFetch extends Module {
     }
   }
   // 需要跳转并且正在执行延迟槽指令
-  val jump_now_delay_slot: Bool = io.id_pf_in.bus_valid && io.branch_state === BranchState.delay_slot
+  val jump_now_delay_slot: Bool = io.id_pf_in.bus_valid &&
+    (io.branch_state === BranchState.delay_slot || io.branch_state === BranchState.delay_slot_regular)
   // 已经执行完成延迟槽指令 跳转至目标处
   val jump_now_target    : Bool = io.id_pf_in.bus_valid && io.branch_state === BranchState.branch_target
   val no_jump            : Bool = !io.id_pf_in.bus_valid || (io.id_pf_in.bus_valid && !io.id_pf_in.jump_taken)
@@ -109,12 +111,12 @@ class InsSufFetchBundle extends WithAllowin {
   val delay_slot_pc_pf_if: UInt = Input(UInt(32.W)) // 延迟槽pc值
   val ins_ram_data       : UInt = Input(UInt(32.W))
 
-  val if_id_out          : FetchDecodeBundle = Output(new FetchDecodeBundle)
-  val pc_debug_pf_if     : UInt              = Input(UInt(32.W))
-  val is_delay_slot_id_if: Bool              = Input(Bool())
-  val flush              : Bool              = Input(Bool())
-  val ins_ram_data_ok    : Bool              = Input(Bool())
-  val fetch_state        : RamState.Type     = Input(RamState())
+  val if_id_out      : FetchDecodeBundle = Output(new FetchDecodeBundle)
+  val pc_debug_pf_if : UInt              = Input(UInt(32.W))
+  val flush          : Bool              = Input(Bool())
+  val ins_ram_data_ok: Bool              = Input(Bool())
+  val fetch_state    : RamState.Type     = Input(RamState())
+  val is_delay_slot  : Bool              = Input(Bool())
 }
 
 // 获取同步RAM的数据
@@ -132,6 +134,6 @@ class InsSufFetch extends Module {
     (io.fetch_state === RamState.waiting_for_read)
   io.if_id_out.pc_debug_if_id := io.pc_debug_pf_if
   io.if_id_out.exception_flags := 0.U
-  io.if_id_out.is_delay_slot := io.is_delay_slot_id_if
+  io.if_id_out.is_delay_slot := io.is_delay_slot
   io.this_allowin := !reset.asBool() && io.next_allowin
 }

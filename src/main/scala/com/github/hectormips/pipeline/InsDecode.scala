@@ -72,13 +72,12 @@ class InsDecodeBundle extends WithAllowin {
   val regfile_read2: UInt                 = Input(UInt(32.W))
   val id_pf_out    : DecodePreFetchBundle = Output(new DecodePreFetchBundle)
 
-  val iram_en            : Bool                = Output(Bool())
-  val iram_we            : Bool                = Output(Bool())
-  val id_ex_out          : DecodeExecuteBundle = Output(new DecodeExecuteBundle)
-  val ins_opcode         : UInt                = Output(UInt(6.W))
-  val ex_out_valid       : Bool                = Input(Bool())
-  val flush              : Bool                = Input(Bool())
-  val is_delay_slot_id_if: Bool                = Output(Bool()) // 处于if阶段的指令是否是延迟槽指令
+  val iram_en     : Bool                = Output(Bool())
+  val iram_we     : Bool                = Output(Bool())
+  val id_ex_out   : DecodeExecuteBundle = Output(new DecodeExecuteBundle)
+  val ins_opcode  : UInt                = Output(UInt(6.W))
+  val ex_out_valid: Bool                = Input(Bool())
+  val flush       : Bool                = Input(Bool())
 
 
   val decode_to_fetch_next_pc: Vec[UInt] = Output(Vec(2, UInt(32.W))) // 回馈给取值的pc通路
@@ -203,6 +202,9 @@ class InsDecode extends Module {
       (ins_blez && regfile1_gt_0)) -> InsJumpSel.delay_slot_pc,
     (ins_jr | ins_jalr) -> InsJumpSel.regfile_read1
   ))
+  io.id_pf_out.is_jump := ins_beq | ins_bne | ins_bgez | ins_bgtz | ins_blez | ins_bltz |
+    ins_bgezal | ins_bltzal | ins_j | ins_jal | ins_jr | ins_jalr
+
 
   // 0: pc=pc+(signed)(offset<<2)
   // 1: pc=pc[31:28]|instr_index<<2
@@ -218,8 +220,6 @@ class InsDecode extends Module {
     ((ins_bltz | ins_bltzal) && !regfile1_ge_0) ||
     (ins_blez && !regfile1_gt_0) ||
     ins_jr || ins_jal || ins_j || ins_jalr
-  io.is_delay_slot_id_if := ins_beq | ins_bne | ins_bgtz | ins_bgez | ins_bgezal | ins_bltz |
-    ins_bltzal | ins_blez | ins_jal | ins_j | ins_bgtz | ins_jr | ins_jalr
 
   io.iram_en := 1.B
   io.iram_we := 0.B
