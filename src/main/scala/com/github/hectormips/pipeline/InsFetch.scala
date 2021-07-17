@@ -58,7 +58,7 @@ class InsPreFetch extends Module {
   val next_pc: UInt              = Wire(UInt(32.W))
   val seq_pc : UInt              = io.pc + 4.U
   val req    : Bool              = !io.id_pf_in.stall_id_pf && io.next_allowin &&
-    (io.fetch_state === RamState.waiting_for_request && io.fetch_state === RamState.requesting)
+    (io.fetch_state === RamState.waiting_for_request || io.fetch_state === RamState.requesting)
   next_pc := seq_pc
 
   switch(io.id_pf_in.jump_sel_id_pf) {
@@ -75,15 +75,22 @@ class InsPreFetch extends Module {
       next_pc := io.id_pf_in.jump_val_id_pf(2)
     }
   }
-  val pc_out: UInt = MuxCase(seq_pc, Seq(
+  // 需要跳转并且正在执行延迟槽指令
+  val jump_now_delay_slot: Bool = io.id_pf_in.bus_valid && io.branch_state === BranchState.delay_slot
+  // 已经执行完成延迟槽指令 跳转至目标处
+  val jump_now_target    : Bool = io.id_pf_in.bus_valid && io.branch_state === BranchState.branch_target
+  val no_jump            : Bool = !io.id_pf_in.bus_valid || (io.id_pf_in.bus_valid && !io.id_pf_in.jump_taken)
+  // 直到当前指令可以被decode接收时才发送新的请求
+  val ready_go           : Bool = io.next_allowin && (io.fetch_state === RamState.waiting_for_request)
+  val pc_out             : UInt = MuxCase(seq_pc, Seq(
     io.to_epc_en_ex_pf -> (io.cp0_pf_epc - 4.U),
     io.to_exception_service_en_ex_pf -> ExceptionConst.EXCEPTION_PROGRAM_ADDR,
-    (io.branch_state === BranchState.delay_slot) -> seq_pc,
-    // 仅当当前取回的指令能被decode取出时才可以准备读下一条指令，否则值一直是当前的指令的pc
-    (io.id_pf_in.bus_valid && !io.id_pf_in.stall_id_pf && io.next_allowin
-      && (io.fetch_state === RamState.waiting_for_read ||
-      (io.ins_ram_data_ok && io.fetch_state =/= RamState.cancel))) -> next_pc,
-    (io.id_pf_in.stall_id_pf || !io.next_allowin) -> io.pc
+    // 仅当当前指令已经准备完毕并且可以被接收时才读下一条指令，否则值一直是当前的指令的pc
+    (io.id_pf_in.stall_id_pf || !io.next_allowin || io.fetch_state =/= RamState.waiting_for_request) -> io.pc,
+    // 没有跳转指令或者有跳转指令但是没有执行延迟槽指令时，顺序执行
+    (ready_go && (no_jump || jump_now_delay_slot)) -> seq_pc,
+    // 否则跳转至目标处
+    (ready_go && jump_now_target) -> next_pc
   ))
   io.next_pc := pc_out
   // 无暂停，恒1
@@ -114,15 +121,15 @@ class InsSufFetchBundle extends WithAllowin {
 class InsSufFetch extends Module {
   val io           : InsSufFetchBundle = IO(new InsSufFetchBundle())
   val if_buffer_reg: UInt              = Reg(UInt(32.W))
-  when(io.ins_ram_data_ok && !io.next_allowin) {
+  when(io.ins_ram_data_ok) {
     if_buffer_reg := io.ins_ram_data
   }
 
-  io.if_id_out.ins_if_id := Mux(io.ins_ram_data_ok, io.ins_ram_data, if_buffer_reg)
+  io.if_id_out.ins_if_id := if_buffer_reg
   io.if_id_out.pc_if_id := io.delay_slot_pc_pf_if
   io.if_id_out.bus_valid := !reset.asBool() && !io.flush &&
-    // 由缓冲寄存器读出或者直接读出
-    (io.fetch_state === RamState.waiting_for_read || (io.ins_ram_data_ok && io.fetch_state =/= RamState.cancel))
+    // 由缓冲寄存器读出
+    (io.fetch_state === RamState.waiting_for_read)
   io.if_id_out.pc_debug_if_id := io.pc_debug_pf_if
   io.if_id_out.exception_flags := 0.U
   io.if_id_out.is_delay_slot := io.is_delay_slot_id_if

@@ -52,17 +52,16 @@ class FetchDecodeBundle extends WithValidAndException {
 class BypassMsgBundle extends Bundle {
   val reg_addr   : UInt = UInt(5.W)
   val reg_data   : UInt = UInt(32.W)
-  val reg_valid  : Bool = Bool()
+  val bus_valid  : Bool = Bool()
+  val data_valid : Bool = Bool()
   // 当需要读的数据来自于cp0时，需要强制强制暂停前面的所有指令
   val force_stall: Bool = Bool()
 }
 
 class DecodeBypassBundle extends Bundle {
-  val bp_ex_id      : BypassMsgBundle = new BypassMsgBundle
-  // 执行阶段处理的指令是否是lw类指令（同时判断此时ex阶段的lw指令是否有效）
-  val valid_lw_ex_id: Bool            = new Bool()
-  val bp_ms_id      : BypassMsgBundle = new BypassMsgBundle
-  val bp_wb_id      : BypassMsgBundle = new BypassMsgBundle
+  val bp_ex_id: BypassMsgBundle = new BypassMsgBundle
+  val bp_ms_id: BypassMsgBundle = new BypassMsgBundle
+  val bp_wb_id: BypassMsgBundle = new BypassMsgBundle
 }
 
 class InsDecodeBundle extends WithAllowin {
@@ -164,7 +163,7 @@ class InsDecode extends Module {
   val regfile_read2_with_bypass: UInt = Wire(UInt(32.W))
 
   def byPassData(rf_addr: UInt, bypass: BypassMsgBundle): (Bool, UInt) = {
-    (bypass.reg_valid && bypass.reg_addr === rf_addr) -> bypass.reg_data
+    (bypass.bus_valid && bypass.reg_addr === rf_addr) -> bypass.reg_data
   }
 
   regfile_read1_with_bypass := Mux(rs === 0.U, 0.U, MuxCase(io.regfile_read1, Seq(
@@ -211,7 +210,6 @@ class InsDecode extends Module {
   io.id_pf_out.jump_val_id_pf(0) := io.if_id_in.pc_if_id + offset.asUInt()
   io.id_pf_out.jump_val_id_pf(1) := Cat(Seq(io.if_id_in.pc_if_id(31, 28), instr_index, "b00".U(2.W)))
   io.id_pf_out.jump_val_id_pf(2) := regfile_read1_with_bypass
-  io.id_pf_out.bus_valid := io.if_id_in.bus_valid && !io.flush
 
   io.id_pf_out.jump_taken := (ins_beq && regfile1_eq_regfile2) ||
     (ins_bne && !regfile1_eq_regfile2) ||
@@ -232,11 +230,13 @@ class InsDecode extends Module {
   val alu_src2: UInt            = Wire(UInt(32.W))
 
   val bp_ex_id_reg_addr : UInt = io.bypass_bus.bp_ex_id.reg_addr
-  val branch_inst_hazard: Bool = io.bypass_bus.valid_lw_ex_id && bp_ex_id_reg_addr =/= 0.U &&
+  val branch_inst_hazard: Bool = ((io.bypass_bus.bp_ex_id.bus_valid && !io.bypass_bus.bp_ex_id.data_valid) ||
+    io.bypass_bus.bp_ms_id.bus_valid && !io.bypass_bus.bp_ms_id.data_valid) && bp_ex_id_reg_addr =/= 0.U &&
     (((ins_jr || ins_jalr) && rs === bp_ex_id_reg_addr) ||
       ((ins_beq || ins_bne) && (rs === bp_ex_id_reg_addr || rt === bp_ex_id_reg_addr)) ||
       ((ins_bgez || ins_bgtz || ins_blez || ins_bltz || ins_bltzal || ins_bgezal) && (rs === bp_ex_id_reg_addr)))
-  val normal_inst_hazard: Bool = io.bypass_bus.valid_lw_ex_id && io.bypass_bus.bp_ex_id.reg_addr =/= 0.U &&
+  val normal_inst_hazard: Bool = ((io.bypass_bus.bp_ex_id.bus_valid && !io.bypass_bus.bp_ex_id.data_valid) ||
+    io.bypass_bus.bp_ms_id.bus_valid && !io.bypass_bus.bp_ms_id.data_valid) && io.bypass_bus.bp_ex_id.reg_addr =/= 0.U &&
     ((src1_sel === AluSrc1Sel.regfile_read1 && rs === io.bypass_bus.bp_ex_id.reg_addr) ||
       (src2_sel === AluSrc2Sel.regfile_read2 && rt === io.bypass_bus.bp_ex_id.reg_addr)) &&
     // 当ex阶段的输出有效的时候说明lw指令还停留在ex阶段
@@ -260,9 +260,9 @@ class InsDecode extends Module {
   }
 
   val bp_ex_id_stall_required: Bool = hasBypassHazard(io.bypass_bus.bp_ex_id.reg_addr) &&
-    io.bypass_bus.bp_ex_id.reg_valid && io.bypass_bus.bp_ex_id.force_stall
+    (io.bypass_bus.bp_ex_id.bus_valid && (!io.bypass_bus.bp_ex_id.data_valid || io.bypass_bus.bp_ex_id.force_stall))
   val bp_ms_id_stall_required: Bool = hasBypassHazard(io.bypass_bus.bp_ms_id.reg_addr) &&
-    io.bypass_bus.bp_ms_id.reg_valid && io.bypass_bus.bp_ms_id.force_stall
+    (io.bypass_bus.bp_ms_id.bus_valid && (!io.bypass_bus.bp_ms_id.data_valid || io.bypass_bus.bp_ms_id.force_stall))
 
   ready_go := !normal_inst_hazard && !branch_inst_hazard && (!bp_ex_id_stall_required && !bp_ms_id_stall_required)
 
@@ -370,7 +370,7 @@ class InsDecode extends Module {
   ))
   io.id_ex_out.regfile_wsrc_sel_id_ex := ins_lw | ins_lb |
     ins_lbu | ins_lh | ins_lhu
-  io.id_ex_out.mem_rdata_sel_id_ex := MuxCase(MemDataSel.word, Seq(
+  io.id_ex_out.mem_data_sel_id_ex := MuxCase(MemDataSel.word, Seq(
     (ins_lb | ins_lbu | ins_sb) -> MemDataSel.byte,
     (ins_lh | ins_lhu | ins_sh) -> MemDataSel.hword,
     (ins_lw | ins_sw) -> MemDataSel.word
@@ -401,6 +401,8 @@ class InsDecode extends Module {
 
   // 只有在分支命令产生冲突时才向预取阶段发送stall
   io.id_pf_out.stall_id_pf := branch_inst_hazard
+  // 在指令数据冲突期间，给予pf阶段的选择是无效的
+  io.id_pf_out.bus_valid := io.if_id_in.bus_valid && !io.flush && !branch_inst_hazard
 
   io.id_ex_out.cp0_wen_id_ex := ins_mtc0
   io.id_ex_out.cp0_addr_id_ex := rd

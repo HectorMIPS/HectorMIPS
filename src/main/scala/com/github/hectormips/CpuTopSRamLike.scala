@@ -48,7 +48,6 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   val ms_allowin                   : Bool                  = Wire(Bool())
   val wb_allowin                   : Bool                  = Wire(Bool())
   val bypass_bus                   : DecodeBypassBundle    = Wire(new DecodeBypassBundle)
-  val lw_ex_id                     : Bool                  = Wire(Bool())
   val cp0_ex                       : CP0ExecuteBundle      = Wire(new CP0ExecuteBundle)
   val ex_cp0                       : ExecuteCP0Bundle      = Wire(new ExecuteCP0Bundle)
   val pipeline_flush_ex            : Bool                  = Wire(Bool()) // 由执行阶段发出的流水线清空信号
@@ -60,7 +59,6 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   val cp0_status_im                : UInt                  = Wire(UInt(8.W))
   val cp0_cause_ip                 : UInt                  = Wire(UInt(6.W))
   val is_delay_slot_id_if          : Bool                  = Wire(Bool())
-  bypass_bus.valid_lw_ex_id := lw_ex_id
 
   def addr_mapping(physical_addr: UInt): UInt = {
     val vaddr: UInt = Wire(UInt(32.W))
@@ -88,7 +86,8 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
     id_pf_buffer := id_pf_bus
     id_pf_buffer_valid := 1.B
   }
-  pf_module.io.id_pf_in := Mux(id_pf_buffer_valid && !id_pf_bus.bus_valid, id_pf_buffer, id_pf_bus)
+  pf_module.io.id_pf_in := Mux(branch_state_reg === BranchState.no_branch, id_pf_bus,
+    Mux(id_pf_buffer_valid, id_pf_buffer, id_pf_bus))
   pf_module.io.pc := pc
   pf_module.io.next_allowin := if_allowin
   pf_module.io.to_exception_service_en_ex_pf := to_exception_service_en_ex_pf
@@ -106,12 +105,13 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   pc_wen := pf_module.io.pc_wen
   pc_next := pf_module.io.next_pc
   when(!pipeline_flush_ex) {
-    when(id_pf_buffer.bus_valid && id_pf_buffer.jump_taken) {
+    when((id_pf_buffer.bus_valid && id_pf_buffer.jump_taken && id_pf_buffer_valid) ||
+      (id_pf_bus.bus_valid && id_pf_bus.jump_taken)) {
       when(branch_state_reg === BranchState.no_branch) {
         branch_state_reg := BranchState.delay_slot
-      }.elsewhen(branch_state_reg === BranchState.delay_slot && fetch_state_reg === RamState.waiting_for_response) {
+      }.elsewhen(branch_state_reg === BranchState.delay_slot && fetch_state_reg === RamState.waiting_for_read && id_allowin) {
         branch_state_reg := BranchState.branch_target
-      }.elsewhen(branch_state_reg === BranchState.branch_target && fetch_state_reg === RamState.waiting_for_response) {
+      }.elsewhen(branch_state_reg === BranchState.branch_target && fetch_state_reg === RamState.waiting_for_read && id_allowin) {
         branch_state_reg := BranchState.no_branch
         id_pf_buffer_valid := 0.B
       }
@@ -122,15 +122,19 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
 
 
   when(pf_module.io.ins_ram_en && fetch_state_reg === RamState.waiting_for_request) {
-    fetch_state_reg := RamState.requesting
+    when(!io.inst_sram_like_io.addr_ok) {
+      fetch_state_reg := RamState.requesting
+    }.elsewhen(io.inst_sram_like_io.addr_ok) {
+      fetch_state_reg := RamState.waiting_for_response
+    }
   }
   when(io.inst_sram_like_io.addr_ok && fetch_state_reg === RamState.requesting) {
     fetch_state_reg := RamState.waiting_for_response
   }
-  when(io.inst_sram_like_io.data_ok && !id_allowin && fetch_state_reg === RamState.waiting_for_response) {
+  when(io.inst_sram_like_io.data_ok && fetch_state_reg === RamState.waiting_for_response) {
     fetch_state_reg := RamState.waiting_for_read
   }
-  when(id_allowin && (fetch_state_reg === RamState.waiting_for_read || io.inst_sram_like_io.data_ok)) {
+  when(id_allowin && fetch_state_reg === RamState.waiting_for_read) {
     fetch_state_reg := RamState.waiting_for_request
   }
   when(pipeline_flush_ex) {
@@ -158,7 +162,7 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   if_module.io.fetch_state := fetch_state_reg
   if_allowin := if_module.io.this_allowin
   if_id_bus := if_module.io.if_id_out
-  if_id_bus.bus_valid := if_module.io.if_id_out.bus_valid && fetch_state_reg === RamState.waiting_for_read
+  if_id_bus.bus_valid := if_module.io.if_id_out.bus_valid
 
 
   // 译码
@@ -224,7 +228,7 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   io.data_sram_like_io.wr := ex_module.io.mem_wen =/= 0.U
   io.data_sram_like_io.addr := addr_mapping(ex_module.io.mem_addr)
   io.data_sram_like_io.size := ex_module.io.mem_size
-  when(data_sram_state_reg === RamState.waiting_for_request && ex_module.io.mem_en && ex_module.io.ex_ms_out.bus_valid) {
+  when(data_sram_state_reg === RamState.waiting_for_request && ex_module.io.mem_en && ex_module.io.id_ex_in.bus_valid) {
     data_sram_state_reg := RamState.requesting
   }.elsewhen(data_sram_state_reg === RamState.requesting && io.data_sram_like_io.addr_ok) {
     when(ex_module.io.mem_wen =/= 0.U) {
@@ -233,7 +237,7 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
       data_sram_state_reg := RamState.waiting_for_response
     }
   }.elsewhen(data_sram_state_reg === RamState.waiting_for_response && io.data_sram_like_io.data_ok) {
-    data_sram_state_reg := RamState.waiting_for_read
+    data_sram_state_reg := RamState.waiting_for_request
   }
 
   //  io.data_sram_wdata := ex_module.io.mem_wdata
@@ -242,7 +246,6 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   ex_ms_bus := ex_module.io.ex_ms_out
   ex_allowin := ex_module.io.this_allowin
   bypass_bus.bp_ex_id := ex_module.io.bypass_ex_id
-  lw_ex_id := ex_module.io.valid_lw_ex_id
   hi_next := ex_module.io.hi_out
   lo_next := ex_module.io.lo_out
   hi_wen := ex_module.io.hi_wen
