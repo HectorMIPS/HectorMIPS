@@ -8,6 +8,7 @@ import chisel3._
 import chisel3.experimental.ChiselEnum
 import chisel3.util.Mux1H
 import chisel3.util._
+import com.github.hectormips.RamState
 
 object InsJumpSel extends ChiselEnum {
   val delay_slot_pc     : Type = Value(1.U)
@@ -24,6 +25,11 @@ class DecodePreFetchBundle extends Bundle {
   val stall_id_pf   : Bool            = Output(Bool())
 }
 
+
+object BranchState extends ChiselEnum {
+  val no_branch, delay_slot, branch_target = Value
+}
+
 class InsPreFetchBundle extends WithAllowin {
   val pc                           : UInt                 = Input(UInt(32.W))
   val id_pf_in                     : DecodePreFetchBundle = Input(new DecodePreFetchBundle)
@@ -33,15 +39,16 @@ class InsPreFetchBundle extends WithAllowin {
   val pc_wen                       : Bool                 = Output(Bool())
   val delay_slot_pc_pf_if          : UInt                 = Output(UInt(32.W))
   val pc_debug_pf_if               : UInt                 = Output(UInt(32.W))
-  val exception_flag_pf_if         : UInt                 = Output(UInt(ExceptionConst.EXCEPTION_FLAG_WIDTH.W))
   val to_exception_service_en_ex_pf: Bool                 = Input(Bool())
   val to_epc_en_ex_pf              : Bool                 = Input(Bool())
   val flush                        : Bool                 = Input(Bool())
   val cp0_pf_epc                   : UInt                 = Input(UInt(32.W))
+  val fetch_state                  : RamState.Type        = Input(RamState())
+  val branch_state                 : BranchState.Type     = Input(BranchState())
+  val ins_ram_data_ok              : Bool                 = Input(Bool())
 
 
-  val in_valid   : Bool = Input(Bool()) // 传入预取的输入是否有效
-  val pf_if_valid: Bool = Output(Bool())
+  val in_valid: Bool = Input(Bool()) // 传入预取的输入是否有效
 
 }
 
@@ -50,6 +57,8 @@ class InsPreFetch extends Module {
   val io     : InsPreFetchBundle = IO(new InsPreFetchBundle())
   val next_pc: UInt              = Wire(UInt(32.W))
   val seq_pc : UInt              = io.pc + 4.U
+  val req    : Bool              = !io.id_pf_in.stall_id_pf && io.next_allowin &&
+    (io.fetch_state === RamState.waiting_for_request && io.fetch_state === RamState.requesting)
   next_pc := seq_pc
 
   switch(io.id_pf_in.jump_sel_id_pf) {
@@ -66,25 +75,26 @@ class InsPreFetch extends Module {
       next_pc := io.id_pf_in.jump_val_id_pf(2)
     }
   }
-  val ready_go: Bool = !io.id_pf_in.stall_id_pf
-  val pc_out  : UInt = MuxCase(seq_pc, Seq(
+  val pc_out: UInt = MuxCase(seq_pc, Seq(
     io.to_epc_en_ex_pf -> (io.cp0_pf_epc - 4.U),
-    (io.to_exception_service_en_ex_pf) -> ExceptionConst.EXCEPTION_PROGRAM_ADDR,
-    (io.id_pf_in.bus_valid && io.id_pf_in.jump_taken && !io.id_pf_in.stall_id_pf && io.next_allowin) -> next_pc,
+    io.to_exception_service_en_ex_pf -> ExceptionConst.EXCEPTION_PROGRAM_ADDR,
+    (io.branch_state === BranchState.delay_slot) -> seq_pc,
+    // 仅当当前取回的指令能被decode取出时才可以准备读下一条指令，否则值一直是当前的指令的pc
+    (io.id_pf_in.bus_valid && !io.id_pf_in.stall_id_pf && io.next_allowin
+      && (io.fetch_state === RamState.waiting_for_read ||
+      (io.ins_ram_data_ok && io.fetch_state =/= RamState.cancel))) -> next_pc,
     (io.id_pf_in.stall_id_pf || !io.next_allowin) -> io.pc
   ))
   io.next_pc := pc_out
   // 无暂停，恒1
   // 当需要暂停的时候，需要同步ram保持上一个周期的读出内容，使能0
-  io.ins_ram_en := !io.id_pf_in.stall_id_pf && io.next_allowin
+  io.ins_ram_en := req
   io.ins_ram_addr := pc_out
   io.delay_slot_pc_pf_if := io.pc + 4.U
   // 永远可以写入pc，直接通过控制io.next_pc的值来实现暂停等操作来简化控制模型
   io.pc_wen := 1.B
-  io.pf_if_valid := ready_go && !reset.asBool() && io.in_valid && !io.flush
   io.this_allowin := !reset.asBool() && io.next_allowin
   io.pc_debug_pf_if := io.pc
-  io.exception_flag_pf_if := 0.U
 
 }
 
@@ -92,23 +102,29 @@ class InsSufFetchBundle extends WithAllowin {
   val delay_slot_pc_pf_if: UInt = Input(UInt(32.W)) // 延迟槽pc值
   val ins_ram_data       : UInt = Input(UInt(32.W))
 
-  val pf_if_valid         : Bool              = Input(Bool())
-  val if_id_out           : FetchDecodeBundle = Output(new FetchDecodeBundle)
-  val pc_debug_pf_if      : UInt              = Input(UInt(32.W))
-  val exception_flag_pf_if: UInt              = Input(UInt(ExceptionConst.EXCEPTION_FLAG_WIDTH.W))
-  val is_delay_slot_id_if : Bool              = Input(Bool())
-  val flush               : Bool              = Input(Bool())
+  val if_id_out          : FetchDecodeBundle = Output(new FetchDecodeBundle)
+  val pc_debug_pf_if     : UInt              = Input(UInt(32.W))
+  val is_delay_slot_id_if: Bool              = Input(Bool())
+  val flush              : Bool              = Input(Bool())
+  val ins_ram_data_ok    : Bool              = Input(Bool())
+  val fetch_state        : RamState.Type     = Input(RamState())
 }
 
 // 获取同步RAM的数据
 class InsSufFetch extends Module {
-  val io: InsSufFetchBundle = IO(new InsSufFetchBundle())
+  val io           : InsSufFetchBundle = IO(new InsSufFetchBundle())
+  val if_buffer_reg: UInt              = Reg(UInt(32.W))
+  when(io.ins_ram_data_ok && !io.next_allowin) {
+    if_buffer_reg := io.ins_ram_data
+  }
 
-  io.if_id_out.ins_if_id := io.ins_ram_data
+  io.if_id_out.ins_if_id := Mux(io.ins_ram_data_ok, io.ins_ram_data, if_buffer_reg)
   io.if_id_out.pc_if_id := io.delay_slot_pc_pf_if
-  io.if_id_out.bus_valid := !reset.asBool() && io.pf_if_valid && !io.flush
+  io.if_id_out.bus_valid := !reset.asBool() && !io.flush &&
+    // 由缓冲寄存器读出或者直接读出
+    (io.fetch_state === RamState.waiting_for_read || (io.ins_ram_data_ok && io.fetch_state =/= RamState.cancel))
   io.if_id_out.pc_debug_if_id := io.pc_debug_pf_if
-  io.if_id_out.exception_flags := io.exception_flag_pf_if
+  io.if_id_out.exception_flags := 0.U
   io.if_id_out.is_delay_slot := io.is_delay_slot_id_if
   io.this_allowin := !reset.asBool() && io.next_allowin
 }

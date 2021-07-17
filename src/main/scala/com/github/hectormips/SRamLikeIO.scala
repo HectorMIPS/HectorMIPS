@@ -3,7 +3,6 @@ package com.github.hectormips
 import chisel3._
 
 class SRamLikeIO extends Bundle {
-  val clk  : Bool = Output(Bool())
   // master -> slave
   val req  : Bool = Output(Bool())
   val wr   : Bool = Output(Bool())

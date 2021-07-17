@@ -4,6 +4,7 @@ import chisel3._
 import chisel3.experimental.ChiselEnum
 import chisel3.util.Mux1H
 import chisel3.util._
+import com.github.hectormips.RamState
 
 
 // 通过译码阶段传入的参数
@@ -116,6 +117,7 @@ class InsExecuteBundle extends WithAllowin {
   val mem_wen       : UInt = Output(UInt(4.W))
   val mem_addr      : UInt = Output(UInt(32.W))
   val mem_wdata     : UInt = Output(UInt(32.W))
+  val mem_size      : UInt = Output(UInt(32.W))
   val valid_lw_ex_id: Bool = Output(Bool())
 
   val bypass_ex_id: BypassMsgBundle = Output(new BypassMsgBundle)
@@ -127,9 +129,11 @@ class InsExecuteBundle extends WithAllowin {
   val lo_in : UInt = Input(UInt(32.W))
   val lo_wen: Bool = Output(Bool())
 
-  val divider_required: Bool = Output(Bool())
-  val divider_tready  : Bool = Output(Bool())
-  val divider_tvalid  : Bool = Input(Bool())
+  val divider_required: Bool          = Output(Bool())
+  val divider_tready  : Bool          = Output(Bool())
+  val divider_tvalid  : Bool          = Input(Bool())
+  val data_ram_addr_ok: Bool          = Input(Bool())
+  val data_ram_state  : RamState.Type = Input(RamState())
 
   // 流水线清空使能信号
   val pipeline_flush: Bool = Output(Bool())
@@ -290,14 +294,20 @@ class InsExecute extends Module {
   val interrupt_available: Bool = !io.cp0_ex_in.status_exl && io.cp0_ex_in.status_ie
 
   io.mem_wdata := io.id_ex_in.mem_wdata_id_ex
-  io.mem_en := io.id_ex_in.mem_en_id_ex
+  io.mem_en := io.id_ex_in.mem_en_id_ex && !flush && io.next_allowin && bus_valid
   io.mem_wen := (io.id_ex_in.mem_wen_id_ex << src_sum(1, 0)).asUInt() &
     VecInit(Seq.fill(4)(!((exception_available && exception_occur) || (interrupt_occur && interrupt_available)) &&
       bus_valid)).asUInt()
+  io.mem_size := MuxCase(0.U, Seq(
+    (io.id_ex_in.mem_rdata_sel_id_ex === MemDataSel.word) -> 2.U,
+    (io.id_ex_in.mem_rdata_sel_id_ex === MemDataSel.hword) -> 1.U,
+    (io.id_ex_in.mem_rdata_sel_id_ex === MemDataSel.byte) -> 0.U
+  ))
 
   val ready_go: Bool = !ms_cp0_ip0_wen && !wb_cp0_ip0_wen && Mux(divider_required, divider.io.out_valid, 1.B) &&
     Mux((exception_occur && exception_available) || (interrupt_occur && interrupt_available),
-      !ms_cp0_hazard && !wb_cp0_hazard, 1.B)
+      !ms_cp0_hazard && !wb_cp0_hazard, 1.B) && Mux(io.id_ex_in.mem_en_id_ex,
+    io.data_ram_state === RamState.waiting_for_response, 1.B)
   io.this_allowin := ready_go && io.next_allowin && !reset.asBool()
   io.ex_ms_out.bus_valid := ready_go && bus_valid
 
