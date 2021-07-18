@@ -292,8 +292,8 @@ class InsExecute extends Module {
   val wb_cp0_ip0_wen: Bool = io.cp0_hazard_bypass_wb_ex.bus_valid && io.cp0_hazard_bypass_wb_ex.cp0_ip_wen
 
 
-  val exception_occur    : Bool = io.id_ex_in.bus_valid && exception_flags =/= 0.B // 当输入有效且例外标识不为0则发生例外
-  val interrupt_occur    : Bool = (io.cp0_cause_ip & io.cp0_status_im) =/= 0.B
+  val exception_occur    : Bool = io.id_ex_in.bus_valid && exception_flags =/= 0.U // 当输入有效且例外标识不为0则发生例外
+  val interrupt_occur    : Bool = (io.cp0_cause_ip & io.cp0_status_im) =/= 0.U
   val eret_occur         : Bool = io.id_ex_in.bus_valid && io.id_ex_in.ins_eret
   val exception_available: Bool = !io.cp0_ex_in.status_exl // exl为0时才能执行例外程序
   val interrupt_available: Bool = !io.cp0_ex_in.status_exl && io.cp0_ex_in.status_ie
@@ -323,8 +323,11 @@ class InsExecute extends Module {
 
   io.ex_cp0_out.is_delay_slot := io.id_ex_in.is_delay_slot // 延迟槽指令是接在分支指令之后一定会执行的那条指令
 
+
   io.ex_cp0_out.exception_occur := (exception_occur || interrupt_occur) && ready_go
-  io.ex_cp0_out.pc := io.id_ex_in.pc_id_ex_debug
+  // 如果是软中断导致的例外，将pc指向下一条指令
+  io.ex_cp0_out.pc := Mux(interrupt_occur && interrupt_available, io.id_ex_in.pc_id_ex_debug + 4.U,
+    io.id_ex_in.pc_id_ex_debug)
   io.ex_cp0_out.badvaddr := MuxCase(io.id_ex_in.pc_id_ex_debug, Seq(
     (exception_flags(0) || exception_flags(1) || exception_flags(2) ||
       exception_flags(3) || exception_flags(4)) -> io.id_ex_in.pc_id_ex_debug,

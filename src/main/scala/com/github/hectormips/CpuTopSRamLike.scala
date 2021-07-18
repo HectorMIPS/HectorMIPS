@@ -81,12 +81,15 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   val id_pf_buffer      : DecodePreFetchBundle = Reg(new DecodePreFetchBundle)
   val id_pf_buffer_valid: Bool                 = RegInit(init = 0.B)
   pf_module.io.in_valid := 1.U // 目前始终允许
-  when(id_pf_bus.bus_valid && id_pf_bus.jump_taken) {
+  when(id_pf_bus.bus_valid && id_pf_bus.jump_taken && !pipeline_flush_ex) {
     id_pf_buffer := id_pf_bus
     id_pf_buffer_valid := 1.B
   }
+  when(pipeline_flush_ex) {
+    id_pf_buffer_valid := 0.B
+  }
   pf_module.io.id_pf_in := Mux(branch_state_reg === BranchState.no_branch, id_pf_bus,
-    Mux(id_pf_buffer_valid, id_pf_buffer, id_pf_bus))
+    Mux(id_pf_buffer_valid && !pipeline_flush_ex, id_pf_buffer, id_pf_bus))
   pf_module.io.pc := pc
   pf_module.io.next_allowin := if_allowin
   pf_module.io.to_exception_service_en_ex_pf := to_exception_service_en_ex_pf
