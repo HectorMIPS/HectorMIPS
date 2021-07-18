@@ -1,10 +1,11 @@
 package com.github.hectormips
 
 import chisel3._
+import chisel3.util.HasBlackBoxResource
 import chisel3.util.experimental.forceName
 
 
-class AXISRamLikeBridge extends BlackBox {
+class AXISRamLikeBridge extends HasBlackBoxResource {
   class AXISRamLikeBridgeIO extends Bundle {
     val clock            : Bool       = Input(Bool())
     val resetn           : Bool       = Input(Bool())
@@ -36,4 +37,5 @@ class AXISRamLikeBridge extends BlackBox {
   forceName(io.data_sram_like_io.data_ok, "data_data_ok")
   forceName(io.data_sram_like_io.rdata, "data_rdata")
 
+  addResource("/cpu_axi_interface.v")
 }

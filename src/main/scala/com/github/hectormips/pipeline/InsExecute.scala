@@ -238,6 +238,9 @@ class InsExecute extends Module {
     is(AluOp.op_lo_dir) {
       alu_out := io.lo_in
     }
+    is(AluOp.op_mult) {
+      alu_out := multiplier.io.mult_res_31_0
+    }
   }
 
   val bus_valid: Bool = Wire(Bool())

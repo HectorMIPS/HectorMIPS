@@ -126,6 +126,7 @@ class InsDecode extends Module {
   val ins_srav    : Bool            = opcode === 0.U && sa === 0.U && func === 0x7.U
   val ins_mult    : Bool            = opcode === 0.U && rd === 0.U && sa === 0.U && func === 0x18.U
   val ins_multu   : Bool            = opcode === 0.U && rd === 0.U && sa === 0.U && func === 0x19.U
+  val ins_mul     : Bool            = opcode === 0x1c.U && sa === 0.U && func === 0x2.U
   val ins_div     : Bool            = opcode === 0.U && rd === 0.U && sa === 0.U && func === 0x1a.U
   val ins_divu    : Bool            = opcode === 0.U && rd === 0.U && sa === 0.U && func === 0x1b.U
   val ins_mfhi    : Bool            = opcode === 0.U && rs === 0.U && rt === 0.U && sa === 0.U && func === 0x10.U
@@ -185,7 +186,7 @@ class InsDecode extends Module {
       ins_lbu | ins_lh | ins_lhu | ins_sw | ins_sh | ins_sb |
       ins_slt | ins_sltu | ins_sll | ins_srl | ins_sra | ins_lui | ins_and | ins_or |
       ins_xor | ins_nor | ins_slti | ins_sltiu | ins_andi | ins_ori | ins_xori | ins_sllv |
-      ins_srlv | ins_srav | ins_mult | ins_multu | ins_div | ins_divu | ins_mfhi | ins_mflo |
+      ins_srlv | ins_srav | ins_mult | ins_multu | ins_mul | ins_div | ins_divu | ins_mfhi | ins_mflo |
       ins_mthi | ins_mtlo | ins_mfc0 | ins_mtc0) -> InsJumpSel.delay_slot_pc,
     ((ins_beq && regfile1_eq_regfile2) |
       (ins_bne && !regfile1_eq_regfile2) |
@@ -271,7 +272,7 @@ class InsDecode extends Module {
     (ins_addu | ins_add | ins_addiu | ins_addi | ins_subu | ins_sub | ins_lw | ins_lb |
       ins_lbu | ins_lh | ins_lhu | ins_sw | ins_sh | ins_sb |
       ins_slt | ins_sltu | ins_and | ins_or | ins_xor | ins_nor | ins_sltu | ins_slti | ins_sltiu |
-      ins_andi | ins_ori | ins_xori | ins_sllv | ins_srlv | ins_srav | ins_multu |
+      ins_andi | ins_ori | ins_xori | ins_sllv | ins_srlv | ins_srav | ins_multu | ins_mul |
       ins_mult | ins_div | ins_divu | ins_mthi | ins_mtlo) -> AluSrc1Sel.regfile_read1,
     (ins_jal | ins_bgezal | ins_bltzal | ins_jalr) -> AluSrc1Sel.pc_delay,
     (ins_sll | ins_srl | ins_sra | ins_mtc0) -> AluSrc1Sel.sa_32,
@@ -280,7 +281,7 @@ class InsDecode extends Module {
   src2_sel := Mux1H(Seq(
     (ins_addu | ins_add | ins_subu | ins_sub | ins_slt | ins_sltu | ins_sll | ins_srl |
       ins_sra | ins_and | ins_or | ins_xor | ins_nor | ins_sllv | ins_srlv | ins_srav |
-      ins_mult | ins_multu | ins_div | ins_divu | ins_mtc0) -> AluSrc2Sel.regfile_read2,
+      ins_mult | ins_multu | ins_mul | ins_div | ins_divu | ins_mtc0) -> AluSrc2Sel.regfile_read2,
     (ins_addiu | ins_addi | ins_lw | ins_lb |
       ins_lbu | ins_lh | ins_lhu | ins_sw | ins_sh | ins_sb | ins_lui | ins_slti |
       ins_sltiu) -> AluSrc2Sel.imm_32_signed_extend,
@@ -333,20 +334,20 @@ class InsDecode extends Module {
     (ins_srl | ins_srlv) -> AluOp.op_srl,
     (ins_sra | ins_srav) -> AluOp.op_sra,
     ins_lui -> AluOp.op_lui,
-    ins_mult -> AluOp.op_mult,
+    (ins_mult | ins_mul) -> AluOp.op_mult,
     ins_multu -> AluOp.op_multu,
     ins_div -> AluOp.op_div,
     ins_divu -> AluOp.op_divu
   ))
   io.id_ex_out.regfile_we_id_ex := ins_addu | ins_add | ins_addiu | ins_addi | ins_subu | ins_sub |
-    ins_lw | ins_lb |
+    ins_lw | ins_lb | ins_mul |
     ins_lbu | ins_lh | ins_lhu | ins_jal | ins_bgezal | ins_bltzal | ins_slt | ins_sltu | ins_sll | ins_srl | ins_sra | ins_lui | ins_and | ins_or |
     ins_xor | ins_nor | ins_sltiu | ins_slti | ins_andi | ins_ori | ins_xori | ins_sllv | ins_srlv |
     ins_srav | ins_mfhi | ins_mflo | ins_jalr | ins_mfc0
   io.id_ex_out.regfile_waddr_sel_id_ex := Mux1H(Seq(
     (ins_addu | ins_add | ins_subu | ins_sub | ins_slt | ins_sltu | ins_sll | ins_srl |
       ins_sra | ins_and | ins_or | ins_xor | ins_nor | ins_sllv | ins_srlv |
-      ins_srav | ins_mfhi | ins_mflo | ins_jalr) -> RegFileWAddrSel.inst_rd,
+      ins_srav | ins_mfhi | ins_mflo | ins_jalr | ins_mul) -> RegFileWAddrSel.inst_rd,
     (ins_addiu | ins_addi | ins_lw | ins_lb |
       ins_lbu | ins_lh | ins_lhu | ins_lui | ins_slti | ins_sltiu | ins_andi | ins_ori |
       ins_xori | ins_mfc0) -> RegFileWAddrSel.inst_rt,
@@ -441,6 +442,7 @@ class InsDecode extends Module {
     ins_srlv ||
     ins_srav ||
     ins_mult ||
+    ins_mul ||
     ins_multu ||
     ins_div ||
     ins_divu ||

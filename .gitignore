@@ -342,3 +342,5 @@ hs_err_pid*
 *.anno.json
 *.fir
 *.v
+*.f
+!src/main/resources/**
