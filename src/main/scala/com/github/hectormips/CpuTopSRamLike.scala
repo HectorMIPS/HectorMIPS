@@ -57,7 +57,7 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   val cp0_hazard_bypass_ms_ex      : CP0HazardBypass       = Wire(new CP0HazardBypass)
   val cp0_hazard_bypass_wb_ex      : CP0HazardBypass       = Wire(new CP0HazardBypass)
   val cp0_status_im                : UInt                  = Wire(UInt(8.W))
-  val cp0_cause_ip                 : UInt                  = Wire(UInt(6.W))
+  val cp0_cause_ip                 : UInt                  = Wire(UInt(8.W))
 
   def addr_mapping(physical_addr: UInt): UInt = {
     val vaddr: UInt = Wire(UInt(32.W))

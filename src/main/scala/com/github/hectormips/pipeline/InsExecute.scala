@@ -141,7 +141,7 @@ class InsExecuteBundle extends WithAllowin {
   val to_exception_service_en_ex_pf: Bool = Output(Bool())
   val to_epc_en_ex_pf              : Bool = Output(Bool())
   val cp0_status_im                : UInt = Input(UInt(8.W))
-  val cp0_cause_ip                 : UInt = Input(UInt(6.W))
+  val cp0_cause_ip                 : UInt = Input(UInt(8.W))
 }
 
 

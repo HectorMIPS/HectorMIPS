@@ -1,6 +1,6 @@
 package com.github.hectormips.pipeline
 
-import Chisel.{BitPat, Cat, Mux1H, RegEnable, UIntToOH}
+import Chisel.{BitPat, Cat, Counter, Mux1H, RegEnable, UIntToOH}
 import chisel3._
 import chisel3.experimental.ChiselEnum
 import com.github.hectormips.pipeline.CP0Const
@@ -25,7 +25,7 @@ class CP0Bundle extends Bundle {
   val cp0_ex_out: CP0ExecuteBundle = Output(new CP0ExecuteBundle)
   val epc       : UInt             = Output(UInt(32.W))
   val status_im : UInt             = Output(UInt(8.W))
-  val cause_ip  : UInt             = Output(UInt(6.W))
+  val cause_ip  : UInt             = Output(UInt(8.W))
   val int_in    : UInt             = Input(UInt(6.W))
 
 }
@@ -35,12 +35,13 @@ class CP0 extends Module {
 
   val status_exl: Bool = Wire(Bool())
 
-  val cause    : UInt = RegInit(UInt(32.W), init = 0x0.U)
-  val status   : UInt = RegInit(UInt(32.W), init = 0x400000.U)
-  val count    : UInt = RegInit(UInt(32.W), init = 0x0.U)
+  val cause      : UInt = RegInit(UInt(32.W), init = 0x0.U)
+  val cause_15_10: UInt = RegNext(next = Cat(io.int_in(5) | cause(30), io.int_in(4, 0)), init = 0x0.U)
+  val status     : UInt = RegInit(UInt(32.W), init = 0x400000.U)
+  val count      : UInt = RegInit(UInt(32.W), init = 0x0.U)
   // tick寄存器，用于每两个周期count+1
-  val tick_next: Bool = Wire(Bool())
-  val tick     : Bool = RegNext(init = 0.B, next = !tick_next)
+  val tick_next  : Bool = Wire(Bool())
+  val tick       : Bool = RegNext(init = 0.B, next = !tick_next)
   tick_next := tick
   val compare : UInt = RegInit(UInt(32.W), init = 0x0.U)
   val badvaddr: UInt = RegInit(UInt(32.W), init = 0x0.U)
@@ -70,6 +71,7 @@ class CP0 extends Module {
       )
     }
   }
+
 
   when(io.regaddr === CP0Const.CP0_REGADDR_STATUS && io.regsel === 0.U && io.wen) {
     status := Cat(0.U(1.W),
@@ -126,7 +128,7 @@ class CP0 extends Module {
   }
   io.epc := epc
   io.cp0_ex_out.epc := epc
-  io.cause_ip := Cat(io.int_in, cause(9, 8))
+  io.cause_ip := Cat(cause_15_10, cause(9, 8))
   io.status_im := status(15, 8)
   io.cp0_ex_out.status_ie := status(0)
 
@@ -134,7 +136,7 @@ class CP0 extends Module {
   io.rdata := 0.U
   io.rdata := Mux1H(Seq(
     (io.regaddr === CP0Const.CP0_REGADDR_EPC) -> epc,
-    (io.regaddr === CP0Const.CP0_REGADDR_CAUSE) -> Cat(cause(31, 16), io.int_in, cause(9, 0)),
+    (io.regaddr === CP0Const.CP0_REGADDR_CAUSE) -> Cat(cause(31, 16), cause_15_10, cause(9, 0)),
     (io.regaddr === CP0Const.CP0_REGADDR_STATUS) -> status,
     (io.regaddr === CP0Const.CP0_REGADDR_COMPARE) -> compare,
     (io.regaddr === CP0Const.CP0_REGADDR_COUNT) -> count,
