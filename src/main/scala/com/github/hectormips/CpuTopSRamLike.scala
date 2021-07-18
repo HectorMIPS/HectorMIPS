@@ -106,12 +106,12 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   when(!pipeline_flush_ex) {
     when((id_pf_buffer.bus_valid && id_pf_buffer.is_jump && id_pf_buffer_valid) ||
       (id_pf_bus.bus_valid && id_pf_bus.is_jump)) {
-      when(branch_state_reg === BranchState.no_branch && (id_pf_buffer.bus_valid && id_pf_buffer.jump_taken &&
-        id_pf_buffer_valid) || (id_pf_bus.bus_valid && id_pf_bus.jump_taken)) {
+      when(branch_state_reg === BranchState.no_branch && ((id_pf_buffer.bus_valid && id_pf_buffer.jump_taken &&
+        id_pf_buffer_valid) || (id_pf_bus.bus_valid && id_pf_bus.jump_taken))) {
         branch_state_reg := BranchState.delay_slot
-      }.elsewhen(branch_state_reg === BranchState.no_branch && (id_pf_buffer.bus_valid && !id_pf_buffer.jump_taken &&
-        id_pf_buffer_valid) || (id_pf_bus.bus_valid && !id_pf_bus.jump_taken)) {
-        branch_state_reg := BranchState.delay_slot_regular
+      }.elsewhen(branch_state_reg === BranchState.no_branch && ((id_pf_buffer.bus_valid && !id_pf_buffer.jump_taken &&
+        id_pf_buffer_valid) || (id_pf_bus.bus_valid && !id_pf_bus.jump_taken))) {
+        branch_state_reg := BranchState.delay_slot_no_jump
       }.elsewhen(branch_state_reg === BranchState.delay_slot && fetch_state_reg === RamState.waiting_for_read && id_allowin) {
         branch_state_reg := BranchState.branch_target
       }.elsewhen(branch_state_reg === BranchState.branch_target && fetch_state_reg === RamState.waiting_for_read && id_allowin) {
@@ -119,7 +119,7 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
         id_pf_buffer_valid := 0.B
       }
     }
-    when(branch_state_reg === BranchState.delay_slot_regular && fetch_state_reg === RamState.waiting_for_read && id_allowin) {
+    when(branch_state_reg === BranchState.delay_slot_no_jump && fetch_state_reg === RamState.waiting_for_read && id_allowin) {
       branch_state_reg := BranchState.no_branch
       id_pf_buffer_valid := 0.B
     }
@@ -167,7 +167,7 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   if_module.io.ins_ram_data_ok := io.inst_sram_like_io.data_ok
   if_module.io.fetch_state := fetch_state_reg
   if_module.io.is_delay_slot := branch_state_reg === BranchState.delay_slot ||
-    branch_state_reg === BranchState.delay_slot_regular
+    branch_state_reg === BranchState.delay_slot_no_jump
   if_allowin := if_module.io.this_allowin
   if_id_bus := if_module.io.if_id_out
   if_id_bus.bus_valid := if_module.io.if_id_out.bus_valid

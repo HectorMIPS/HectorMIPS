@@ -28,7 +28,7 @@ class DecodePreFetchBundle extends Bundle {
 
 
 object BranchState extends ChiselEnum {
-  val no_branch, delay_slot, branch_target, delay_slot_regular = Value
+  val no_branch, delay_slot, branch_target, delay_slot_no_jump = Value
 }
 
 class InsPreFetchBundle extends WithAllowin {
@@ -78,7 +78,7 @@ class InsPreFetch extends Module {
   }
   // 需要跳转并且正在执行延迟槽指令
   val jump_now_delay_slot: Bool = io.id_pf_in.bus_valid &&
-    (io.branch_state === BranchState.delay_slot || io.branch_state === BranchState.delay_slot_regular)
+    (io.branch_state === BranchState.delay_slot || io.branch_state === BranchState.delay_slot_no_jump)
   // 已经执行完成延迟槽指令 跳转至目标处
   val jump_now_target    : Bool = io.id_pf_in.bus_valid && io.branch_state === BranchState.branch_target
   val no_jump            : Bool = !io.id_pf_in.bus_valid || (io.id_pf_in.bus_valid && !io.id_pf_in.jump_taken)
