@@ -312,10 +312,12 @@ class InsExecute extends Module {
     (mem_data_sel === MemDataSel.byte) -> 0.U
   ))
 
-  val ready_go: Bool = !ms_cp0_ip0_wen && !wb_cp0_ip0_wen && Mux(divider_required, divider.io.out_valid, 1.B) &&
-    Mux((exception_occur && exception_available) || (interrupt_occur && interrupt_available),
-      !ms_cp0_hazard && !wb_cp0_hazard, 1.B) && Mux(io.id_ex_in.bus_valid && io.id_ex_in.mem_en_id_ex,
-    Mux(io.id_ex_in.mem_wen_id_ex =/= 0.U, io.data_ram_addr_ok, io.data_ram_state === RamState.waiting_for_response), 1.B)
+  val ready_go: Bool = !ms_cp0_ip0_wen && !wb_cp0_ip0_wen &&
+    Mux(divider_required, divider.io.out_valid, 1.B) &&
+    Mux((exception_occur && exception_available) || (interrupt_occur && interrupt_available), !ms_cp0_hazard && !wb_cp0_hazard, 1.B) &&
+    Mux(io.id_ex_in.bus_valid && io.id_ex_in.mem_en_id_ex,
+      Mux(io.id_ex_in.mem_wen_id_ex =/= 0.U, io.data_ram_addr_ok && io.data_ram_state === RamState.requesting, io.data_ram_state === RamState.waiting_for_response),
+      1.B)
   io.this_allowin := ready_go && io.next_allowin && !reset.asBool()
   io.ex_ms_out.bus_valid := ready_go && bus_valid
 
