@@ -14,7 +14,7 @@ object getLruWidth {
   def apply(wayNum: Int): Int = log2Ceil(fact(wayNum))
 }
 
-class LruMem(val config:CacheConfig) extends Module {
+class LruMem(wayNumWidth:Int,indexWidth:Int) extends Module {
   def getMask(w: Int, n: UInt): UInt = {
     (1.U << n).asUInt.pad(w)
   }
@@ -28,20 +28,22 @@ class LruMem(val config:CacheConfig) extends Module {
     val m: UInt = getMask(x.getWidth, n)
     x & (~m).asUInt
   }
-  val lruWidth = getLruWidth(config.wayNum)
+  val wayNum = 1<<wayNumWidth
+  val lruWidth = getLruWidth(wayNum)
+  val lineNum = 1<<indexWidth
   val io = IO(new Bundle {
-    val setAddr = Input(UInt(config.indexWidth.W))
-    val visit = Input(UInt(config.wayNumWidth.W))
+    val setAddr = Input(UInt(indexWidth.W))
+    val visit = Input(UInt(wayNumWidth.W))
     val visitValid = Input(Bool())
-    val waySel = Output(UInt(config.wayNumWidth.W))
+    val waySel = Output(UInt(wayNumWidth.W))
   })
 
-  val lruMem = Mem(config.lineNum, UInt(lruWidth.W))
-  val validMem = RegInit(0.U(config.lineNum.W))
+  val lruMem = Mem(lineNum, UInt(lruWidth.W))
+  val validMem = RegInit(0.U(lineNum.W))
 
   def readLru(addr: UInt): UInt = Mux(validMem(addr), lruMem(addr), 0.U(lruWidth.W))
 
-  val lruFsm = Module(new LruFsm(config.wayNum))
+  val lruFsm = Module(new LruFsm(wayNum))
   lruFsm.io.current := readLru(io.setAddr)
   lruFsm.io.visit := io.visit
   io.waySel := lruFsm.io.sel
@@ -55,5 +57,5 @@ class LruMem(val config:CacheConfig) extends Module {
 object LruMem extends App {
   new ChiselStage execute(args, Seq(ChiselGeneratorAnnotation(
     () =>
-      new LruMem(new CacheConfig()))))
+      new LruMem(wayNumWidth = 1,indexWidth = 8))))//2路，256行
 }

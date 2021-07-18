@@ -40,11 +40,12 @@ class AXIAddr(val addrWidth:Int,val idWidth:Int) extends Bundle{
 }
 
 // 写数据通道
-class AXIWriteData(dataWidth: Int) extends Bundle{
+class AXIWriteData(dataWidth: Int,val idWidth:Int) extends Bundle{
+  val wid = UInt(idWidth.W)
   val data = UInt(dataWidth.W)
   val strb = UInt((dataWidth / 8).W)
   val last = Bool()
-  override def clone = { new AXIWriteData(dataWidth).asInstanceOf[this.type] }
+  override def clone = { new AXIWriteData(dataWidth,idWidth).asInstanceOf[this.type] }
 
 }
 
@@ -71,7 +72,7 @@ class AXIMaster(val addrWidth:Int =32,
                 val idWidth:Int   =4)
   extends Bundle{
   val writeAddr = Decoupled(new AXIAddr(addrWidth,idWidth))
-  val writeData = Decoupled(new AXIWriteData(dataWidth))
+  val writeData = Decoupled(new AXIWriteData(dataWidth,idWidth))
   val readAddr  =  Decoupled(new AXIAddr(addrWidth,idWidth))
   val writeResp = Flipped(Decoupled(new AXIWriteResponse(idWidth)))
   val readData  = Flipped(Decoupled(new AXIReadData(dataWidth,idWidth)))
@@ -128,7 +129,7 @@ class AXISlave( val addrWidth:Int =32,
                 val idWidth:Int   =4)
   extends Bundle{
   val writeAddr = Flipped(Decoupled(new AXIAddr(addrWidth,idWidth)))
-  val writeData = Flipped(Decoupled(new AXIWriteData(dataWidth)))
+  val writeData = Flipped(Decoupled(new AXIWriteData(dataWidth,idWidth)))
   val readAddr  = Flipped(Decoupled(new AXIAddr(addrWidth,idWidth)))
   val writeResp = Decoupled(new AXIWriteResponse(idWidth))
   val readData  = Decoupled(new AXIReadData(dataWidth,idWidth))

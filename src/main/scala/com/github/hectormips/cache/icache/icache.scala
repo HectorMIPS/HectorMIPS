@@ -92,7 +92,7 @@ class ICache(val config:CacheConfig)
     SyncReadMem(config.lineNum, UInt((config.tagWidth+1).W))
   }
 
-  val lruMem = Module(new LruMem(config))// lru
+  val lruMem = Module(new LruMem(config.wayNumWidth,config.indexWidth))// lru
 
   val cache_hit_onehot = Wire(Vec(config.wayNum, Bool())) // 命中的路
   val cache_hit_way = Wire(UInt(config.wayNumWidth.W))
@@ -160,7 +160,8 @@ class ICache(val config:CacheConfig)
   }
   for(way<- 0 until config.wayNum){
     for(bank <- 0 until config.bankNum) {
-      bData.wEn(way)(bank) := state===sREFILL && waySelReg === way.U && bDataWtBank ===bank.U && io.axi.readData.valid
+      bData.wEn(way)(bank) := state===sREFILL && waySelReg === way.U && bDataWtBank ===bank.U && !clock.asBool()
+
     }
   }
   for(way<- 0 until config.wayNum){
