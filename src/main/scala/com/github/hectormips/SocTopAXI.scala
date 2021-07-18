@@ -30,8 +30,7 @@ class SocTopAXI extends Module {
   forceName(clock, "aclk")
   forceName(reset, "aresetn")
   forceName(io.interrupt, "ext_int")
-  override val desiredName = s"mycpu_top_axi"
-
+  override val desiredName = s"mycpu_top"
 }
 
 object SocTopAXI extends App {

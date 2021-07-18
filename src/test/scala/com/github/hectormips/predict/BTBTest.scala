@@ -167,7 +167,7 @@ class BTBTest extends FlatSpec with ChiselScalatestTester with Matchers {
       val sim = new BTB_sim(4, 16)
       val random = new Random
 
-      for (i <- 0 until 10000) {
+      for (i <- 0 until 100) {
         val is_success = random.nextBoolean()
         val pc = random.nextInt(5)
         val target = random.nextInt(100)

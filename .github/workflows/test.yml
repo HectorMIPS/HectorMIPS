@@ -28,7 +28,7 @@ jobs:
       - name: mill Test
         run: mill _.test
       - name: generate mycpu_top.v
-        run: sbt 'runMain com.github.hectormips.pipeline.CpuTop'
+        run: sbt 'runMain com.github.hectormips.SocTopAXI'
       - name: upload
         uses: actions/upload-artifact@v2
         with:
