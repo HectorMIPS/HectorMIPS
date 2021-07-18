@@ -54,9 +54,10 @@ class Rob(config: Config) extends Module {
 
   // rob表
   val rob_data: Mem[RobData] = Mem(config.rob_size, new RobData)
+  val rob_busy: Vec[Bool] = RegInit(VecInit(Seq.fill(config.rob_size)(0.B)))
 
   def add_ins(target: UInt, in: RobInsIn) {
-    rob_data(target).busy := 1.B
+    rob_busy(target) := 1.B
     rob_data(target).ins := in.operation
     rob_data(target).pc := in.pc
     rob_data(target).state := RobState.process
@@ -66,7 +67,7 @@ class Rob(config: Config) extends Module {
   val io: RobIO = IO(new RobIO)
 
   // 指令可以写入ROB
-  val enable_1: Bool = !rob_data(end).busy
+  val enable_1: Bool = !rob_busy(end)
   io.ins_enable := enable_1
   io.ins_rob_target := end
 
@@ -97,7 +98,7 @@ class Rob(config: Config) extends Module {
   }
 
   io.finished_ins := start
-  io.finished_ins_valid := rob_data(start).busy && rob_data(start).state === RobState.write
+  io.finished_ins_valid := rob_busy(start) && rob_data(start).state === RobState.write
   io.finished_ins_target := rob_data(start).target
   io.finished_ins_value := rob_data(start).value
   io.finished_ins_pc := rob_data(start).pc
@@ -112,9 +113,9 @@ class Rob(config: Config) extends Module {
   io.finished_ins_is_jump := rob_data(start).is_jump
   io.finished_ins_next_pc := rob_data(start).next_pc
 
-  when(rob_data(start).busy) {
+  when(rob_busy(start)) {
     when(rob_data(start).state === RobState.write) {
-      rob_data(start).busy := 0.B
+      rob_busy(start) := 0.B
       rob_data(start).state := RobState.confirm
       start := start + 1.U
     }

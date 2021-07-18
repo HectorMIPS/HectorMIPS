@@ -6,7 +6,6 @@ import com.github.hectormips.tomasulo.cp0.ExceptionConst
 import com.github.hectormips.tomasulo.ex_component.{ComponentIn, ComponentInOperationWidth}
 
 class StationData(config: Config) extends Bundle {
-  val busy: Bool = Bool()
   val ins: UInt = UInt(ComponentInOperationWidth.Width.W)
   // 第一个操作数
   val vj: UInt = UInt(32.W)

@@ -13,19 +13,13 @@ class CDB(config: Config, size: Int) extends Module {
     val out: DecoupledIO[RobResultIn] = DecoupledIO(new RobResultIn(config))
   }
 
-  val mask: UInt  = Wire(UInt(log2Ceil(size).W))
+  val queues: Vec[DecoupledIO[RobResultIn]] = VecInit(io.in.map(i => Queue(i)))
 
-  mask := MuxCase(0.U, (0 until size).map(i => {
-    (io.in(i).valid, i.U)
-  }))
-
-  for (i <- 0 until size){
-    io.in(i).ready := Mux(mask === i.U, io.out.ready, 0.U)
-  }
-  io.out.valid := io.in(mask).valid
-  io.out.bits := io.in(mask).bits
+  val arbiter: Arbiter[RobResultIn] = Module(new Arbiter(new RobResultIn(config), size))
+  arbiter.io.in <> queues
+  io.out <> arbiter.io.out
 }
 
 object CDB extends App {
-  val v_content = (new ChiselStage).emitVerilog(new CDB(new Config(4,4), 4))
+  val v_content = (new ChiselStage).emitVerilog(new CDB(new Config(4, 4), 4))
 }

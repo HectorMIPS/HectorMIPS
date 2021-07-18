@@ -7,9 +7,10 @@ import com.github.hectormips.tomasulo.rob.RobInsIn
 // 这是寄存器站， 用于存储寄存器重命名信息, 以及判断是否发生了RAW冲突
 class RegQi(config: Config) extends Module {
   val io: RegQiIO = IO(new RegQiIO)
+
   // 寄存器状态表
   val qi_data: Mem[UInt] = Mem(32, UInt(config.rob_width.W))
-  val qi_data_busy: Vec[Bool] = VecInit(Seq.fill(32)(0.B))
+  val qi_data_busy: Vec[Bool] = RegInit(VecInit(Seq.fill(32)(0.B)))
 
   class RegQiIO extends Bundle {
     // 指令进入ROB
@@ -35,18 +36,18 @@ class RegQi(config: Config) extends Module {
     val src_2_rob_target: UInt = Output(UInt(config.rob_width.W))
   }
 
-  when(io.ins_rob_valid) {
+  when(io.ins_rob_valid && !io.ins_in.target === 0.U) {
     qi_data(io.ins_in.target) := io.rob_target
     qi_data_busy(io.ins_in.target) := 1.B
   }
 
-  when(io.finished_ins_valid && qi_data(io.finished_ins_target) === io.finished_ins && !(io.ins_rob_valid && io.finished_ins_target === io.ins_in.target)) {
+  when(!io.finished_ins_target === 0.U && io.finished_ins_valid && qi_data(io.finished_ins_target) === io.finished_ins && !(io.ins_rob_valid && io.finished_ins_target === io.ins_in.target)) {
     qi_data_busy(io.finished_ins_target) := 0.B
   }
 
-  io.src_1_is_busy := qi_data_busy(io.src_1)
+  io.src_1_is_busy := Mux(io.src_1 === 0.U, 0.B, qi_data_busy(io.src_1))
   io.src_1_rob_target := qi_data(io.src_1)
 
-  io.src_2_is_busy := qi_data_busy(io.src_2)
+  io.src_2_is_busy := Mux(io.src_2 === 0.U, 0.B, qi_data_busy(io.src_2))
   io.src_2_rob_target := qi_data(io.src_2)
 }

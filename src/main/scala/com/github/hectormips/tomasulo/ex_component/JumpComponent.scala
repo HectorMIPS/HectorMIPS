@@ -9,7 +9,8 @@ class JumpComponent(config: Config) extends Component(config) {
 
   val jumpOp: JumpOp.Type = JumpOp(io.in.bits.operation(MultiplierOp.getWidth - 1, 0))
 
-  val jumpRes: Bool = 1.B
+  val jumpRes: Bool = Wire(Bool())
+  jumpRes := 1.B
   val valA: SInt = io.in.bits.valA.asSInt()
   val valB: SInt = io.in.bits.valA.asSInt()
 
@@ -40,17 +41,23 @@ class JumpComponent(config: Config) extends Component(config) {
   val is_jr: Bool = jumpOp === JumpOp.always && !valA.asUInt() === 0.U
 
   io.in.ready := io.out.ready
+
   io.out.valid := io.in.valid
   io.out.bits.exceptionFlag := io.in.bits.exceptionFlag
 
-  io.out.bits.is_jump := jumpRes
-  io.out.bits.next_pc := Mux(is_jr, io.in.bits.target_pc, valA)
+  io.out.bits.next_pc := Mux(is_jr, io.in.bits.target_pc, valA.asUInt())
 
   io.out.bits.pred_success := MuxCase(jumpRes === io.in.bits.predictJump,
     Seq(
       (is_jr, valA.asUInt() === io.in.bits.target_pc)
     )
   )
+
+  io.out.bits.value := io.in.bits.pc + 8.U
+
+  io.out.bits.is_jump := 1.B
+  io.out.bits.rob_target := io.in.bits.dest
+  io.out.bits.jump_success := jumpRes
 
   io.out.bits.writeLO := 0.B
   io.out.bits.writeHI := 0.B

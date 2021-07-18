@@ -26,19 +26,27 @@ class Core(config: Config) extends Module {
     val qi: RegQi = Module(new RegQi(config))
 
 
-    val is_jump: Bool = RegNext(next = rob.io.finished_ins_is_jump, 0.B)
+    val is_jump: Bool = RegNext(next = rob.io.finished_ins_is_jump && rob.io.finished_ins_valid, 0.B)
     val is_jump_success: Bool = RegNext(next = rob.io.finished_ins_jump_success, 0.B)
     val pred_success: Bool = RegNext(next = rob.io.finished_ins_pred_success, 0.B)
     val target_pc: UInt = RegNext(rob.io.finished_ins_next_pc, 0.U(32.W))
 
 
     station_in.operation := io.in.bits.operation
-    station_in.vj := Mux(io.in.bits.need_valA, io.in.bits.valA, Mux(qi.io.src_1_is_busy, rob.io.src_1_value, regfile.io.rdata1))
-    station_in.vk := Mux(io.in.bits.need_valB, io.in.bits.valB, Mux(qi.io.src_2_is_busy, rob.io.src_2_value, regfile.io.rdata2))
+    station_in.vj := MuxCase(regfile.io.rdata1, Seq(
+      (io.in.bits.need_valA, io.in.bits.valA),
+      (station.io.out.valid && station.io.out.bits.rob_target === qi.io.src_1_rob_target && qi.io.src_1_is_busy, station.io.out.bits.value(31,0)),
+      (qi.io.src_1_is_busy, rob.io.src_1_value)
+    ))
+    station_in.vk := MuxCase(regfile.io.rdata2, Seq(
+      (io.in.bits.need_valB, io.in.bits.valB),
+      (station.io.out.valid && station.io.out.bits.rob_target === qi.io.src_2_rob_target && qi.io.src_2_is_busy, station.io.out.bits.value(31,0)),
+      (qi.io.src_2_is_busy, rob.io.src_2_value)
+    ))
     station_in.qj := qi.io.src_1_rob_target
     station_in.qk := qi.io.src_2_rob_target
-    station_in.wait_qj := qi.io.src_1_is_busy && !rob.io.src_1_is_valid && !io.in.bits.need_valA
-    station_in.wait_qk := qi.io.src_2_is_busy && !rob.io.src_2_is_valid && !io.in.bits.need_valB
+    station_in.wait_qj := !(station.io.out.valid && station.io.out.bits.rob_target === qi.io.src_1_rob_target)&& qi.io.src_1_is_busy && !rob.io.src_1_is_valid && !io.in.bits.need_valA
+    station_in.wait_qk := !(station.io.out.valid && station.io.out.bits.rob_target === qi.io.src_2_rob_target)&& qi.io.src_2_is_busy && !rob.io.src_2_is_valid && !io.in.bits.need_valB
     station_in.dest := rob.io.ins_rob_target
     station_in.pc := io.in.bits.pc
     station_in.target_pc := io.in.bits.target_pc
@@ -86,7 +94,7 @@ class Core(config: Config) extends Module {
 
 
     io.debug_wb_pc := rob.io.finished_ins_pc
-    io.debug_wb_rf_wen := rob.io.finished_ins_valid && !rob.io.finished_ins_target === 0.U && write_hilo
+    io.debug_wb_rf_wen := rob.io.finished_ins_valid && !rob.io.finished_ins_target === 0.U && !write_hilo
     io.debug_wb_rf_wdata := MuxCase(
       rob.io.finished_ins_value(31, 0),
       Seq(
@@ -106,10 +114,6 @@ class Core(config: Config) extends Module {
           (rob.io.finished_ins_writeHILO, rob.io.finished_ins_value)
         )
       )
-    }
-
-    when(rob.io.finished_ins_is_jump) {
-      is_jump := rob.io.finished_ins_is_jump
     }
 
     io.clear := is_jump && !pred_success

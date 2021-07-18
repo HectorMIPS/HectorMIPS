@@ -9,3 +9,12 @@ class DCacheReadIO extends Bundle {
   val rdata  : UInt = Output(UInt(32.W))
   val data_ok: Bool = Output(Bool())
 }
+
+
+class DCacheWriteIO extends Bundle {
+  val valid  : Bool = Input(Bool())
+  val addr   : UInt = Input(UInt(32.W))
+  val wdata  : UInt = Input(UInt(32.W))
+  val wstrb  : UInt = Input(UInt(32.W))
+  val data_ok: Bool = Output(Bool())
+}
