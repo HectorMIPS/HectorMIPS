@@ -77,19 +77,20 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
 
 
   // 预取
-  val pf_module         : InsPreFetch          = Module(new InsPreFetch)
-  val id_pf_buffer      : DecodePreFetchBundle = Reg(new DecodePreFetchBundle)
-  val id_pf_buffer_valid: Bool                 = RegInit(init = 0.B)
+  val pf_module   : InsPreFetch          = Module(new InsPreFetch)
+  val id_pf_buffer: DecodePreFetchBundle = RegInit(new DecodePreFetchBundle, init = {
+    val id_pf_bundle: DecodePreFetchBundle = Wire(new DecodePreFetchBundle)
+    id_pf_bundle.defaults()
+    id_pf_bundle
+  })
   pf_module.io.in_valid := 1.U // 目前始终允许
   when(id_pf_bus.bus_valid && id_pf_bus.jump_taken && !pipeline_flush_ex) {
     id_pf_buffer := id_pf_bus
-    id_pf_buffer_valid := 1.B
   }
   when(pipeline_flush_ex) {
-    id_pf_buffer_valid := 0.B
+    id_pf_buffer.bus_valid := 0.B
   }
-  pf_module.io.id_pf_in := Mux(branch_state_reg === BranchState.no_branch, id_pf_bus,
-    Mux(id_pf_buffer_valid && !pipeline_flush_ex, id_pf_buffer, id_pf_bus))
+  pf_module.io.id_pf_in := id_pf_buffer
   pf_module.io.pc := pc
   pf_module.io.next_allowin := if_allowin
   pf_module.io.to_exception_service_en_ex_pf := to_exception_service_en_ex_pf
@@ -107,24 +108,26 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   pc_wen := pf_module.io.pc_wen
   pc_next := pf_module.io.next_pc
   when(!pipeline_flush_ex) {
-    when((id_pf_buffer.bus_valid && id_pf_buffer.is_jump && id_pf_buffer_valid) ||
+    when((id_pf_buffer.bus_valid && id_pf_buffer.is_jump) ||
       (id_pf_bus.bus_valid && id_pf_bus.is_jump)) {
-      when(branch_state_reg === BranchState.no_branch && ((id_pf_buffer.bus_valid && id_pf_buffer.jump_taken &&
-        id_pf_buffer_valid) || (id_pf_bus.bus_valid && id_pf_bus.jump_taken))) {
+      when(branch_state_reg === BranchState.no_branch && ((id_pf_buffer.bus_valid && id_pf_buffer.jump_taken) ||
+        (id_pf_bus.bus_valid && id_pf_bus.jump_taken))) {
         branch_state_reg := BranchState.delay_slot
-      }.elsewhen(branch_state_reg === BranchState.no_branch && ((id_pf_buffer.bus_valid && !id_pf_buffer.jump_taken &&
-        id_pf_buffer_valid) || (id_pf_bus.bus_valid && !id_pf_bus.jump_taken))) {
+      }.elsewhen(branch_state_reg === BranchState.no_branch && ((id_pf_buffer.bus_valid && !id_pf_buffer.jump_taken) ||
+        (id_pf_bus.bus_valid && !id_pf_bus.jump_taken))) {
         branch_state_reg := BranchState.delay_slot_no_jump
-      }.elsewhen(branch_state_reg === BranchState.delay_slot && fetch_state_reg === RamState.waiting_for_read && id_allowin) {
+      }.elsewhen(branch_state_reg === BranchState.delay_slot &&
+        fetch_state_reg === RamState.waiting_for_read && id_allowin) {
         branch_state_reg := BranchState.branch_target
-      }.elsewhen(branch_state_reg === BranchState.branch_target && fetch_state_reg === RamState.waiting_for_read && id_allowin) {
+      }.elsewhen(branch_state_reg === BranchState.branch_target &&
+        fetch_state_reg === RamState.waiting_for_read && id_allowin) {
         branch_state_reg := BranchState.no_branch
-        id_pf_buffer_valid := 0.B
+        id_pf_buffer.bus_valid := 0.B
       }
     }
     when(branch_state_reg === BranchState.delay_slot_no_jump && fetch_state_reg === RamState.waiting_for_read && id_allowin) {
       branch_state_reg := BranchState.no_branch
-      id_pf_buffer_valid := 0.B
+      id_pf_buffer.bus_valid := 0.B
     }
   }.otherwise {
     branch_state_reg := BranchState.no_branch

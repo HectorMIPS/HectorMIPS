@@ -24,6 +24,15 @@ class DecodePreFetchBundle extends Bundle {
   val bus_valid     : Bool            = Output(Bool())
   val jump_taken    : Bool            = Output(Bool())
   val stall_id_pf   : Bool            = Output(Bool())
+
+  def defaults(): Unit = {
+    jump_sel_id_pf := InsJumpSel.delay_slot_pc
+    jump_val_id_pf := VecInit(Seq(0.U, 0.U, 0.U))
+    is_jump := 0.B
+    bus_valid := 1.B
+    jump_taken := 0.B
+    stall_id_pf := 0.B
+  }
 }
 
 
