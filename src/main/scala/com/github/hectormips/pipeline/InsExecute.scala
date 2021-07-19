@@ -128,11 +128,12 @@ class InsExecuteBundle extends WithAllowin {
   val lo_in : UInt = Input(UInt(32.W))
   val lo_wen: Bool = Output(Bool())
 
-  val divider_required: Bool          = Output(Bool())
-  val divider_tready  : Bool          = Output(Bool())
-  val divider_tvalid  : Bool          = Input(Bool())
-  val data_ram_addr_ok: Bool          = Input(Bool())
-  val data_ram_state  : RamState.Type = Input(RamState())
+  val divider_required   : Bool          = Output(Bool())
+  val multiplier_required: Bool          = Output(Bool())
+  val divider_tready     : Bool          = Output(Bool())
+  val divider_tvalid     : Bool          = Input(Bool())
+  val data_ram_addr_ok   : Bool          = Input(Bool())
+  val data_ram_state     : RamState.Type = Input(RamState())
 
   // 流水线清空使能信号
   val pipeline_flush: Bool = Output(Bool())
@@ -146,29 +147,41 @@ class InsExecuteBundle extends WithAllowin {
 
 
 class InsExecute extends Module {
-  val io               : InsExecuteBundle = IO(new InsExecuteBundle)
-  val alu_out          : UInt             = Wire(UInt(32.W))
-  val src1             : UInt             = Wire(UInt(32.W))
-  val src2             : UInt             = Wire(UInt(32.W))
-  val divider_required : Bool             = io.id_ex_in.alu_op_id_ex === AluOp.op_divu || io.id_ex_in.alu_op_id_ex === AluOp.op_div
-  val overflow_occurred: Bool             = Wire(Bool())
-  val flush            : Bool             = Wire(Bool())
+  val io                 : InsExecuteBundle = IO(new InsExecuteBundle)
+  val alu_out            : UInt             = Wire(UInt(32.W))
+  val src1               : UInt             = Wire(UInt(32.W))
+  val src2               : UInt             = Wire(UInt(32.W))
+  val divider_required   : Bool             = io.id_ex_in.alu_op_id_ex === AluOp.op_divu ||
+    io.id_ex_in.alu_op_id_ex === AluOp.op_div
+  val multiplier_required: Bool             = io.id_ex_in.alu_op_id_ex === AluOp.op_mult ||
+    io.id_ex_in.alu_op_id_ex === AluOp.op_multu
+  val overflow_occurred  : Bool             = Wire(Bool())
+  val flush              : Bool             = Wire(Bool())
   src1 := io.id_ex_in.alu_src1_id_ex
   src2 := io.id_ex_in.alu_src2_id_ex
 
+  val calc_done : Bool             = RegInit(init = 0.B)
   val multiplier: CommonMultiplier = Module(new CommonMultiplier)
   multiplier.io.mult1 := src1
   multiplier.io.mult2 := src2
+  multiplier.io.req := multiplier_required && multiplier.io.state === MultiplierState.waiting_for_input && !calc_done
   multiplier.io.is_signed := io.id_ex_in.alu_op_id_ex === AluOp.op_mult
+  multiplier.io.flush := flush
+
 
   val divider: CommonDivider = Module(new CommonDivider)
   divider.io.divisor := src2
   divider.io.dividend := src1
   divider.io.is_signed := io.id_ex_in.alu_op_id_ex === AluOp.op_div
-  divider.io.tvalid := io.divider_tvalid
-  io.divider_tready := divider.io.tready
+  divider.io.tvalid := io.divider_tvalid && !calc_done
+  io.divider_tready := divider.io.tready && !calc_done
   io.divider_required := divider_required
-
+  io.multiplier_required := multiplier_required
+  when(io.this_allowin || flush) {
+    calc_done := 0.B
+  }.elsewhen(divider.io.out_valid || multiplier.io.res_valid) {
+    calc_done := 1.B
+  }
 
   def mult_div_sel(mult_res: UInt, div_res: UInt): UInt = {
     MuxCase(src1, Seq(
@@ -177,10 +190,17 @@ class InsExecute extends Module {
     ))
   }
 
+
   io.hi_out := mult_div_sel(multiplier.io.mult_res_63_32, divider.io.remainder)
-  io.hi_wen := Mux(divider_required, divider.io.out_valid, 1.B) && io.id_ex_in.hi_wen && !flush
+  io.hi_wen := MuxCase(1.B, Seq(
+    divider_required -> divider.io.out_valid,
+    multiplier_required -> multiplier.io.res_valid
+  )) && io.id_ex_in.hi_wen && !flush
   io.lo_out := mult_div_sel(multiplier.io.mult_res_31_0, divider.io.quotient)
-  io.lo_wen := Mux(divider_required, divider.io.out_valid, 1.B) && io.id_ex_in.lo_wen && !flush
+  io.lo_wen := MuxCase(1.B, Seq(
+    divider_required -> divider.io.out_valid,
+    multiplier_required -> multiplier.io.res_valid
+  )) && io.id_ex_in.lo_wen && !flush
 
   alu_out := Mux(io.id_ex_in.hilo_sel === HiloSel.hi, io.hi_in, io.lo_in)
   // 使用带有保护位的补码加法来实现溢出的检测
@@ -314,6 +334,7 @@ class InsExecute extends Module {
 
   val ready_go: Bool = !ms_cp0_ip0_wen && !wb_cp0_ip0_wen &&
     Mux(divider_required, divider.io.out_valid, 1.B) &&
+    Mux(multiplier_required, multiplier.io.res_valid, 1.B) &&
     Mux((exception_occur && exception_available) || (interrupt_occur && interrupt_available), !ms_cp0_hazard && !wb_cp0_hazard, 1.B) &&
     Mux(io.id_ex_in.bus_valid && io.id_ex_in.mem_en_id_ex,
       Mux(io.id_ex_in.mem_wen_id_ex =/= 0.U, io.data_ram_addr_ok && io.data_ram_state === RamState.requesting, io.data_ram_state === RamState.waiting_for_response),
