@@ -3,6 +3,7 @@ package com.github.hectormips.pipeline
 import chisel3._
 import chisel3.experimental.ChiselEnum
 import chisel3.util._
+import com.github.hectormips.RamState
 
 object MemorySrc extends ChiselEnum {
   val alu_val : Type = Value(1.U)
@@ -51,9 +52,11 @@ class ExecuteMemoryBundle extends WithValid {
 }
 
 class InsMemoryBundle extends WithAllowin {
-  val mem_rdata: UInt                  = Input(UInt(32.W))
-  val ex_ms_in : ExecuteMemoryBundle   = Input(new ExecuteMemoryBundle)
-  val ms_wb_out: MemoryWriteBackBundle = Output(new MemoryWriteBackBundle)
+  val mem_rdata       : UInt                  = Input(UInt(32.W))
+  val ex_ms_in        : ExecuteMemoryBundle   = Input(new ExecuteMemoryBundle)
+  val ms_wb_out       : MemoryWriteBackBundle = Output(new MemoryWriteBackBundle)
+  val data_ram_state  : RamState.Type         = Input(RamState())
+  val data_ram_data_ok: Bool                  = Input(Bool())
 
   val bypass_ms_id           : BypassMsgBundle = Output(new BypassMsgBundle)
   val cp0_hazard_bypass_ms_ex: CP0HazardBypass = Output(new CP0HazardBypass)
@@ -91,12 +94,18 @@ class InsMemory extends Module {
 
 
   val bus_valid: Bool = Wire(Bool())
-  bus_valid := io.ex_ms_in.bus_valid && !reset.asBool()
-  io.this_allowin := io.next_allowin && !reset.asBool()
+  val ready_go : Bool = Mux(io.ex_ms_in.bus_valid && io.ex_ms_in.regfile_wsrc_sel_ex_ms,
+    Mux(io.data_ram_state === RamState.waiting_for_response, io.data_ram_data_ok, 1.B), 1.B)
+  bus_valid := io.ex_ms_in.bus_valid && !reset.asBool() && ready_go
+  io.this_allowin := io.next_allowin && !reset.asBool() && ready_go
   io.ms_wb_out.bus_valid := bus_valid
   io.ms_wb_out.pc_ms_wb := io.ex_ms_in.pc_ex_ms_debug
 
-  io.bypass_ms_id.reg_valid := bus_valid && io.ex_ms_in.regfile_we_ex_ms
+  val bypass_bus_valid: Bool = io.ex_ms_in.bus_valid && io.ex_ms_in.regfile_wsrc_sel_ex_ms &&
+    (io.data_ram_state === RamState.waiting_for_response || io.data_ram_data_ok)
+
+  io.bypass_ms_id.bus_valid := bypass_bus_valid
+  io.bypass_ms_id.data_valid := bus_valid && io.ex_ms_in.regfile_we_ex_ms
   io.bypass_ms_id.reg_data := Mux(io.ex_ms_in.regfile_wsrc_sel_ex_ms, io.mem_rdata, io.ex_ms_in.alu_val_ex_ms)
   io.bypass_ms_id.reg_addr := 0.U
   io.bypass_ms_id.reg_addr := Mux1H(Seq(
@@ -110,7 +119,7 @@ class InsMemory extends Module {
   io.ms_wb_out.cp0_sel_ms_wb := io.ex_ms_in.cp0_sel_ex_ms
   io.ms_wb_out.regfile_wdata_from_cp0_ms_wb := io.ex_ms_in.regfile_wdata_from_cp0_ex_ms
 
-  io.cp0_hazard_bypass_ms_ex.bus_valid := bus_valid
+  io.cp0_hazard_bypass_ms_ex.bus_valid := bypass_bus_valid
   io.cp0_hazard_bypass_ms_ex.cp0_en := io.ex_ms_in.regfile_wdata_from_cp0_ex_ms ||
     io.ex_ms_in.cp0_wen_ex_ms
   io.cp0_hazard_bypass_ms_ex.cp0_ip_wen := io.ex_ms_in.cp0_addr_ex_ms === CP0Const.CP0_REGADDR_CAUSE &&

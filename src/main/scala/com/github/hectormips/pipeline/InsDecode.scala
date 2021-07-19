@@ -52,17 +52,16 @@ class FetchDecodeBundle extends WithValidAndException {
 class BypassMsgBundle extends Bundle {
   val reg_addr   : UInt = UInt(5.W)
   val reg_data   : UInt = UInt(32.W)
-  val reg_valid  : Bool = Bool()
+  val bus_valid  : Bool = Bool()
+  val data_valid : Bool = Bool()
   // 当需要读的数据来自于cp0时，需要强制强制暂停前面的所有指令
   val force_stall: Bool = Bool()
 }
 
 class DecodeBypassBundle extends Bundle {
-  val bp_ex_id      : BypassMsgBundle = new BypassMsgBundle
-  // 执行阶段处理的指令是否是lw类指令（同时判断此时ex阶段的lw指令是否有效）
-  val valid_lw_ex_id: Bool            = new Bool()
-  val bp_ms_id      : BypassMsgBundle = new BypassMsgBundle
-  val bp_wb_id      : BypassMsgBundle = new BypassMsgBundle
+  val bp_ex_id: BypassMsgBundle = new BypassMsgBundle
+  val bp_ms_id: BypassMsgBundle = new BypassMsgBundle
+  val bp_wb_id: BypassMsgBundle = new BypassMsgBundle
 }
 
 class InsDecodeBundle extends WithAllowin {
@@ -73,13 +72,12 @@ class InsDecodeBundle extends WithAllowin {
   val regfile_read2: UInt                 = Input(UInt(32.W))
   val id_pf_out    : DecodePreFetchBundle = Output(new DecodePreFetchBundle)
 
-  val iram_en            : Bool                = Output(Bool())
-  val iram_we            : Bool                = Output(Bool())
-  val id_ex_out          : DecodeExecuteBundle = Output(new DecodeExecuteBundle)
-  val ins_opcode         : UInt                = Output(UInt(6.W))
-  val ex_out_valid       : Bool                = Input(Bool())
-  val flush              : Bool                = Input(Bool())
-  val is_delay_slot_id_if: Bool                = Output(Bool()) // 处于if阶段的指令是否是延迟槽指令
+  val iram_en     : Bool                = Output(Bool())
+  val iram_we     : Bool                = Output(Bool())
+  val id_ex_out   : DecodeExecuteBundle = Output(new DecodeExecuteBundle)
+  val ins_opcode  : UInt                = Output(UInt(6.W))
+  val ex_out_valid: Bool                = Input(Bool())
+  val flush       : Bool                = Input(Bool())
 
 
   val decode_to_fetch_next_pc: Vec[UInt] = Output(Vec(2, UInt(32.W))) // 回馈给取值的pc通路
@@ -128,6 +126,7 @@ class InsDecode extends Module {
   val ins_srav    : Bool            = opcode === 0.U && sa === 0.U && func === 0x7.U
   val ins_mult    : Bool            = opcode === 0.U && rd === 0.U && sa === 0.U && func === 0x18.U
   val ins_multu   : Bool            = opcode === 0.U && rd === 0.U && sa === 0.U && func === 0x19.U
+  val ins_mul     : Bool            = opcode === 0x1c.U && sa === 0.U && func === 0x2.U
   val ins_div     : Bool            = opcode === 0.U && rd === 0.U && sa === 0.U && func === 0x1a.U
   val ins_divu    : Bool            = opcode === 0.U && rd === 0.U && sa === 0.U && func === 0x1b.U
   val ins_mfhi    : Bool            = opcode === 0.U && rs === 0.U && rt === 0.U && sa === 0.U && func === 0x10.U
@@ -164,7 +163,7 @@ class InsDecode extends Module {
   val regfile_read2_with_bypass: UInt = Wire(UInt(32.W))
 
   def byPassData(rf_addr: UInt, bypass: BypassMsgBundle): (Bool, UInt) = {
-    (bypass.reg_valid && bypass.reg_addr === rf_addr) -> bypass.reg_data
+    (bypass.bus_valid && bypass.reg_addr === rf_addr) -> bypass.reg_data
   }
 
   regfile_read1_with_bypass := Mux(rs === 0.U, 0.U, MuxCase(io.regfile_read1, Seq(
@@ -187,7 +186,7 @@ class InsDecode extends Module {
       ins_lbu | ins_lh | ins_lhu | ins_sw | ins_sh | ins_sb |
       ins_slt | ins_sltu | ins_sll | ins_srl | ins_sra | ins_lui | ins_and | ins_or |
       ins_xor | ins_nor | ins_slti | ins_sltiu | ins_andi | ins_ori | ins_xori | ins_sllv |
-      ins_srlv | ins_srav | ins_mult | ins_multu | ins_div | ins_divu | ins_mfhi | ins_mflo |
+      ins_srlv | ins_srav | ins_mult | ins_multu | ins_mul | ins_div | ins_divu | ins_mfhi | ins_mflo |
       ins_mthi | ins_mtlo | ins_mfc0 | ins_mtc0) -> InsJumpSel.delay_slot_pc,
     ((ins_beq && regfile1_eq_regfile2) |
       (ins_bne && !regfile1_eq_regfile2) |
@@ -204,6 +203,9 @@ class InsDecode extends Module {
       (ins_blez && regfile1_gt_0)) -> InsJumpSel.delay_slot_pc,
     (ins_jr | ins_jalr) -> InsJumpSel.regfile_read1
   ))
+  io.id_pf_out.is_jump := ins_beq | ins_bne | ins_bgez | ins_bgtz | ins_blez | ins_bltz |
+    ins_bgezal | ins_bltzal | ins_j | ins_jal | ins_jr | ins_jalr
+
 
   // 0: pc=pc+(signed)(offset<<2)
   // 1: pc=pc[31:28]|instr_index<<2
@@ -211,7 +213,6 @@ class InsDecode extends Module {
   io.id_pf_out.jump_val_id_pf(0) := io.if_id_in.pc_if_id + offset.asUInt()
   io.id_pf_out.jump_val_id_pf(1) := Cat(Seq(io.if_id_in.pc_if_id(31, 28), instr_index, "b00".U(2.W)))
   io.id_pf_out.jump_val_id_pf(2) := regfile_read1_with_bypass
-  io.id_pf_out.bus_valid := io.if_id_in.bus_valid && !io.flush
 
   io.id_pf_out.jump_taken := (ins_beq && regfile1_eq_regfile2) ||
     (ins_bne && !regfile1_eq_regfile2) ||
@@ -220,8 +221,6 @@ class InsDecode extends Module {
     ((ins_bltz | ins_bltzal) && !regfile1_ge_0) ||
     (ins_blez && !regfile1_gt_0) ||
     ins_jr || ins_jal || ins_j || ins_jalr
-  io.is_delay_slot_id_if := ins_beq | ins_bne | ins_bgtz | ins_bgez | ins_bgezal | ins_bltz |
-    ins_bltzal | ins_blez | ins_jal | ins_j | ins_bgtz | ins_jr | ins_jalr
 
   io.iram_en := 1.B
   io.iram_we := 0.B
@@ -232,11 +231,13 @@ class InsDecode extends Module {
   val alu_src2: UInt            = Wire(UInt(32.W))
 
   val bp_ex_id_reg_addr : UInt = io.bypass_bus.bp_ex_id.reg_addr
-  val branch_inst_hazard: Bool = io.bypass_bus.valid_lw_ex_id && bp_ex_id_reg_addr =/= 0.U &&
+  val branch_inst_hazard: Bool = ((io.bypass_bus.bp_ex_id.bus_valid && !io.bypass_bus.bp_ex_id.data_valid) ||
+    io.bypass_bus.bp_ms_id.bus_valid && !io.bypass_bus.bp_ms_id.data_valid) && bp_ex_id_reg_addr =/= 0.U &&
     (((ins_jr || ins_jalr) && rs === bp_ex_id_reg_addr) ||
       ((ins_beq || ins_bne) && (rs === bp_ex_id_reg_addr || rt === bp_ex_id_reg_addr)) ||
       ((ins_bgez || ins_bgtz || ins_blez || ins_bltz || ins_bltzal || ins_bgezal) && (rs === bp_ex_id_reg_addr)))
-  val normal_inst_hazard: Bool = io.bypass_bus.valid_lw_ex_id && io.bypass_bus.bp_ex_id.reg_addr =/= 0.U &&
+  val normal_inst_hazard: Bool = ((io.bypass_bus.bp_ex_id.bus_valid && !io.bypass_bus.bp_ex_id.data_valid) ||
+    io.bypass_bus.bp_ms_id.bus_valid && !io.bypass_bus.bp_ms_id.data_valid) && io.bypass_bus.bp_ex_id.reg_addr =/= 0.U &&
     ((src1_sel === AluSrc1Sel.regfile_read1 && rs === io.bypass_bus.bp_ex_id.reg_addr) ||
       (src2_sel === AluSrc2Sel.regfile_read2 && rt === io.bypass_bus.bp_ex_id.reg_addr)) &&
     // 当ex阶段的输出有效的时候说明lw指令还停留在ex阶段
@@ -260,9 +261,9 @@ class InsDecode extends Module {
   }
 
   val bp_ex_id_stall_required: Bool = hasBypassHazard(io.bypass_bus.bp_ex_id.reg_addr) &&
-    io.bypass_bus.bp_ex_id.reg_valid && io.bypass_bus.bp_ex_id.force_stall
+    (io.bypass_bus.bp_ex_id.bus_valid && (!io.bypass_bus.bp_ex_id.data_valid || io.bypass_bus.bp_ex_id.force_stall))
   val bp_ms_id_stall_required: Bool = hasBypassHazard(io.bypass_bus.bp_ms_id.reg_addr) &&
-    io.bypass_bus.bp_ms_id.reg_valid && io.bypass_bus.bp_ms_id.force_stall
+    (io.bypass_bus.bp_ms_id.bus_valid && (!io.bypass_bus.bp_ms_id.data_valid || io.bypass_bus.bp_ms_id.force_stall))
 
   ready_go := !normal_inst_hazard && !branch_inst_hazard && (!bp_ex_id_stall_required && !bp_ms_id_stall_required)
 
@@ -271,7 +272,7 @@ class InsDecode extends Module {
     (ins_addu | ins_add | ins_addiu | ins_addi | ins_subu | ins_sub | ins_lw | ins_lb |
       ins_lbu | ins_lh | ins_lhu | ins_sw | ins_sh | ins_sb |
       ins_slt | ins_sltu | ins_and | ins_or | ins_xor | ins_nor | ins_sltu | ins_slti | ins_sltiu |
-      ins_andi | ins_ori | ins_xori | ins_sllv | ins_srlv | ins_srav | ins_multu |
+      ins_andi | ins_ori | ins_xori | ins_sllv | ins_srlv | ins_srav | ins_multu | ins_mul |
       ins_mult | ins_div | ins_divu | ins_mthi | ins_mtlo) -> AluSrc1Sel.regfile_read1,
     (ins_jal | ins_bgezal | ins_bltzal | ins_jalr) -> AluSrc1Sel.pc_delay,
     (ins_sll | ins_srl | ins_sra | ins_mtc0) -> AluSrc1Sel.sa_32,
@@ -280,7 +281,7 @@ class InsDecode extends Module {
   src2_sel := Mux1H(Seq(
     (ins_addu | ins_add | ins_subu | ins_sub | ins_slt | ins_sltu | ins_sll | ins_srl |
       ins_sra | ins_and | ins_or | ins_xor | ins_nor | ins_sllv | ins_srlv | ins_srav |
-      ins_mult | ins_multu | ins_div | ins_divu | ins_mtc0) -> AluSrc2Sel.regfile_read2,
+      ins_mult | ins_multu | ins_mul | ins_div | ins_divu | ins_mtc0) -> AluSrc2Sel.regfile_read2,
     (ins_addiu | ins_addi | ins_lw | ins_lb |
       ins_lbu | ins_lh | ins_lhu | ins_sw | ins_sh | ins_sb | ins_lui | ins_slti |
       ins_sltiu) -> AluSrc2Sel.imm_32_signed_extend,
@@ -333,20 +334,20 @@ class InsDecode extends Module {
     (ins_srl | ins_srlv) -> AluOp.op_srl,
     (ins_sra | ins_srav) -> AluOp.op_sra,
     ins_lui -> AluOp.op_lui,
-    ins_mult -> AluOp.op_mult,
+    (ins_mult | ins_mul) -> AluOp.op_mult,
     ins_multu -> AluOp.op_multu,
     ins_div -> AluOp.op_div,
     ins_divu -> AluOp.op_divu
   ))
   io.id_ex_out.regfile_we_id_ex := ins_addu | ins_add | ins_addiu | ins_addi | ins_subu | ins_sub |
-    ins_lw | ins_lb |
+    ins_lw | ins_lb | ins_mul |
     ins_lbu | ins_lh | ins_lhu | ins_jal | ins_bgezal | ins_bltzal | ins_slt | ins_sltu | ins_sll | ins_srl | ins_sra | ins_lui | ins_and | ins_or |
     ins_xor | ins_nor | ins_sltiu | ins_slti | ins_andi | ins_ori | ins_xori | ins_sllv | ins_srlv |
     ins_srav | ins_mfhi | ins_mflo | ins_jalr | ins_mfc0
   io.id_ex_out.regfile_waddr_sel_id_ex := Mux1H(Seq(
     (ins_addu | ins_add | ins_subu | ins_sub | ins_slt | ins_sltu | ins_sll | ins_srl |
       ins_sra | ins_and | ins_or | ins_xor | ins_nor | ins_sllv | ins_srlv |
-      ins_srav | ins_mfhi | ins_mflo | ins_jalr) -> RegFileWAddrSel.inst_rd,
+      ins_srav | ins_mfhi | ins_mflo | ins_jalr | ins_mul) -> RegFileWAddrSel.inst_rd,
     (ins_addiu | ins_addi | ins_lw | ins_lb |
       ins_lbu | ins_lh | ins_lhu | ins_lui | ins_slti | ins_sltiu | ins_andi | ins_ori |
       ins_xori | ins_mfc0) -> RegFileWAddrSel.inst_rt,
@@ -370,7 +371,7 @@ class InsDecode extends Module {
   ))
   io.id_ex_out.regfile_wsrc_sel_id_ex := ins_lw | ins_lb |
     ins_lbu | ins_lh | ins_lhu
-  io.id_ex_out.mem_rdata_sel_id_ex := MuxCase(MemDataSel.word, Seq(
+  io.id_ex_out.mem_data_sel_id_ex := MuxCase(MemDataSel.word, Seq(
     (ins_lb | ins_lbu | ins_sb) -> MemDataSel.byte,
     (ins_lh | ins_lhu | ins_sh) -> MemDataSel.hword,
     (ins_lw | ins_sw) -> MemDataSel.word
@@ -378,11 +379,11 @@ class InsDecode extends Module {
   io.id_ex_out.mem_rdata_extend_is_signed_id_ex := ins_lb | ins_lh
 
   io.id_ex_out.hi_wen := ins_multu | ins_mult | ins_div | ins_divu | ins_mthi
-  io.id_ex_out.lo_wen := ins_multu | ins_mult | ins_div | ins_divu | ins_mtlo
+  io.id_ex_out.lo_wen := ins_multu | ins_mult | ins_div | ins_divu | ins_mtlo | ins_mul
   io.id_ex_out.hilo_sel := HiloSel.hi
   io.id_ex_out.hilo_sel := Mux1H(Seq(
     (ins_mthi | ins_mfhi) -> HiloSel.hi,
-    (ins_mtlo | ins_mflo) -> HiloSel.lo
+    (ins_mtlo | ins_mflo | ins_mul) -> HiloSel.lo
   ))
 
 
@@ -401,6 +402,8 @@ class InsDecode extends Module {
 
   // 只有在分支命令产生冲突时才向预取阶段发送stall
   io.id_pf_out.stall_id_pf := branch_inst_hazard
+  // 在指令数据冲突期间，给予pf阶段的选择是无效的
+  io.id_pf_out.bus_valid := io.if_id_in.bus_valid && !io.flush && !branch_inst_hazard
 
   io.id_ex_out.cp0_wen_id_ex := ins_mtc0
   io.id_ex_out.cp0_addr_id_ex := rd
@@ -439,6 +442,7 @@ class InsDecode extends Module {
     ins_srlv ||
     ins_srav ||
     ins_mult ||
+    ins_mul ||
     ins_multu ||
     ins_div ||
     ins_divu ||
