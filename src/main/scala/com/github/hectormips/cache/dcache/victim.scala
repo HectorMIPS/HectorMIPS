@@ -10,7 +10,7 @@ import com.github.hectormips.cache.lru.LruMem
 class VictimBuffer(val config:CacheConfig,val depth:Int) extends Bundle {
   val addr = RegInit(VecInit.tabulate(depth) { _ => 0.U(28.W) })
   val data = RegInit(VecInit.tabulate(depth) { _ => VecInit.tabulate(config.bankNum) { _ => 0.U(32.W) } })
-  val valid = RegInit(0.U(depth.W))
+  val valid = RegInit(VecInit.tabulate(depth) { _ => false.B })
 }
 /**
  * 写回部件
@@ -32,9 +32,11 @@ class Victim(val config:CacheConfig) extends Module {
       val writeResp =  Flipped(Decoupled( new AXIWriteResponse(4)))
     }
   })
-  val sIDLE::sWaitHandShake::sWriteBack::Nil =Enum(3)
+  val debug_counter = RegInit(0.U(11.W))
+  debug_counter := debug_counter + 1.U
+  val sIDLE::sWaitHandShake::sWriteBack::sCheck::Nil =Enum(4)
   val buffer = new VictimBuffer(config,config.victimDepth)
-  val state =  Wire(UInt(2.W))
+  val state =  Reg(UInt(2.W))
 
   val hit_victim_onehot = Wire(Vec(config.victimDepth,Bool()))
   val hit_victim = Wire(UInt(log2Ceil(config.victimDepth).W))
@@ -43,45 +45,65 @@ class Victim(val config:CacheConfig) extends Module {
   /**
    * LRU 配置
    */
-  val lruMem = Module(new LruMem(config.victimDepth,0))
-  lruMem.io.setAddr := config.getVictimIndex(io.addr)
-  lruMem.io.visit := hit_victim
-  lruMem.io.visitValid := is_hit_victim
+//  val lruMem = Module(new LruMem(config.victimDepth,0))
+//  lruMem.io.setAddr := config.getVictimIndex(io.addr)
+//  lruMem.io.visit := hit_victim
+//  lruMem.io.visitValid := is_hit_victim
+  val randomCounter = Counter(config.victimDepth)
+  randomCounter.inc()
 
+  val waySel = Reg(UInt(config.victimDepth.W))
+  when(state === sIDLE){
+    waySel := randomCounter.value
+  }
 
-  is_hit_victim := hit_victim_onehot.asUInt().orR() === 0.U
+  is_hit_victim := hit_victim_onehot.asUInt().orR() =/= 0.U
 
   hit_victim := OHToUInt(hit_victim_onehot)
   for(item <- 0 until config.victimDepth){
-    hit_victim_onehot(item) := config.getVictimTag(buffer.addr(config.victimDepth)) === config.getTag(io.addr)&& config.getVictimIndex(buffer.addr(config.victimDepth)) === config.getIndex(io.addr)
+    hit_victim_onehot(item) := config.getVictimTag(buffer.addr(item)) === config.getTag(io.addr)&&
+      config.getVictimIndex(buffer.addr(item)) === config.getIndex(io.addr) &&
+      buffer.valid(item)
+//    printf("[%d]id=[%d] %x %x   | %x %x  | %d result=%d\n",debug_counter,item.U,config.getVictimTag(buffer.addr(item)),config.getTag(io.addr),
+//      config.getVictimIndex(buffer.addr(item)),config.getIndex(io.addr), buffer.valid(item),
+//      config.getVictimTag(buffer.addr(item)) === config.getTag(io.addr)&&
+//        config.getVictimIndex(buffer.addr(item)) === config.getIndex(io.addr) &&
+//        buffer.valid(item))
   }
-  io.find := is_hit_victim
-  when(is_hit_victim){
-    io.odata.foreach(bank=>{
+
+  io.find := is_hit_victim && state === sIDLE
+  when(io.find){
+    for(bank <- 0 until config.bankNum){
       io.odata(bank) := buffer.data(hit_victim)(bank)
-    })
-//    buffer.valid(hit_victim) := false.B // 应该要被取走，不取走的话就没了
-//    buffer.data(hit_victim)()
+    }
   }.otherwise{
     io.odata.foreach(value=>{
       value := 0.U
     })
   }
 
-//  val operateIndex = Wire(UInt(config.victimDepthWidth.W))
 
-  when(!is_hit_victim && io.op === true.B){
-    for(bank <- 0 until config.bankNum){
-      buffer.data(lruMem.io.waySel)(bank) := io.idata(bank)
-    }
-    buffer.addr(lruMem.io.waySel) := io.addr(32-config.offsetWidth,0)
-    buffer.valid(lruMem.io.waySel) := true.B
-  }.otherwise{
-    //之前存过
-    for(bank <- 0 until config.bankNum){
-      buffer.data(hit_victim)(bank) := io.idata(bank)
+//  val operateIndex = Wire(UInt(config.victimDepthWidth.W))
+  when(io.op === true.B){
+    when(!is_hit_victim) {
+        for (bank <- 0 until config.bankNum) {
+          buffer.data(waySel)(bank) := io.idata(bank)
+        }
+        buffer.addr(waySel) := io.addr(31, config.offsetWidth)
+        buffer.valid(waySel) := true.B
+    }.otherwise{
+      //之前存过
+      for(bank <- 0 until config.bankNum){
+        buffer.data(hit_victim)(bank) := io.idata(bank)
+      }
     }
   }
+
+  /**
+   * 初始化
+   */
+
+  state := sIDLE
 
 
   /**
@@ -94,38 +116,55 @@ class Victim(val config:CacheConfig) extends Module {
   io.axi.writeAddr.bits.lock := 0.U
   io.axi.writeAddr.bits.prot := 0.U
   io.axi.writeAddr.bits.burst := 2.U
-  io.axi.writeAddr.valid := (!io.axi.writeAddr.ready && state === sWaitHandShake)
+  val writeAddrValidReg = RegInit(false.B)
+  io.axi.writeAddr.valid := writeAddrValidReg
+//  writeAddrValidReg:= false.B
+  io.axi.writeAddr.bits.addr := io.addr
 
   io.axi.writeData.bits.wid := 1.U
   io.axi.writeData.bits.strb := "b1111".U
   io.axi.writeData.bits.last := false.B
+  io.axi.writeData.bits.data := 0.U
+  io.axi.writeResp.ready := state === sWriteBack
 
-  io.axi.writeResp.ready := state === sWriteBack && clock.asBool()
+  val confirm_sended = RegInit(false.B)
+  when(state === sWriteBack){
+    when(!io.axi.writeData.ready){
+      io.axi.writeData.valid := false.B
+    }.otherwise{
+      io.axi.writeData.valid := true.B
+    }
+  }.otherwise{
+    io.axi.writeData.valid := false.B
+  }
+
 
   val WtCounter = Counter(config.bankNum)
+
+  val count = Wire(UInt(10.W))
+  count := WtCounter.value
 
   switch(state) {
     is(sIDLE) {
       when(io.op === 1.U) {
         when(io.dirty) {
           state := sWaitHandShake
+          writeAddrValidReg := true.B
         }
       }
     }
     is(sWaitHandShake) {
-      when(io.axi.writeAddr.ready){
+      state := sWaitHandShake
+      when(io.axi.writeAddr.fire()){
+        writeAddrValidReg := false.B
         state := sWriteBack
         WtCounter.reset()
       }
     }
     is(sWriteBack){
       state := sWriteBack
-      when(io.axi.writeData.fire()){
-        io.axi.writeData.valid := false.B
-
-      }.otherwise{
-        io.axi.writeData.valid := true.B
-        io.axi.writeData.bits.data := io.idata(WtCounter.value)
+      io.axi.writeData.bits.data := io.idata(count)
+      when(!io.axi.writeData.fire()){
         when(WtCounter.value===(config.bankNum-1).U){
           io.axi.writeData.bits.last := true.B
         }
@@ -136,10 +175,20 @@ class Victim(val config:CacheConfig) extends Module {
         when(WtCounter.value===(config.bankNum-1).U){
           //下一拍归0
           state := sIDLE
+        }.otherwise{
+          state := sWriteBack
         }
       }
     }
+
+//    is(sCheck){
+//
+//      state := sCheck
+//      printf("[%d]ready = %d valid=%d\n",debug_counter,io.axi.writeResp.ready,io.axi.writeResp.valid)
+//
+//    }
   }
+
 
 }
 

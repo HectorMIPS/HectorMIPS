@@ -1,8 +1,6 @@
 package com.github.hectormips.cache.icache
 
-import scala.util._
 import chisel3._
-import chisel3.iotesters._
 import org.scalatest._
 import chiseltest._
 
