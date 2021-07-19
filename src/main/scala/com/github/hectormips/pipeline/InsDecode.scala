@@ -379,11 +379,11 @@ class InsDecode extends Module {
   io.id_ex_out.mem_rdata_extend_is_signed_id_ex := ins_lb | ins_lh
 
   io.id_ex_out.hi_wen := ins_multu | ins_mult | ins_div | ins_divu | ins_mthi
-  io.id_ex_out.lo_wen := ins_multu | ins_mult | ins_div | ins_divu | ins_mtlo
+  io.id_ex_out.lo_wen := ins_multu | ins_mult | ins_div | ins_divu | ins_mtlo | ins_mul
   io.id_ex_out.hilo_sel := HiloSel.hi
   io.id_ex_out.hilo_sel := Mux1H(Seq(
     (ins_mthi | ins_mfhi) -> HiloSel.hi,
-    (ins_mtlo | ins_mflo) -> HiloSel.lo
+    (ins_mtlo | ins_mflo | ins_mul) -> HiloSel.lo
   ))
 
 

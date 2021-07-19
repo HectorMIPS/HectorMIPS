@@ -259,7 +259,7 @@ class InsExecute extends Module {
       alu_out := io.lo_in
     }
     is(AluOp.op_mult) {
-      alu_out := multiplier.io.mult_res_31_0
+      alu_out := Mux(multiplier.io.res_valid, multiplier.io.mult_res_31_0, io.lo_in)
     }
   }
 
