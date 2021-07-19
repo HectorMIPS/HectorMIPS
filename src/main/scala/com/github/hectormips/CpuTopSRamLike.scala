@@ -8,9 +8,9 @@ import com.github.hectormips.pipeline._
 import com.github.hectormips.utils.RegEnableWithValid
 
 class CpuTopSRamLikeBundle extends Bundle {
-  val interrupt        : UInt       = Input(UInt(6.W))
-  val inst_sram_like_io: SRamLikeIO = new SRamLikeIO
-  val data_sram_like_io: SRamLikeIO = new SRamLikeIO
+  val interrupt        : UInt           = Input(UInt(6.W))
+  val inst_sram_like_io: SRamLikeInstIO = new SRamLikeInstIO
+  val data_sram_like_io: SRamLikeDataIO = new SRamLikeDataIO
 
   val debug: DebugBundle = new DebugBundle
   forceName(interrupt, "ext_int")
@@ -104,7 +104,7 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   io.inst_sram_like_io.req := pf_module.io.ins_ram_en
   io.inst_sram_like_io.wr := 0.B
   io.inst_sram_like_io.wdata := DontCare
-  io.inst_sram_like_io.size := 2.U
+  io.inst_sram_like_io.size := 3.U
   pc_wen := pf_module.io.pc_wen
   pc_next := pf_module.io.next_pc
   when(!pipeline_flush_ex) {
@@ -166,7 +166,7 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   val if_module: InsSufFetch = Module(new InsSufFetch)
   // 由于是伪阶段，不需要寄存器来存储延迟槽指令pc
   if_module.io.delay_slot_pc_pf_if := pf_module.io.delay_slot_pc_pf_if
-  if_module.io.ins_ram_data := io.inst_sram_like_io.rdata
+  if_module.io.ins_ram_data := io.inst_sram_like_io.rdata(31, 0)
   if_module.io.pc_debug_pf_if := pf_module.io.pc_debug_pf_if
   if_module.io.next_allowin := id_allowin
   if_module.io.flush := pipeline_flush_ex
