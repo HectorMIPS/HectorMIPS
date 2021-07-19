@@ -62,12 +62,15 @@ class ICache(val config:CacheConfig)
     val addr    = Input(UInt(32.W)) //等到ok以后才能撤去数据
     val addr_ok = Output(Bool()) //等到ok以后才能撤去数据
 
-    val inst1    = Output(UInt(32.W))
-    val inst1Valid =Output(Bool())
-    val inst1OK  = Output(Bool())
-    val inst2    = Output(UInt(32.W))
-    val inst2Valid =Output(Bool())
-    val inst2OK  = Output(Bool())
+    val inst   = Output(UInt(64.W))
+    val instOK = Output(Bool())
+//    val inst1    = Output(UInt(32.W))
+//    val inst1Valid =Output(Bool())
+//    val inst1OK  = Output(Bool())
+//    val inst2    = Output(UInt(32.W))
+    val instValid =Output(Bool())
+//    val inst2OK  = Output(Bool())
+
 //    val inst3    = Output(UInt(32.W))
 //    val inst3Valid =Output(Bool())
 //    val inst4    = Output(UInt(32.W))
@@ -180,12 +183,12 @@ class ICache(val config:CacheConfig)
   /**
    * IO初始化
    */
-  io.inst1Valid := true.B
-  io.inst2Valid := bankIndex =/= ((config.bankNum) - 1).U //==bank-1
-  io.inst1OK    := false.B
-  io.inst2OK    := false.B
-  io.inst2 := 0.U
-  io.inst1 := 0.U
+//  io.inst1Valid := true.B
+  io.instValid := Cat(true.B,bankIndex =/= ((config.bankNum) - 1).U) //==bank-1
+  io.instOK    := false.B
+//  io.inst2OK    := false.B
+  io.inst := 0.U
+//  io.inst1 := 0.U
   addrokReg := false.B
   /**
    * LRU 配置
@@ -210,6 +213,25 @@ class ICache(val config:CacheConfig)
   }
 
   printf("[%d] %d,%d tagv=%x\n",tmp,tagvData.wEn(0),tagvData.wEn(1),tagvData.write)
+
+  /**
+   * axi访问设置
+   */
+  io.axi.readAddr.bits.id := 0.U
+  io.axi.readAddr.bits.len := (config.bankNum - 1).U
+  io.axi.readAddr.bits.size := 2.U // 4B
+  io.axi.readAddr.bits.addr := addrReg
+  io.axi.readAddr.bits.cache := 0.U
+  io.axi.readAddr.bits.lock := 0.U
+  io.axi.readAddr.bits.prot := 0.U
+  io.axi.readAddr.bits.burst := 2.U //突发模式2
+  val readAddrReg = Reg(Bool())
+  //  readAddrReg := (!io.axi.readAddr.ready &&state ===sREPLACE)
+  io.axi.readAddr.valid:= readAddrReg
+  //  val AXIReadDataReady = RegInit(false.B)
+  //  AXIReadDataReady := () &&
+  io.axi.readData.ready := state === sREFILL  //ready最多持续一拍
+
   /**
    * Cache状态机
    */
@@ -223,10 +245,9 @@ class ICache(val config:CacheConfig)
     }
     is(sLOOKUP){
       when(is_hitWay){
-        io.inst1 := bData.read(cache_hit_way)(bankIndex)
-        io.inst1OK := true.B
-        io.inst2 := bData.read(cache_hit_way)(bankIndex+1.U)
-        io.inst2OK := true.B
+        io.inst := Cat(bData.read(cache_hit_way)(bankIndex+1.U),bData.read(cache_hit_way)(bankIndex))
+//        io.inst1OK := true.B
+        io.instOK := true.B
         lruMem.io.visit := cache_hit_way // lru记录命中
         when(io.valid) {
           // 直接进入下一轮
@@ -238,12 +259,14 @@ class ICache(val config:CacheConfig)
       }.otherwise {
         //没命中,尝试请求
         state := sREPLACE
+        readAddrReg := true.B
       }
     }
     is(sREPLACE){
       waySelReg := lruMem.io.waySel
       bDataWtBank := bankIndex
       when(io.axi.readAddr.ready) {
+        readAddrReg := false.B
         state := sREFILL
       }.otherwise{
         state := sREPLACE
@@ -257,18 +280,17 @@ class ICache(val config:CacheConfig)
       }
       when(io.axi.readData.bits.last){
         state := sWaiting
-        io.inst1 := bData.read(waySelReg)(bankIndex)
-        io.inst1OK := true.B
-        io.inst2 := bData.read(waySelReg)(bankIndex+1.U)
-        io.inst2OK := true.B
+        io.inst := Cat(bData.read(waySelReg)(bankIndex+1.U),bData.read(waySelReg)(bankIndex))
+//        io.inst(63,32) := bData.read(waySelReg)(bankIndex+1.U)
+        io.instOK := true.B
       }
     }
     is(sWaiting){
       state := sIDLE
-      io.inst1 := bData.read(waySelReg)(bankIndex)
-      io.inst1OK := true.B
-      io.inst2 := bData.read(waySelReg)(bankIndex+1.U)
-      io.inst2OK := true.B
+      io.inst := Cat(bData.read(waySelReg)(bankIndex+1.U),bData.read(waySelReg)(bankIndex))
+//      io.inst(31,0) := bData.read(waySelReg)(bankIndex)
+//      io.inst(63,32) := bData.read(waySelReg)(bankIndex+1.U)
+      io.instOK := true.B
     }
   }
 
@@ -276,21 +298,7 @@ class ICache(val config:CacheConfig)
 //    io.axi.readAddr.valid := false.B
 //  }
 
-  /**
-   * axi访问设置
-   */
-  io.axi.readAddr.bits.id := 0.U
-  io.axi.readAddr.bits.len := (config.bankNum - 1).U
-  io.axi.readAddr.bits.size := 2.U // 4B
-  io.axi.readAddr.bits.addr := addrReg
-  io.axi.readAddr.bits.cache := 0.U
-  io.axi.readAddr.bits.lock := 0.U
-  io.axi.readAddr.bits.prot := 0.U
-  io.axi.readAddr.bits.burst := 2.U //突发模式2
-  io.axi.readAddr.valid:= (!io.axi.readAddr.ready &&state ===sREPLACE)
-//  val AXIReadDataReady = RegInit(false.B)
-//  AXIReadDataReady := () &&
-  io.axi.readData.ready := state === sREFILL  //ready最多持续一拍
+
 }
 object ICache extends App {
   new ChiselStage execute(args, Seq(ChiselGeneratorAnnotation(

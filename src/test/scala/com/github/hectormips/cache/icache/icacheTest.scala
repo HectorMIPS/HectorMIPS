@@ -49,31 +49,31 @@ class icacheTest  extends FlatSpec with ChiselScalatestTester with Matchers {
       icache.io.axi.readData.bits.last.poke(false.B)
       icache.io.axi.readData.valid.poke(false.B)
       icache.io.axi.readData.bits.data.poke(0.U)
-      icache.io.inst1.expect(0x12345678.U)
-      icache.io.inst2.expect("h81234567".U)
+      icache.io.inst.expect("h8123456712345678".U) // 高位是后面的地址
+//      icache.io.inst2.expect("h".U)
       icache.clock.step(1)
       icache.io.valid.poke(true.B)
       icache.io.addr.poke(0x1234.U) //  TAG:00001 INDEX:23 Offset:4/4=
       icache.clock.step(1)
       icache.io.valid.poke(false.B)
       icache.io.addr_ok.expect(true.B)
-      icache.io.inst1.expect(0x12345678.U)
-      icache.io.inst2.expect("h81234567".U)
+      icache.io.inst.expect("h8123456712345678".U) // 高位是后面的地址
       icache.clock.step(1)
       icache.io.valid.poke(true.B)
       icache.io.addr.poke(0x1238.U) //  TAG:00001 INDEX:23 Offset:8/4=2
       icache.clock.step(1)
       icache.io.valid.poke(false.B)
       icache.io.addr_ok.expect(true.B)
-      icache.io.inst1.expect("h81234567".U)
-      icache.io.inst2.expect("h78123456".U)
+      icache.io.inst.expect("h7812345681234567".U)
+//      icache.io.inst2.expect("h".U)
       icache.clock.step(1)
       icache.io.valid.poke(true.B)
       icache.io.addr.poke(0x123c.U) //  TAG:00001 INDEX:23 Offset:c/4=3
       icache.clock.step(1)
       icache.io.valid.poke(false.B)
       icache.io.addr_ok.expect(true.B)
-      icache.io.inst1.expect("h78123456".U)
+//      val v = icache.io.inst.peek()
+//      assert(v.asUInt().equals("h78123456".U))
       icache.clock.step(1)
       icache.io.valid.poke(true.B)
       icache.io.addr.poke(0x2234.U) //  TAG:00002 INDEX:23 Offset:4/4=
@@ -108,8 +108,8 @@ class icacheTest  extends FlatSpec with ChiselScalatestTester with Matchers {
       icache.io.axi.readData.bits.last.poke(false.B)
       icache.io.axi.readData.valid.poke(false.B)
       icache.io.axi.readData.bits.data.poke(0.U)
-      icache.io.inst1.expect("h87654321".U)
-      icache.io.inst2.expect("h18765432".U)
+      icache.io.inst.expect("h1876543287654321".U)
+//      icache.io.inst2.expect("h".U)
       icache.clock.step(1)
 
       icache.io.valid.poke(true.B)
@@ -117,8 +117,8 @@ class icacheTest  extends FlatSpec with ChiselScalatestTester with Matchers {
       icache.clock.step(1)
       icache.io.valid.poke(false.B)
       icache.io.addr_ok.expect(true.B)
-      icache.io.inst1.expect(0x12345678.U)
-      icache.io.inst2.expect("h81234567".U)
+      icache.io.inst.expect("h8123456712345678".U)
+//      icache.io.inst2.expect("h".U)
       icache.clock.step(1)
     }
   }

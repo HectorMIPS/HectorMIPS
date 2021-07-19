@@ -12,6 +12,13 @@ class VictimBuffer(val config:CacheConfig,val depth:Int) extends Bundle {
   val data = RegInit(VecInit.tabulate(depth) { _ => VecInit.tabulate(config.bankNum) { _ => 0.U(32.W) } })
   val valid = RegInit(VecInit.tabulate(depth) { _ => false.B })
 }
+
+class VictimQueueItem(val bankNum:Int) extends Bundle{
+  val addr  = UInt(32.W)
+  val data  = Vec(bankNum, UInt(32.W))
+  val dirty = Bool()
+}
+
 /**
  * 写回部件
  */
@@ -37,6 +44,12 @@ class Victim(val config:CacheConfig) extends Module {
   val sIDLE::sWaitHandShake::sWriteBack::sCheck::Nil =Enum(4)
   val buffer = new VictimBuffer(config,config.victimDepth)
   val state =  Reg(UInt(2.W))
+//  val queue = Module(new Queue(new VictimQueueItem(config.bankNum), 1))
+//  queue.io.enq.bits.data := io.idata
+//  queue.io.enq.bits.addr := io.addr
+//  queue.io.enq.bits.dirty := io.dirty
+//  queue.io.deq
+
 
   val hit_victim_onehot = Wire(Vec(config.victimDepth,Bool()))
   val hit_victim = Wire(UInt(log2Ceil(config.victimDepth).W))
@@ -119,7 +132,7 @@ class Victim(val config:CacheConfig) extends Module {
   val writeAddrValidReg = RegInit(false.B)
   io.axi.writeAddr.valid := writeAddrValidReg
 //  writeAddrValidReg:= false.B
-  io.axi.writeAddr.bits.addr := io.addr
+  io.axi.writeAddr.bits.addr := buffer.addr(waySel)
 
   io.axi.writeData.bits.wid := 1.U
   io.axi.writeData.bits.strb := "b1111".U
@@ -127,7 +140,7 @@ class Victim(val config:CacheConfig) extends Module {
   io.axi.writeData.bits.data := 0.U
   io.axi.writeResp.ready := state === sWriteBack
 
-  val confirm_sended = RegInit(false.B)
+//  val confirm_sended = RegInit(false.B)
   when(state === sWriteBack){
     when(!io.axi.writeData.ready){
       io.axi.writeData.valid := false.B
@@ -163,7 +176,7 @@ class Victim(val config:CacheConfig) extends Module {
     }
     is(sWriteBack){
       state := sWriteBack
-      io.axi.writeData.bits.data := io.idata(count)
+      io.axi.writeData.bits.data := buffer.data(waySel)(count)
       when(!io.axi.writeData.fire()){
         when(WtCounter.value===(config.bankNum-1).U){
           io.axi.writeData.bits.last := true.B
@@ -180,13 +193,6 @@ class Victim(val config:CacheConfig) extends Module {
         }
       }
     }
-
-//    is(sCheck){
-//
-//      state := sCheck
-//      printf("[%d]ready = %d valid=%d\n",debug_counter,io.axi.writeResp.ready,io.axi.writeResp.valid)
-//
-//    }
   }
 
 

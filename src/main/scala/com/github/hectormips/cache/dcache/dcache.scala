@@ -67,6 +67,7 @@ class DCache(val config:CacheConfig)
   }
 
   val lruMem = Module(new LruMem(config.wayNumWidth,config.indexWidth))// lru
+  val victim = Module(new Victim(config)) // 写代理
 
   val cache_hit_onehot = Wire(Vec(config.wayNum, Bool())) // 命中的路
   val cache_hit_way = Wire(UInt(config.wayNumWidth.W))
