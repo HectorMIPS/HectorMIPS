@@ -13,6 +13,7 @@ class CacheConfig(val _wayNum:Int=2,val WayWidth:Int=4*1024,val DataWidthByByte:
   val wayNumWidth   = log2Ceil(_wayNum) //1
   val wayNum        = _wayNum //2路
   val bankNum       =  DataWidthByByte >> 2 //默认16字节，即4个Bank
+  val bankNumWidth  =  log2Ceil(bankNum)
   // 地址划分
   val tagWidth      = 32 - log2Ceil(WayWidth)
   val offsetWidth   = log2Ceil(DataWidthByByte) //4
