@@ -342,7 +342,7 @@ class DCache(val config:CacheConfig)
       io.rdata := get_read_data(bData.read(waySelReg)(bankIndex),addrReg(1,0),sizeReg)
       io.data_ok := true.B
 //      lruMem.io.visit := waySelReg
-      when(io.valid && !io.wr){
+      when(io.valid && !wrReg){
         io.data_ok := false.B
         state := sLOOKUP
         addrokReg := true.B
