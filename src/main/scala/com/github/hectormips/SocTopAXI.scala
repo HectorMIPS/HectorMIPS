@@ -3,6 +3,9 @@ package com.github.hectormips
 import chisel3._
 import chisel3.stage.ChiselStage
 import chisel3.util.experimental.forceName
+import com.github.hectormips.cache.dcache.DCache
+import com.github.hectormips.cache.icache.ICache
+import com.github.hectormips.cache.setting.CacheConfig
 
 
 class SocTopSRamLikeBundle extends Bundle {
@@ -17,9 +20,12 @@ class SocTopAXI extends Module {
   withReset(!reset.asBool()) {
     val cpu_top             : CpuTopSRamLike    = Module(new CpuTopSRamLike(0xbfbffffcL, 0))
     val axi_sram_like_bridge: AXISRamLikeBridge = Module(new AXISRamLikeBridge)
+    val icache              : ICache            = Module(new ICache(config = new CacheConfig()))
+    val dcache              : DCache            = Module(new DCache(config = new CacheConfig()))
 
     cpu_top.io.interrupt := io.interrupt
     io.debug := cpu_top.io.debug
+
     io.axi_io <> axi_sram_like_bridge.io.axi_io
     axi_sram_like_bridge.io.resetn := reset
     axi_sram_like_bridge.io.clock := clock.asBool()
