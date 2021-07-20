@@ -6,27 +6,28 @@ package com.github.hectormips.pipeline
 
 import chisel3._
 import chisel3.experimental.ChiselEnum
-import chisel3.util.Mux1H
 import chisel3.util._
 import com.github.hectormips.RamState
 
 object InsJumpSel extends ChiselEnum {
-  val delay_slot_pc     : Type = Value(1.U)
+  val seq_pc            : Type = Value(1.U)
   val pc_add_offset     : Type = Value(2.U)
   val pc_cat_instr_index: Type = Value(4.U)
   val regfile_read1     : Type = Value(8.U)
 }
 
 class DecodePreFetchBundle extends Bundle {
-  val jump_sel_id_pf: InsJumpSel.Type = Output(InsJumpSel())
-  val jump_val_id_pf: Vec[UInt]       = Output(Vec(3, UInt(32.W)))
-  val is_jump       : Bool            = Output(Bool())
-  val bus_valid     : Bool            = Output(Bool())
-  val jump_taken    : Bool            = Output(Bool())
-  val stall_id_pf   : Bool            = Output(Bool())
+  val jump_sel_id_pf  : InsJumpSel.Type = Output(InsJumpSel())
+  val jump_val_id_pf  : Vec[UInt]       = Output(Vec(3, UInt(32.W)))
+  val is_jump         : Bool            = Output(Bool())
+  val bus_valid       : Bool            = Output(Bool())
+  val jump_taken      : Bool            = Output(Bool())
+  val stall_id_pf     : Bool            = Output(Bool())
+  // 请求新获取的指令数
+  val inst_num_request: UInt            = Input(UInt(2.W))
 
   def defaults(): Unit = {
-    jump_sel_id_pf := InsJumpSel.delay_slot_pc
+    jump_sel_id_pf := InsJumpSel.seq_pc
     jump_val_id_pf := VecInit(Seq(0.U, 0.U, 0.U))
     is_jump := 0.B
     bus_valid := 1.B
@@ -47,8 +48,9 @@ class InsPreFetchBundle extends WithAllowin {
   val ins_ram_en                   : Bool                 = Output(Bool())
   val next_pc                      : UInt                 = Output(UInt(32.W))
   val pc_wen                       : Bool                 = Output(Bool())
-  val delay_slot_pc_pf_if          : UInt                 = Output(UInt(32.W))
-  val pc_debug_pf_if               : UInt                 = Output(UInt(32.W))
+  // 一次读入两条指令
+  val delay_slot_pc_pf_if          : Vec[UInt]            = Output(Vec(2, UInt(32.W)))
+  val pc_debug_pf_if               : Vec[UInt]            = Output(Vec(2, UInt(32.W)))
   val to_exception_service_en_ex_pf: Bool                 = Input(Bool())
   val to_epc_en_ex_pf              : Bool                 = Input(Bool())
   val flush                        : Bool                 = Input(Bool())
@@ -64,44 +66,43 @@ class InsPreFetchBundle extends WithAllowin {
 
 // 预取阶段，向同步RAM发起请求
 class InsPreFetch extends Module {
-  val io     : InsPreFetchBundle = IO(new InsPreFetchBundle())
-  val next_pc: UInt              = Wire(UInt(32.W))
-  val seq_pc : UInt              = io.pc + 4.U
-  val req    : Bool              = !io.id_pf_in.stall_id_pf && io.next_allowin &&
+  val io      : InsPreFetchBundle = IO(new InsPreFetchBundle())
+  val pc_jump : UInt              = Wire(UInt(32.W))
+  val seq_pc_4: UInt              = io.pc + 4.U
+  val seq_pc_8: UInt              = io.pc + 8.U
+  val req     : Bool              = !io.id_pf_in.stall_id_pf && io.next_allowin &&
     (io.fetch_state === RamState.waiting_for_request || io.fetch_state === RamState.requesting)
-  next_pc := seq_pc
+  pc_jump := seq_pc_4
 
   switch(io.id_pf_in.jump_sel_id_pf) {
-    is(InsJumpSel.delay_slot_pc) {
-      next_pc := seq_pc
+    is(InsJumpSel.seq_pc) {
+      pc_jump := Mux(io.id_pf_in.inst_num_request === 2.U, seq_pc_8, seq_pc_4)
     }
     is(InsJumpSel.pc_add_offset) {
-      next_pc := io.id_pf_in.jump_val_id_pf(0)
+      pc_jump := io.id_pf_in.jump_val_id_pf(0)
     }
     is(InsJumpSel.pc_cat_instr_index) {
-      next_pc := io.id_pf_in.jump_val_id_pf(1)
+      pc_jump := io.id_pf_in.jump_val_id_pf(1)
     }
     is(InsJumpSel.regfile_read1) {
-      next_pc := io.id_pf_in.jump_val_id_pf(2)
+      pc_jump := io.id_pf_in.jump_val_id_pf(2)
     }
+
   }
-  // 需要跳转并且正在执行延迟槽指令
-  val jump_now_delay_slot: Bool = io.id_pf_in.bus_valid &&
-    (io.branch_state === BranchState.delay_slot || io.branch_state === BranchState.delay_slot_no_jump)
   // 已经执行完成延迟槽指令 跳转至目标处
-  val jump_now_target    : Bool = io.id_pf_in.bus_valid && io.branch_state === BranchState.branch_target
-  val no_jump            : Bool = !io.id_pf_in.bus_valid || (io.id_pf_in.bus_valid && !io.id_pf_in.jump_taken)
+  val jump_now_target: Bool = io.id_pf_in.bus_valid && io.branch_state === BranchState.branch_target
+  val no_jump        : Bool = !io.id_pf_in.bus_valid || (io.id_pf_in.bus_valid && !io.id_pf_in.jump_taken)
   // 直到当前指令可以被decode接收时才发送新的请求
-  val ready_go           : Bool = io.next_allowin && (io.fetch_state === RamState.waiting_for_request)
-  val pc_out             : UInt = MuxCase(seq_pc, Seq(
+  val ready_go       : Bool = io.next_allowin && (io.fetch_state === RamState.waiting_for_request)
+  val pc_out         : UInt = MuxCase(seq_pc_4, Seq(
     io.to_epc_en_ex_pf -> (io.cp0_pf_epc - 4.U),
     io.to_exception_service_en_ex_pf -> ExceptionConst.EXCEPTION_PROGRAM_ADDR,
     // 仅当当前指令已经准备完毕并且可以被接收时才读下一条指令，否则值一直是当前的指令的pc
     (io.id_pf_in.stall_id_pf || !io.next_allowin || io.fetch_state =/= RamState.waiting_for_request) -> io.pc,
-    // 没有跳转指令或者有跳转指令但是没有执行延迟槽指令时，顺序执行
-    (ready_go && (no_jump || jump_now_delay_slot)) -> seq_pc,
+    // 根据decode阶段的回馈来发送新的指令请求
+    (ready_go && io.id_pf_in.bus_valid && no_jump) -> Mux(io.id_pf_in.inst_num_request === 2.U, seq_pc_8, seq_pc_4),
     // 否则跳转至目标处
-    (ready_go && jump_now_target) -> next_pc
+    (ready_go && jump_now_target) -> pc_jump
   ))
   io.next_pc := pc_out
   // 无暂停，恒1

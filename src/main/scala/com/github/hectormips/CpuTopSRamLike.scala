@@ -8,9 +8,9 @@ import com.github.hectormips.pipeline._
 import com.github.hectormips.utils.RegEnableWithValid
 
 class CpuTopSRamLikeBundle extends Bundle {
-  val interrupt        : UInt       = Input(UInt(6.W))
-  val inst_sram_like_io: SRamLikeIO = new SRamLikeIO
-  val data_sram_like_io: SRamLikeIO = new SRamLikeIO
+  val interrupt        : UInt           = Input(UInt(6.W))
+  val inst_sram_like_io: SRamLikeInstIO = new SRamLikeInstIO
+  val data_sram_like_io: SRamLikeDataIO = new SRamLikeDataIO
 
   val debug: DebugBundle = new DebugBundle
   forceName(interrupt, "ext_int")

@@ -187,7 +187,7 @@ class InsDecode extends Module {
       ins_slt | ins_sltu | ins_sll | ins_srl | ins_sra | ins_lui | ins_and | ins_or |
       ins_xor | ins_nor | ins_slti | ins_sltiu | ins_andi | ins_ori | ins_xori | ins_sllv |
       ins_srlv | ins_srav | ins_mult | ins_multu | ins_mul | ins_div | ins_divu | ins_mfhi | ins_mflo |
-      ins_mthi | ins_mtlo | ins_mfc0 | ins_mtc0) -> InsJumpSel.delay_slot_pc,
+      ins_mthi | ins_mtlo | ins_mfc0 | ins_mtc0) -> InsJumpSel.seq_pc,
     ((ins_beq && regfile1_eq_regfile2) |
       (ins_bne && !regfile1_eq_regfile2) |
       (ins_bgtz && regfile1_gt_0) |
@@ -200,7 +200,7 @@ class InsDecode extends Module {
       (ins_bgtz && !regfile1_gt_0) |
       ((ins_bgez | ins_bgezal) && !regfile1_ge_0) |
       ((ins_bltz | ins_bltzal) && regfile1_ge_0) |
-      (ins_blez && regfile1_gt_0)) -> InsJumpSel.delay_slot_pc,
+      (ins_blez && regfile1_gt_0)) -> InsJumpSel.seq_pc,
     (ins_jr | ins_jalr) -> InsJumpSel.regfile_read1
   ))
   io.id_pf_out.is_jump := ins_beq | ins_bne | ins_bgez | ins_bgtz | ins_blez | ins_bltz |
