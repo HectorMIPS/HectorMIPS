@@ -89,9 +89,9 @@ class DCache(val config:CacheConfig)
   val cache_hit_way = Wire(UInt(config.wayNumWidth.W))
 
   val addrReg = Reg(UInt(32.W)) //地址寄存器
-  val bData = Wire(new BankData(config))
+  val bData = RegNext(new BankData(config))
   //  val bDataWriteReg = RegInit(VecInit(Seq.fill(config.bankNum)(0.U(32.W))))
-  val tagvData = Wire(new TAGVData(config))
+  val tagvData = RegNext(new TAGVData(config))
   val dataMemEn = RegInit(false.B)
   val bDataWtBank = Reg(UInt((config.offsetWidth-2).W))
   val AXI_readyReg = Reg(Bool())
@@ -164,7 +164,7 @@ class DCache(val config:CacheConfig)
     })
   }.otherwise {
     dataMem.indices.foreach(way => {
-      printf("[%d] dirtyMem(%x)(%x)=%d \n",debug_counter,bData.addr,way.U,dirtyMem(bData.addr)(way))
+//      printf("[%d] dirtyMem(%x)(%x)=%d \n",debug_counter,bData.addr,way.U,dirtyMem(bData.addr)(way))
       dataMem(way).indices.foreach(bank => {
         val m = dataMem(way)(bank)
         when(bData.wEn(way)(bank)) {
@@ -253,7 +253,7 @@ class DCache(val config:CacheConfig)
     tagvData.addr := tmp
   }
 
-  printf("[%d] %d,%d tagv=%x\n",tmp,tagvData.wEn(0),tagvData.wEn(1),tagvData.write)
+//  printf("[%d] %d,%d tagv=%x\n",tmp,tagvData.wEn(0),tagvData.wEn(1),tagvData.write)
   /**
    * Cache状态机
    */
@@ -297,7 +297,7 @@ class DCache(val config:CacheConfig)
           state := sLOOKUP
         }
         io.data_ok := true.B
-        printf("%x\n",victim.io.odata(bankIndex))
+//        printf("%x\n",victim.io.odata(bankIndex))
         when(!io.wr) {
           // 读
           io.rdata := get_read_data(victim.io.odata(bankIndex), addrReg(1, 0),sizeReg)
@@ -342,14 +342,14 @@ class DCache(val config:CacheConfig)
       io.rdata := get_read_data(bData.read(waySelReg)(bankIndex),addrReg(1,0),sizeReg)
       io.data_ok := true.B
 //      lruMem.io.visit := waySelReg
-      when(io.valid && !wrReg){
-        io.data_ok := false.B
-        state := sLOOKUP
-        addrokReg := true.B
-        addrReg := io.addr
-        sizeReg := io.size
-        wrReg   := io.wr
-      }
+//      when(io.valid && !wrReg){
+//        io.data_ok := false.B
+//        state := sLOOKUP
+//        addrokReg := true.B
+//        addrReg := io.addr
+//        sizeReg := io.size
+//        wrReg   := io.wr
+//      }
     }
   }
 
@@ -389,7 +389,7 @@ class DCache(val config:CacheConfig)
   io.axi.readAddr.bits.lock := 0.U
   io.axi.readAddr.bits.prot := 0.U
   io.axi.readAddr.bits.burst := 2.U //突发模式2
-
+  io.axi.readAddr.valid := false.B
   //  val AXIReadDataReady = RegInit(false.B)
   //  AXIReadDataReady := () &&
   io.axi.readData.ready := state === sREFILL  //ready最多持续一拍

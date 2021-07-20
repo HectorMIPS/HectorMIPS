@@ -3,6 +3,7 @@ package com.github.hectormips
 import chisel3._
 import chisel3.stage.ChiselStage
 import chisel3.util.experimental.forceName
+import com.github.hectormips.cache.cache.Cache
 import com.github.hectormips.cache.dcache.DCache
 import com.github.hectormips.cache.icache.ICache
 import com.github.hectormips.cache.setting.CacheConfig
@@ -18,20 +19,16 @@ class SocTopSRamLikeBundle extends Bundle {
 class SocTopAXI extends Module {
   val io: SocTopSRamLikeBundle = IO(new SocTopSRamLikeBundle)
   withReset(!reset.asBool()) {
-    val cpu_top             : CpuTopSRamLike    = Module(new CpuTopSRamLike(0xbfbffffcL, 0))
-    val axi_sram_like_bridge: AXISRamLikeBridge = Module(new AXISRamLikeBridge)
-    val icache              : ICache            = Module(new ICache(config = new CacheConfig()))
-    val dcache              : DCache            = Module(new DCache(config = new CacheConfig()))
+    val cpu_top: CpuTopSRamLike = Module(new CpuTopSRamLike(0xbfbffffcL, 0))
+    val cache  : Cache          = Module(new Cache(new CacheConfig()))
 
     cpu_top.io.interrupt := io.interrupt
     io.debug := cpu_top.io.debug
 
-    io.axi_io <> axi_sram_like_bridge.io.axi_io
-    axi_sram_like_bridge.io.resetn := reset
-    axi_sram_like_bridge.io.clock := clock.asBool()
+    io.axi_io <> cache.io.axi
 
-    cpu_top.io.inst_sram_like_io <> axi_sram_like_bridge.io.inst_sram_like_io
-    cpu_top.io.data_sram_like_io <> axi_sram_like_bridge.io.data_sram_like_io
+    cpu_top.io.inst_sram_like_io <> cache.io.icache
+    cpu_top.io.data_sram_like_io <> cache.io.dcache
   }
   forceName(clock, "aclk")
   forceName(reset, "aresetn")

@@ -1,13 +1,10 @@
 package com.github.hectormips.amba
 
-import scala.util._
 import chisel3._
-import chisel3.iotesters._
-import org.scalatest._
 import chiseltest._
-
 import chiseltest.experimental.TestOptionBuilder._
 import chiseltest.internal.WriteVcdAnnotation
+import org.scalatest._
 
 class TestSRAMLike2AXI extends FlatSpec with ChiselScalatestTester with Matchers {
   behavior of "TestSRAMLike2AXI"

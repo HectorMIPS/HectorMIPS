@@ -103,6 +103,7 @@ class ICache(val config:CacheConfig)
   val addrReg = Reg(UInt(32.W)) //地址寄存器
   val bData = Wire(new BankData(config))
 //  val bDataWriteReg = RegInit(VecInit(Seq.fill(config.bankNum)(0.U(32.W))))
+
   val tagvData = Wire(new TAGVData(config))
   val dataMemEn = RegInit(false.B)
   val bDataWtBank = Reg(UInt((config.offsetWidth-2).W))
@@ -212,7 +213,7 @@ class ICache(val config:CacheConfig)
     tagvData.addr := tmp
   }
 
-  printf("[%d] %d,%d tagv=%x\n",tmp,tagvData.wEn(0),tagvData.wEn(1),tagvData.write)
+//  printf("[%d] %d,%d tagv=%x\n",tmp,tagvData.wEn(0),tagvData.wEn(1),tagvData.write)
 
   /**
    * axi访问设置
@@ -225,7 +226,7 @@ class ICache(val config:CacheConfig)
   io.axi.readAddr.bits.lock := 0.U
   io.axi.readAddr.bits.prot := 0.U
   io.axi.readAddr.bits.burst := 2.U //突发模式2
-  val readAddrReg = Reg(Bool())
+  val readAddrReg = RegInit(false.B)
   //  readAddrReg := (!io.axi.readAddr.ready &&state ===sREPLACE)
   io.axi.readAddr.valid:= readAddrReg
   //  val AXIReadDataReady = RegInit(false.B)
@@ -265,7 +266,7 @@ class ICache(val config:CacheConfig)
     is(sREPLACE){
       waySelReg := lruMem.io.waySel
       bDataWtBank := bankIndex
-      when(io.axi.readAddr.ready) {
+      when(io.axi.readAddr.fire()) {
         readAddrReg := false.B
         state := sREFILL
       }.otherwise{
@@ -275,7 +276,7 @@ class ICache(val config:CacheConfig)
     is(sREFILL){
       // 取数据，重写TAGV
       state := sREFILL
-      when(io.axi.readData.valid){
+      when(io.axi.readData.fire()){
         bDataWtBank := bDataWtBank+1.U
       }
       when(io.axi.readData.bits.last){
