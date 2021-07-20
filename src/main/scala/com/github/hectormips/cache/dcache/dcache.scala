@@ -98,6 +98,7 @@ class DCache(val config:CacheConfig)
 
   val is_hitWay = Wire(Bool())
   val addrokReg = RegInit(false.B)
+  val wrReg = Reg(Bool())
   val index  = Wire(UInt(config.indexWidth.W))
   val bankIndex = Wire(UInt((config.offsetWidth-2).W))
   val tag  = Wire(UInt(config.tagWidth.W))
@@ -266,6 +267,7 @@ class DCache(val config:CacheConfig)
         addrokReg := true.B
         addrReg := io.addr
         sizeReg := io.size
+        wrReg := io.wr
       }
     }
     is(sLOOKUP){
@@ -277,11 +279,12 @@ class DCache(val config:CacheConfig)
           addrokReg := true.B
           addrReg := io.addr
           sizeReg := io.size
+          wrReg   := io.wr
         }.otherwise {
           state := sIDLE
         }
         io.data_ok := true.B
-        when(!io.wr) {
+        when(!wrReg) {
           // 读
           io.rdata := get_read_data(bData.read(cache_hit_way)(bankIndex), addrReg(1, 0),sizeReg)
         }
@@ -327,7 +330,7 @@ class DCache(val config:CacheConfig)
       }
       when(io.axi.readData.bits.last){
         state := sWaiting
-        when(!io.wr){
+        when(!wrReg){
           io.rdata := get_read_data(bData.read(waySelReg)(bankIndex),addrReg(1,0),sizeReg)
           io.data_ok := true.B
         }
@@ -345,6 +348,7 @@ class DCache(val config:CacheConfig)
         addrokReg := true.B
         addrReg := io.addr
         sizeReg := io.size
+        wrReg   := io.wr
       }
     }
   }
