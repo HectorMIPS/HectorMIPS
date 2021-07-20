@@ -89,9 +89,9 @@ class DCache(val config:CacheConfig)
   val cache_hit_way = Wire(UInt(config.wayNumWidth.W))
 
   val addrReg = Reg(UInt(32.W)) //地址寄存器
-  val bData = RegNext(new BankData(config))
+  val bData = Wire(new BankData(config))
   //  val bDataWriteReg = RegInit(VecInit(Seq.fill(config.bankNum)(0.U(32.W))))
-  val tagvData = RegNext(new TAGVData(config))
+  val tagvData = Wire(new TAGVData(config))
   val dataMemEn = RegInit(false.B)
   val bDataWtBank = Reg(UInt((config.offsetWidth-2).W))
   val AXI_readyReg = Reg(Bool())
