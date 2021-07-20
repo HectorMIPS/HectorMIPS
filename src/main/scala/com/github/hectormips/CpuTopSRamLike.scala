@@ -141,7 +141,7 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
       fetch_state_reg := RamState.waiting_for_response
     }
   }
-  when(io.inst_sram_like_io.addr_ok && fetch_state_reg === RamState.requesting) {
+  when(io.inst_sram_like_io.addr_ok && fetch_state_reg === RamState.requesting && pf_module.io.ins_ram_en) {
     fetch_state_reg := RamState.waiting_for_response
   }
   when(io.inst_sram_like_io.data_ok && fetch_state_reg === RamState.waiting_for_response) {
