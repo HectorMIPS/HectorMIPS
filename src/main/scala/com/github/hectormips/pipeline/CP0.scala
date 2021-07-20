@@ -60,7 +60,16 @@ class CP0 extends Module {
   }
 
   when(io.ex_cp0_in.exception_occur) {
-    when(!status_exl) {
+    when(status_exl) {
+      cause := Cat(cause(31), // bd
+        cause(30), // ti
+        0.U(20.W),
+        cause(9, 8), // ip1..ip0
+        0.U(1.W),
+        io.ex_cp0_in.exc_code, // ExcCode
+        0.U(2.W)
+      )
+    }.otherwise {
       cause := Cat(io.ex_cp0_in.is_delay_slot,
         cause(30), // ti
         0.U(20.W),
@@ -74,7 +83,7 @@ class CP0 extends Module {
 
 
   when(io.regaddr === CP0Const.CP0_REGADDR_STATUS && io.regsel === 0.U && io.wen) {
-    status := Cat(0.U(1.W),
+    status := Cat(0.U(9.W),
       1.U(1.W), // bev
       0.U(6.W),
       io.wdata(15, 8), // im
@@ -134,13 +143,13 @@ class CP0 extends Module {
 
 
   io.rdata := 0.U
-  io.rdata := Mux1H(Seq(
+  io.rdata := Mux(io.regsel === 0.U, Mux1H(Seq(
     (io.regaddr === CP0Const.CP0_REGADDR_EPC) -> epc,
     (io.regaddr === CP0Const.CP0_REGADDR_CAUSE) -> Cat(cause(31, 16), cause_15_10, cause(9, 0)),
     (io.regaddr === CP0Const.CP0_REGADDR_STATUS) -> status,
     (io.regaddr === CP0Const.CP0_REGADDR_COMPARE) -> compare,
     (io.regaddr === CP0Const.CP0_REGADDR_COUNT) -> count,
     (io.regaddr === CP0Const.CP0_REGADDR_BADVADDR) -> badvaddr,
-  ))
+  )), 0.U)
   io.cp0_ex_out.status_exl := status_exl
 }

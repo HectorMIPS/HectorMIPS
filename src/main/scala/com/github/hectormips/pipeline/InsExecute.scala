@@ -318,7 +318,7 @@ class InsExecute extends Module {
   val exception_occur    : Bool = io.id_ex_in.bus_valid && exception_flags =/= 0.U // 当输入有效且例外标识不为0则发生例外
   val interrupt_occur    : Bool = (io.cp0_cause_ip & io.cp0_status_im) =/= 0.U
   val eret_occur         : Bool = io.id_ex_in.bus_valid && io.id_ex_in.ins_eret
-  val exception_available: Bool = !io.cp0_ex_in.status_exl // exl为0时才能执行例外程序
+  val exception_available: Bool = 1.B // 永远允许例外发生
   val interrupt_available: Bool = !io.cp0_ex_in.status_exl && io.cp0_ex_in.status_ie
 
   io.mem_wdata := io.id_ex_in.mem_wdata_id_ex
@@ -351,7 +351,7 @@ class InsExecute extends Module {
 
 
   io.ex_cp0_out.exception_occur := (exception_occur || interrupt_occur) && ready_go
-  // 如果是软中断导致的例外，将pc指向下一条指令
+  //TODO: 如果是软中断导致的例外，将pc指向下一条指令
   io.ex_cp0_out.pc := Mux(interrupt_occur && interrupt_available, io.id_ex_in.pc_id_ex_debug + 4.U,
     io.id_ex_in.pc_id_ex_debug)
   io.ex_cp0_out.badvaddr := MuxCase(io.id_ex_in.pc_id_ex_debug, Seq(
