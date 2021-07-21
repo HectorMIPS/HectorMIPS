@@ -46,7 +46,7 @@ class MemAccessJudge extends Module{
 
 
   io.data.data_ok := false.B
-  io.data.addr_ok := false.B
+  io.data.addr_ok := state === sIDLE
   io.uncached_data.addr := 0.U
   io.cached_data.size := 2.U
   io.uncached_data.wr := 0.U
@@ -64,7 +64,6 @@ class MemAccessJudge extends Module{
   val addr_r = Reg(UInt(32.W))
   val wdata_r  = RegInit(0.U(32.W))
 
-  io.data.addr_ok := true.B
 
   switch(state){
     is(sIDLE){
@@ -82,7 +81,11 @@ class MemAccessJudge extends Module{
         when(io.cached_data.addr_ok) {
           state := sWaitCache
           io.cached_data.req :=true.B
-          io.data.addr_ok := false.B
+//          io.data.addr_ok := false.B
+          io.cached_data.wr := wr_r
+          io.cached_data.size := size_r
+          io.cached_data.addr := addr_r
+          io.cached_data.wdata := wdata_r
         }
         io.cached_data.wr := wr_r
         io.cached_data.size := size_r
@@ -92,7 +95,11 @@ class MemAccessJudge extends Module{
         when(io.uncached_data.addr_ok) {
           state := sWaitAXI
           io.uncached_data.req :=true.B
-          io.data.addr_ok := false.B
+//          io.data.addr_ok := false.B
+          io.uncached_data.wr := wr_r
+          io.uncached_data.size := size_r
+          io.uncached_data.addr := addr_r
+          io.uncached_data.wdata := wdata_r
         }
         io.uncached_data.wr := wr_r
         io.uncached_data.size := size_r
@@ -103,6 +110,10 @@ class MemAccessJudge extends Module{
     is(sWaitCache){
       when(io.cached_data.data_ok){
           state := sIDLE
+          when(!wr_r){
+            //读
+            io.data.rdata := io.cached_data.rdata
+          }
           io.data.data_ok := true.B
       }.otherwise{
         io.cached_data.req :=false.B
@@ -112,12 +123,15 @@ class MemAccessJudge extends Module{
     is(sWaitAXI){
       when(io.uncached_data.data_ok){
         state := sIDLE
+        when(!wr_r){
+          //读
+          io.data.rdata := io.uncached_data.rdata
+        }
         io.data.data_ok := true.B
       }.otherwise{
         io.uncached_data.req :=false.B
         state := sWaitAXI
       }
-
     }
   }
 

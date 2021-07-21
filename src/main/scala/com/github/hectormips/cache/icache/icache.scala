@@ -92,7 +92,7 @@ class ICache(val config:CacheConfig)
    */
   val dataMem = List.fill(config.wayNum) {
     List.fill(config.bankNum) { // 4字节长就有4个
-      SyncReadMem(config.indexWidth,UInt(32.W))
+      SyncReadMem(config.lineNum,UInt(32.W))
     }
   }
   val tagvMem = List.fill(config.wayNum) {
