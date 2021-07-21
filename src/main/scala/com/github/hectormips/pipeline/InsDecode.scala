@@ -163,7 +163,7 @@ class InsDecode extends Module {
   val regfile_read2_with_bypass: UInt = Wire(UInt(32.W))
 
   def byPassData(rf_addr: UInt, bypass: BypassMsgBundle): (Bool, UInt) = {
-    (bypass.bus_valid && bypass.reg_addr === rf_addr) -> bypass.reg_data
+    (bypass.bus_valid && bypass.data_valid && bypass.reg_addr === rf_addr) -> bypass.reg_data
   }
 
   regfile_read1_with_bypass := Mux(rs === 0.U, 0.U, MuxCase(io.regfile_read1, Seq(

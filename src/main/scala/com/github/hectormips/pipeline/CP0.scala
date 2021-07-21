@@ -132,7 +132,8 @@ class CP0 extends Module {
   }
   when(io.ex_cp0_in.exception_occur) {
     when(!status_exl) { // 只有exl置0时更新epc
-      epc := Mux(io.ex_cp0_in.is_delay_slot, io.ex_cp0_in.pc - 4.U, io.ex_cp0_in.pc)
+      epc := Mux(io.ex_cp0_in.is_delay_slot && io.ex_cp0_in.exc_code =/= ExcCodeConst.INT,
+        io.ex_cp0_in.pc - 4.U, io.ex_cp0_in.pc)
     }
   }
   io.epc := epc

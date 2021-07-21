@@ -31,6 +31,7 @@ class ExecuteMemoryBundle extends WithValid {
   val cp0_addr_ex_ms                  : UInt                 = UInt(5.W)
   val cp0_sel_ex_ms                   : UInt                 = UInt(3.W)
   val regfile_wdata_from_cp0_ex_ms    : Bool                 = Bool()
+  val mem_req                         : Bool                 = Bool()
 
   override def defaults(): Unit = {
     super.defaults()
@@ -48,6 +49,7 @@ class ExecuteMemoryBundle extends WithValid {
     cp0_addr_ex_ms := 0.U
     cp0_sel_ex_ms := 0.U
     regfile_wdata_from_cp0_ex_ms := 0.B
+    mem_req := 0.B
   }
 }
 
@@ -76,6 +78,7 @@ class InsMemory extends Module {
   val mem_rdata_offset_byte: UInt = Wire(UInt(5.W))
   // 以字节为单位进行位移操作
   mem_rdata_offset_byte := io.ex_ms_in.mem_rdata_offset << 3.U
+  // 读有效时，低位被抹平，需要自行进行移位操作
   mem_rdata_fixed := (io.mem_rdata >> mem_rdata_offset_byte).asUInt()
   val mem_rdata_out: UInt = Wire(UInt(32.W))
 
@@ -94,7 +97,7 @@ class InsMemory extends Module {
 
 
   val bus_valid: Bool = Wire(Bool())
-  val ready_go : Bool = Mux(io.ex_ms_in.bus_valid && io.ex_ms_in.regfile_wsrc_sel_ex_ms,
+  val ready_go : Bool = Mux(io.ex_ms_in.bus_valid && io.ex_ms_in.mem_req,
     Mux(io.data_ram_state === RamState.waiting_for_response, io.data_ram_data_ok, 1.B), 1.B)
   bus_valid := io.ex_ms_in.bus_valid && !reset.asBool() && ready_go
   io.this_allowin := io.next_allowin && !reset.asBool() && ready_go
@@ -105,7 +108,8 @@ class InsMemory extends Module {
     (io.data_ram_state === RamState.waiting_for_response || io.data_ram_data_ok)
 
   io.bypass_ms_id.bus_valid := bypass_bus_valid
-  io.bypass_ms_id.data_valid := bus_valid && io.ex_ms_in.regfile_we_ex_ms
+  io.bypass_ms_id.data_valid := bus_valid && io.ex_ms_in.regfile_we_ex_ms &&
+    Mux(io.ex_ms_in.regfile_wsrc_sel_ex_ms, io.data_ram_data_ok, 1.B)
   io.bypass_ms_id.reg_data := Mux(io.ex_ms_in.regfile_wsrc_sel_ex_ms, io.mem_rdata, io.ex_ms_in.alu_val_ex_ms)
   io.bypass_ms_id.reg_addr := 0.U
   io.bypass_ms_id.reg_addr := Mux1H(Seq(
