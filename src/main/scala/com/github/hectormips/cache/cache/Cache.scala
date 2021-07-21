@@ -3,8 +3,7 @@ package com.github.hectormips.cache.cache
 import chisel3._
 import chisel3.util._
 import com.github.hectormips.cache.setting._
-import com.github.hectormips.AXIIO
-import com.github.hectormips.SRamLikeInstIO,com.github.hectormips.SRamLikeIO
+import com.github.hectormips.{AXIIO, AXIIOWithoutWid, SRamLikeIO, SRamLikeInstIO}
 import chisel3.stage.{ChiselGeneratorAnnotation, ChiselStage}
 import com.github.hectormips.cache.dcache.DCache
 import com.github.hectormips.cache.icache.ICache
@@ -14,7 +13,7 @@ class Cache(val config:CacheConfig)  extends Module{
   val io = IO(new Bundle{
     val icache = Flipped(new SRamLikeInstIO)
     val dcache = Flipped(new SRamLikeIO(rdata_width = 32))
-    val axi = new AXIIO()
+    val axi = new AXIIOWithoutWid(2)
   }
   )
   val dcache = Module(new DCache(new CacheConfig()))
@@ -82,7 +81,7 @@ class Cache(val config:CacheConfig)  extends Module{
   dcache.io.axi.writeAddr.ready := io.axi.awready(0)
 
   // 写数据通道
-  io.axi.wid := Cat(0.U,dcache.io.axi.writeAddr.bits.id) // writeData 没有id ，直接用writeAddr的id
+//  io.axi.wid := Cat(0.U,dcache.io.axi.writeAddr.bits.id) // writeData 没有id ，直接用writeAddr的id
   io.axi.wdata := Cat(0.U,dcache.io.axi.writeData.bits.data)
   io.axi.wstrb := Cat(0.U,dcache.io.axi.writeData.bits.strb)
   io.axi.wlast := Cat(0.U,dcache.io.axi.writeData.bits.last)

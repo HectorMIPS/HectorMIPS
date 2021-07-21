@@ -45,7 +45,7 @@ class dcacheTester extends FlatSpec with ChiselScalatestTester with Matchers{
       dcache.io.addr_ok.expect(true.B)
       dcache.io.valid.poke(false.B)
       give_data(dcache,Seq("h12345678".U,"h22345678".U,"h32345678".U,"h42345678".U))
-//      dcache.clock.step(1)
+      dcache.clock.step(1)
       // 测试取一个没有的数据
       dcache.io.valid.poke(true.B)
       dcache.io.addr.poke("h1235".U)//
@@ -74,7 +74,7 @@ class dcacheTester extends FlatSpec with ChiselScalatestTester with Matchers{
       give_data(dcache,Seq("ha2345678".U,"hb2345678".U,"hc2345678".U,"hd2345678".U))
       // 0xd2345678 0xa2345678 0xb2345678 0xc2345678
       dcache.io.rdata.expect("ha2345678".U)
-
+      dcache.clock.step(1)
       dcache.io.valid.poke(true.B)
       dcache.io.addr.poke("ha1236".U)//
       dcache.io.wr.poke(false.B)
@@ -91,6 +91,7 @@ class dcacheTester extends FlatSpec with ChiselScalatestTester with Matchers{
       dcache.io.valid.poke(false.B)
       give_data(dcache,Seq("hba234567".U,"hbb234567".U,"hbc234567".U,"hbd234567".U))
       dcache.io.rdata.expect("hba234567".U)
+      dcache.clock.step(1)
 
       // 重取第一条
       dcache.io.valid.poke(true.B)
@@ -146,6 +147,7 @@ class dcacheTester extends FlatSpec with ChiselScalatestTester with Matchers{
       dcache.io.addr_ok.expect(true.B)
       dcache.io.valid.poke(false.B)
       give_data(dcache,Seq("h12345678".U,"h22345678".U,"h32345678".U,"h42345678".U))
+      dcache.clock.step(1)
       // 第一个数据会被改为0x87654321
       dcache.io.valid.poke(true.B)
       dcache.io.addr.poke("h1234".U)

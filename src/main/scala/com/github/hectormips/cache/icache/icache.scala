@@ -9,16 +9,16 @@ import chisel3.stage.{ChiselGeneratorAnnotation, ChiselStage}
 import chisel3.util.experimental.{forceName}
 
 class BankData(val config: CacheConfig) extends Bundle {
-  val addr = UInt(config.indexWidth.W)
-  val read = Vec(config.wayNum, Vec(config.bankNum, UInt(32.W)))
-  val write = Vec(config.bankNum, UInt(32.W))
-  val wEn = Vec(config.wayNum, Vec(config.bankNum,Bool()))
+  val addr = Wire(UInt(config.indexWidth.W))
+  val read = Reg(Vec(config.wayNum, Vec(config.bankNum, UInt(32.W))))
+  val write = Wire(Vec(config.bankNum, UInt(32.W)))
+  val wEn = Wire(Vec(config.wayNum, Vec(config.bankNum,Bool())))
 }
 class TAGVData(val config: CacheConfig) extends Bundle {
-  val addr = UInt(config.indexWidth.W)
-  val read = Vec(config.wayNum, UInt((config.tagWidth+1).W)) //一次读n个
-  val write = UInt((config.tagWidth+1).W) //一次写1个
-  val wEn = Vec(config.wayNum, Bool())
+  val addr = Wire(UInt(config.indexWidth.W))
+  val read = Reg(Vec(config.wayNum, UInt((config.tagWidth+1).W))) //一次读n个
+  val write = Wire(UInt((config.tagWidth+1).W)) //一次写1个
+  val wEn = Wire(Vec(config.wayNum, Bool()))
   def tag(way: Int):UInt={
     read(way)(19,0)
   }
@@ -55,6 +55,7 @@ class TAGVData(val config: CacheConfig) extends Bundle {
 //  val IDLE,LOOKUP,REPLACE,REFILL = Value
 //}
 
+
 class ICache(val config:CacheConfig)
  extends Module{
   var io = IO(new Bundle{
@@ -81,8 +82,8 @@ class ICache(val config:CacheConfig)
       val readData  = Flipped(Decoupled(new AXIReadData(32,4)))
     }
   })
-  val sIDLE::sLOOKUP::sREPLACE::sREFILL::sWaiting::Nil =Enum(5)
-  val state = Reg(UInt(3.W))
+  val sIDLE::sLOOKUP::sREPLACE::sREFILL::sWaiting::sInit::Nil =Enum(6)
+  val state = RegInit(5.U(3.W))// 初始化阶段
   /**
    * cache的数据
    */
@@ -100,14 +101,14 @@ class ICache(val config:CacheConfig)
   val cache_hit_onehot = Wire(Vec(config.wayNum, Bool())) // 命中的路
   val cache_hit_way = Wire(UInt(config.wayNumWidth.W))
 
-  val addrReg = Reg(UInt(32.W)) //地址寄存器
-  val bData = Wire(new BankData(config))
+  val addrReg = RegInit(0.U(32.W)) //地址寄存器
+  val bData = new BankData(config)
 //  val bDataWriteReg = RegInit(VecInit(Seq.fill(config.bankNum)(0.U(32.W))))
 
-  val tagvData = Wire(new TAGVData(config))
+  val tagvData = new TAGVData(config)
   val dataMemEn = RegInit(false.B)
-  val bDataWtBank = Reg(UInt((config.offsetWidth-2).W))
-  val AXI_readyReg = Reg(Bool())
+  val bDataWtBank = RegInit(0.U((config.offsetWidth-2).W))
+  val AXI_readyReg = RegInit(false.B)
   /**
    * 其他配置
    */
@@ -143,9 +144,11 @@ class ICache(val config:CacheConfig)
 //        writeData(2) := bData.write(bank)(15,8)
 //        writeData(3) := bData.write(bank)(7,0)
         m.write(bData.addr,bData.write(bank))
+        bData.read(way)(bank) := DontCare
+      }.otherwise{
+        bData.read(way)(bank) := m.read(bData.addr)
       }
       bData.write(bank) := io.axi.readData.bits.data
-      bData.read(way)(bank) := m.read(bData.addr)
     })
   })
 //  tagvMem.indices.foreach(way=>{
@@ -159,17 +162,18 @@ class ICache(val config:CacheConfig)
     val m = tagvMem(way)
     when(tagvData.wEn(way)){//写使能
       m.write(tagvData.addr,tagvData.write)
+      tagvData.read(way) := DontCare
+    }.otherwise{
+      tagvData.read(way) := m.read(tagvData.addr)
     }
-    tagvData.read(way) := m.read(tagvData.addr)
   }
   for(way<- 0 until config.wayNum){
     for(bank <- 0 until config.bankNum) {
       bData.wEn(way)(bank) := state===sREFILL && waySelReg === way.U && bDataWtBank ===bank.U && !clock.asBool()
-
     }
   }
   for(way<- 0 until config.wayNum){
-    tagvData.wEn(way) := reset.asBool() || (state === sREFILL && waySelReg===way.U)
+    tagvData.wEn(way) := state === sInit || (state === sREFILL && waySelReg===way.U)
   }
 
   tagvData.write := Cat(true.B,tag)
@@ -200,17 +204,21 @@ class ICache(val config:CacheConfig)
 
   /**
    * reset
+   * 重写数据为0
    */
-  val tmp = Wire(UInt(config.indexWidth.W))
-  withClockAndReset(clock,false.B){
-    val resetValidCounter = RegInit(0.U(config.indexWidth.W))
-    resetValidCounter := resetValidCounter + 1.U
-    tmp:= resetValidCounter
-  }
+  val resetCounter = Counter(1<<config.indexWidth)
+  resetCounter.inc()
 
-  when(reset.asBool()){
-    tagvData.write := 0.U((config.tagWidth+1).W)
-    tagvData.addr := tmp
+//  val tmp = Wire(UInt(.W))
+//  withClockAndReset(clock,false.B){
+//    val resetValidCounter = RegInit(0.U))
+//    resetValidCounter := resetValidCounter + 1.U
+//    tmp:= resetValidCounter
+//  }
+
+  when(state===sInit){
+    tagvData.write := 0.U
+    tagvData.addr := resetCounter.value
   }
 
 //  printf("[%d] %d,%d tagv=%x\n",tmp,tagvData.wEn(0),tagvData.wEn(1),tagvData.write)
@@ -226,9 +234,11 @@ class ICache(val config:CacheConfig)
   io.axi.readAddr.bits.lock := 0.U
   io.axi.readAddr.bits.prot := 0.U
   io.axi.readAddr.bits.burst := 2.U //突发模式2
-  val readAddrReg = RegInit(false.B)
-  //  readAddrReg := (!io.axi.readAddr.ready &&state ===sREPLACE)
-  io.axi.readAddr.valid:= readAddrReg
+  val readAddrValidReg = RegInit(false.B)
+  //  readAddrReg := ()
+
+//  io.axi.readAddr.valid:= true.B
+  io.axi.readAddr.valid := readAddrValidReg || state === sREPLACE
   //  val AXIReadDataReady = RegInit(false.B)
   //  AXIReadDataReady := () &&
   io.axi.readData.ready := state === sREFILL  //ready最多持续一拍
@@ -259,22 +269,25 @@ class ICache(val config:CacheConfig)
         }
       }.otherwise {
         //没命中,尝试请求
-        state := sREPLACE
-        readAddrReg := true.B
+        io.inst := 0.U
+        io.instOK := false.B
+        state :=  sREPLACE
+        readAddrValidReg :=true.B
       }
     }
     is(sREPLACE){
       waySelReg := lruMem.io.waySel
       bDataWtBank := bankIndex
       when(io.axi.readAddr.fire()) {
-        readAddrReg := false.B
-        state := sREFILL
+
+        state := RegNext(sREFILL)
       }.otherwise{
         state := sREPLACE
       }
     }
     is(sREFILL){
       // 取数据，重写TAGV
+      readAddrValidReg := false.B
       state := sREFILL
       when(io.axi.readData.fire()){
         bDataWtBank := bDataWtBank+1.U
@@ -292,6 +305,12 @@ class ICache(val config:CacheConfig)
 //      io.inst(31,0) := bData.read(waySelReg)(bankIndex)
 //      io.inst(63,32) := bData.read(waySelReg)(bankIndex+1.U)
       io.instOK := true.B
+    }
+    is(sInit){
+      state := sInit
+      when(resetCounter.value=== ((1<<config.indexWidth)-1).U){
+        state := sIDLE
+      }
     }
   }
 

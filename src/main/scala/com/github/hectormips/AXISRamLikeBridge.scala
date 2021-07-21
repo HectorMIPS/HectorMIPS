@@ -11,7 +11,7 @@ class AXISRamLikeBridge extends HasBlackBoxResource {
     val resetn           : Bool       = Input(Bool())
     val inst_sram_like_io: SRamLikeIO = Flipped(new SRamLikeIO(64))
     val data_sram_like_io: SRamLikeIO = Flipped(new SRamLikeIO)
-    val axi_io           : AXIIO      = new AXIIO
+    val axi_io           : AXIIO      = new AXIIO(2)
   }
 
   val io: AXISRamLikeBridgeIO = IO(new AXISRamLikeBridgeIO)

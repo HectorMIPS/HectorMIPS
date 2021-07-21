@@ -29,7 +29,7 @@ import chisel3.stage.{ChiselGeneratorAnnotation, ChiselStage}
 class AXIAddr(val addrWidth:Int,val idWidth:Int) extends Bundle{
   val addr = UInt(addrWidth.W)
   val size = UInt(3.W)
-  val len = UInt(8.W)
+  val len = UInt(4.W) //axi3
   val burst = UInt(2.W)
   val id = UInt(idWidth.W)
   val lock = Bool()
