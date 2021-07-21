@@ -3,21 +3,42 @@ package com.github.hectormips.cache.cache
 import chisel3._
 import chisel3.util._
 import com.github.hectormips.cache.setting._
-import com.github.hectormips.{AXIIO, AXIIOWithoutWid, SRamLikeIO, SRamLikeInstIO}
+import com.github.hectormips.{AXIIO, AXIIOWithoutWid, SRamLikeDataIO, SRamLikeIO, SRamLikeInstIO}
 import chisel3.stage.{ChiselGeneratorAnnotation, ChiselStage}
 import com.github.hectormips.cache.dcache.DCache
 import com.github.hectormips.cache.icache.ICache
+import chisel3.util.experimental.forceName
 
+class cpu_axi_interface extends BlackBox{//TODO:暂用
+  var io = IO(new Bundle{
+    val clk    = Input(new Clock())
+    val resetn = Input(Bool())
+    val data = Flipped(new SRamLikeDataIO())
+    val axi  = new AXIIOWithoutWid(1)
+  })
+  forceName(io.data.req,"data_req")
+  forceName(io.data.wr,"data_wr")
+  forceName(io.data.size,"data_size")
+  forceName(io.data.wdata,"data_wdata")
+  forceName(io.data.rdata,"data_rdata")
+  forceName(io.data.addr_ok,"data_addr_ok")
+  forceName(io.data.data_ok,"data_data_ok")
+
+  io.axi.force_name()
+}
 
 class Cache(val config:CacheConfig)  extends Module{
   val io = IO(new Bundle{
     val icache = Flipped(new SRamLikeInstIO)
-    val dcache = Flipped(new SRamLikeIO(rdata_width = 32))
-    val axi = new AXIIOWithoutWid(2)
+    val dcache = Flipped(new SRamLikeDataIO())
+    val uncached = Flipped(new SRamLikeDataIO()) // TODO:暂用
+
+    val axi = new AXIIOWithoutWid(3)
   }
   )
   val dcache = Module(new DCache(new CacheConfig()))
   val icache = Module(new ICache(new CacheConfig()))
+  val uncached = Module(new cpu_axi_interface) // TODO:暂用
 
   //icache 与CPU接口
   icache.io.valid := io.icache.req
@@ -39,7 +60,8 @@ class Cache(val config:CacheConfig)  extends Module{
   io.dcache.addr_ok := dcache.io.addr_ok
   io.dcache.data_ok := dcache.io.data_ok
 
-
+  //uncached
+  uncached.io.data <> io.uncached
 
   // 读地址通道
   io.axi.arid := Cat(icache.io.axi.readAddr.bits.id,dcache.io.axi.readAddr.bits.id)

@@ -159,7 +159,7 @@ class DCache(val config:CacheConfig)
           m.write(bData.addr, _victim_odata_vec(bank))//重填
           dirtyMem(bData.addr)(way) := false.B
         }
-        _read_data(way)(bank)  := m.read(bData.addr)
+        _read_data(way)(bank)  := m(config.getIndex(io.addr))
       })
     })
   }.otherwise {
@@ -189,7 +189,7 @@ class DCache(val config:CacheConfig)
           }
         }
         //        bData.write(bank) := io.axi.readData.bits.data
-        _read_data(way)(bank)  := m.read(bData.addr)
+        _read_data(way)(bank)  := m(config.getIndex(io.addr))
       })
     })
   }
@@ -207,7 +207,7 @@ class DCache(val config:CacheConfig)
     when(tagvData.wEn(way)){//写使能
       m.write(tagvData.addr,tagvData.write)
     }
-    tagvData.read(way) := m.read(tagvData.addr)
+    tagvData.read(way) := m(config.getIndex(io.addr))
   }
   for(way<- 0 until config.wayNum){
     for(bank <- 0 until config.bankNum) {
@@ -265,8 +265,9 @@ class DCache(val config:CacheConfig)
   /**
    * Cache状态机
    */
-  val readAddrValidReg = RegInit(false.B)
-  io.axi.readAddr.valid:= readAddrValidReg || state === sREPLACE
+
+
+  io.axi.readAddr.valid :=  false.B
   victim.io.addr := Cat(io.addr(31,config.offsetWidth))
   switch(state){
     is(sIDLE){
@@ -313,7 +314,7 @@ class DCache(val config:CacheConfig)
       }.otherwise {
         //没命中,尝试请求
         when(fetch_ready_go){
-          readAddrValidReg := true.B
+          io.axi.readAddr.valid := true.B
           waySelReg := lruMem.io.waySel
           state := sREPLACE
         }.otherwise{
@@ -323,27 +324,28 @@ class DCache(val config:CacheConfig)
     }
     is(sREPLACE){
       bDataWtBank := bankIndex
-      when(io.axi.readAddr.fire()) {
-        readAddrValidReg := false.B
+      when(io.axi.readAddr.ready) {
         state := sREFILL
       }.otherwise{
         state := sREPLACE
+        io.axi.readAddr.valid := true.B
       }
     }
     is(sREFILL){
       // 取数据，重写TAGV
       state := sREFILL
-      when(io.axi.readData.valid){
+      when(io.axi.readData.valid && io.axi.readData.bits.id === io.axi.readAddr.bits.id){
         bDataWtBank := bDataWtBank+1.U
-      }
-      when(io.axi.readData.bits.last){
-        state := sWaiting
-        when(!wrReg){
-          io.rdata := get_read_data(bData.read(waySelReg)(bankIndex),addrReg(1,0),sizeReg)
-          io.data_ok := true.B
-        }
+        when(io.axi.readData.bits.last){
+          state := sWaiting
+          when(!wrReg){
+            io.rdata := get_read_data(bData.read(waySelReg)(bankIndex),addrReg(1,0),sizeReg)
+            io.data_ok := true.B
+          }
 
+        }
       }
+
     }
     is(sWaiting){
       state := sIDLE
@@ -388,7 +390,8 @@ class DCache(val config:CacheConfig)
   /**
    * axi访问设置
    */
-  io.axi.readAddr.bits.id := 0.U
+  io.axi.readAddr.bits.id := 1.U
+//  io.axi.readAddr.bits.len := 6.U
   io.axi.readAddr.bits.len := (config.bankNum - 1).U
   io.axi.readAddr.bits.size := 2.U // 4B
   io.axi.readAddr.bits.addr := addrReg
@@ -399,7 +402,7 @@ class DCache(val config:CacheConfig)
 
   //  val AXIReadDataReady = RegInit(false.B)
   //  AXIReadDataReady := () &&
-  io.axi.readData.ready := state === sREFILL  //ready最多持续一拍
+  io.axi.readData.ready := true.B  //ready最多持续一拍
 
 
   def get_read_data(data:UInt,last_two_bit:UInt,size:UInt):UInt={

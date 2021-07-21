@@ -24,8 +24,6 @@ class axi_crossbar_2x1 extends BlackBox{
     //32 bit 输出
     val out     = new AXIIOWithoutWid(1)
   })
-//  forceName(io.aclk, "aclk")
-//  forceName(io.aresetn, "aresetn")
   forceName(io.in.arid, "s_axi_arid")
   forceName(io.in.araddr, "s_axi_araddr")
   forceName(io.in.arlen, "s_axi_arlen")
@@ -101,6 +99,9 @@ class axi_crossbar_2x1 extends BlackBox{
   forceName(io.out.bresp, "m_axi_bresp")
   forceName(io.out.bvalid, "m_axi_bvalid")
 }
+
+
+
 // 使用axi的Soc顶层
 class SocTopAXI extends Module {
   val io: SocTopSRamLikeBundle = IO(new SocTopSRamLikeBundle)
@@ -108,6 +109,8 @@ class SocTopAXI extends Module {
     val cpu_top: CpuTopSRamLike = Module(new CpuTopSRamLike(0xbfbffffcL, 0))
     val cache  : Cache          = Module(new Cache(new CacheConfig()))
     val crossbar : axi_crossbar_2x1 =  Module(new axi_crossbar_2x1)
+
+
     io.axi_io.force_name()
     cpu_top.io.interrupt := io.interrupt
     io.debug := cpu_top.io.debug

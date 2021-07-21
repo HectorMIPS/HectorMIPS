@@ -10,13 +10,13 @@ import chisel3.util.experimental.{forceName}
 
 class BankData(val config: CacheConfig) extends Bundle {
   val addr = Wire(UInt(config.indexWidth.W))
-  val read = Reg(Vec(config.wayNum, Vec(config.bankNum, UInt(32.W))))
+  val read = Wire(Vec(config.wayNum, Vec(config.bankNum, UInt(32.W))))
   val write = Wire(Vec(config.bankNum, UInt(32.W)))
   val wEn = Wire(Vec(config.wayNum, Vec(config.bankNum,Bool())))
 }
 class TAGVData(val config: CacheConfig) extends Bundle {
   val addr = Wire(UInt(config.indexWidth.W))
-  val read = Reg(Vec(config.wayNum, UInt((config.tagWidth+1).W))) //一次读n个
+  val read = Wire(Vec(config.wayNum, UInt((config.tagWidth+1).W)))//一次读n个
   val write = Wire(UInt((config.tagWidth+1).W)) //一次写1个
   val wEn = Wire(Vec(config.wayNum, Bool()))
   def tag(way: Int):UInt={
@@ -84,6 +84,9 @@ class ICache(val config:CacheConfig)
   })
   val sIDLE::sLOOKUP::sREPLACE::sREFILL::sWaiting::sInit::Nil =Enum(6)
   val state = RegInit(5.U(3.W))// 初始化阶段
+
+  val debug_clock = RegInit(0.U(20.W))
+  debug_clock := debug_clock + 1.U
   /**
    * cache的数据
    */
@@ -117,7 +120,7 @@ class ICache(val config:CacheConfig)
 
 
   val addrokReg = RegInit(false.B)
-  io.addr_ok := addrokReg
+  io.addr_ok := false.B
   state := sIDLE
 
   val index  = Wire(UInt(config.indexWidth.W))
@@ -144,10 +147,9 @@ class ICache(val config:CacheConfig)
 //        writeData(2) := bData.write(bank)(15,8)
 //        writeData(3) := bData.write(bank)(7,0)
         m.write(bData.addr,bData.write(bank))
-        bData.read(way)(bank) := DontCare
-      }.otherwise{
-        bData.read(way)(bank) := m.read(bData.addr)
+//        bData.read(way)(bank) := DontCare
       }
+      bData.read(way)(bank) := m(config.getIndex(io.addr))
       bData.write(bank) := io.axi.readData.bits.data
     })
   })
@@ -162,10 +164,9 @@ class ICache(val config:CacheConfig)
     val m = tagvMem(way)
     when(tagvData.wEn(way)){//写使能
       m.write(tagvData.addr,tagvData.write)
-      tagvData.read(way) := DontCare
-    }.otherwise{
-      tagvData.read(way) := m.read(tagvData.addr)
+//      tagvData.read(way) := DontCare
     }
+    tagvData.read(way) := m(config.getIndex(io.addr))
   }
   for(way<- 0 until config.wayNum){
     for(bank <- 0 until config.bankNum) {
@@ -194,7 +195,7 @@ class ICache(val config:CacheConfig)
 //  io.inst2OK    := false.B
   io.inst := 0.U
 //  io.inst1 := 0.U
-  addrokReg := false.B
+//  addrokReg := false.B
   /**
    * LRU 配置
    */
@@ -208,7 +209,6 @@ class ICache(val config:CacheConfig)
    */
   val resetCounter = Counter(1<<config.indexWidth)
   resetCounter.inc()
-
 //  val tmp = Wire(UInt(.W))
 //  withClockAndReset(clock,false.B){
 //    val resetValidCounter = RegInit(0.U))
@@ -234,14 +234,29 @@ class ICache(val config:CacheConfig)
   io.axi.readAddr.bits.lock := 0.U
   io.axi.readAddr.bits.prot := 0.U
   io.axi.readAddr.bits.burst := 2.U //突发模式2
-  val readAddrValidReg = RegInit(false.B)
+//  val readAddrValidReg = RegInit(false.B)
   //  readAddrReg := ()
 
 //  io.axi.readAddr.valid:= true.B
-  io.axi.readAddr.valid := readAddrValidReg || state === sREPLACE
+  io.axi.readAddr.valid := false.B
   //  val AXIReadDataReady = RegInit(false.B)
   //  AXIReadDataReady := () &&
-  io.axi.readData.ready := state === sREFILL  //ready最多持续一拍
+  io.axi.readData.ready := true.B  //ready最多持续一拍
+
+  /**
+   * TODO:uncache部分
+   * 暂时由cache处理这一部分
+   *
+   */
+  val should_cache = Wire(Bool())
+  when(io.addr >= "h1faf0000".U && io.addr <="h1fafffff".U){
+    //confreg
+    should_cache := false.B
+  }.elsewhen(io.addr >= "h80000000".U){
+    should_cache := false.B
+  }.otherwise{
+    should_cache := true.B
+  }
 
   /**
    * Cache状态机
@@ -250,19 +265,24 @@ class ICache(val config:CacheConfig)
     is(sIDLE){
       when(io.valid){
         state := sLOOKUP
-        addrokReg := true.B
+        io.addr_ok:= true.B
+//        addrokReg := true.B
         addrReg := io.addr
       }
     }
     is(sLOOKUP){
       when(is_hitWay){
-        io.inst := Cat(bData.read(cache_hit_way)(bankIndex+1.U),bData.read(cache_hit_way)(bankIndex))
+        when(bankIndex === (config.bankNum - 1).U){
+          io.inst := Cat(0.U(32.W),bData.read(cache_hit_way)(bankIndex))
+        }.otherwise{
+          io.inst := Cat(bData.read(cache_hit_way)(bankIndex+1.U),bData.read(cache_hit_way)(bankIndex))
+        }
 //        io.inst1OK := true.B
         io.instOK := true.B
         lruMem.io.visit := cache_hit_way // lru记录命中
         when(io.valid) {
           // 直接进入下一轮
-          addrokReg := true.B
+          io.addr_ok := true.B
           addrReg := io.addr
         }.otherwise {
           state := sIDLE
@@ -272,31 +292,36 @@ class ICache(val config:CacheConfig)
         io.inst := 0.U
         io.instOK := false.B
         state :=  sREPLACE
-        readAddrValidReg :=true.B
+        io.axi.readAddr.valid := true.B
+//        readAddrValidReg :=true.B
       }
     }
     is(sREPLACE){
       waySelReg := lruMem.io.waySel
       bDataWtBank := bankIndex
-      when(io.axi.readAddr.fire()) {
-
+      when(io.axi.readAddr.ready) {
         state := RegNext(sREFILL)
       }.otherwise{
         state := sREPLACE
+        io.axi.readAddr.valid := true.B
       }
     }
     is(sREFILL){
       // 取数据，重写TAGV
-      readAddrValidReg := false.B
+
       state := sREFILL
-      when(io.axi.readData.fire()){
+      when(io.axi.readData.fire() && io.axi.readData.bits.id === io.axi.readAddr.bits.id){
         bDataWtBank := bDataWtBank+1.U
-      }
-      when(io.axi.readData.bits.last){
-        state := sWaiting
-        io.inst := Cat(bData.read(waySelReg)(bankIndex+1.U),bData.read(waySelReg)(bankIndex))
-//        io.inst(63,32) := bData.read(waySelReg)(bankIndex+1.U)
-        io.instOK := true.B
+        when(io.axi.readData.bits.last){
+          state := sWaiting
+          when(bankIndex === (config.bankNum - 1).U){
+            io.inst := Cat(0.U(32.W),bData.read(cache_hit_way)(bankIndex))
+          }.otherwise{
+            io.inst := Cat(bData.read(cache_hit_way)(bankIndex+1.U),bData.read(cache_hit_way)(bankIndex))
+          }
+          //        io.inst(63,32) := bData.read(waySelReg)(bankIndex+1.U)
+          io.instOK := true.B
+        }
       }
     }
     is(sWaiting){

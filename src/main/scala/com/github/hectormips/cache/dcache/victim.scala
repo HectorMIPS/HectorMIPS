@@ -122,15 +122,14 @@ class Victim(val config:CacheConfig) extends Module {
   /**
    * AXI
    */
-  io.axi.writeAddr.bits.id := 1.U
+  io.axi.writeAddr.bits.id := 2.U
   io.axi.writeAddr.bits.size := 2.U
   io.axi.writeAddr.bits.len := (config.bankNum -1).U
   io.axi.writeAddr.bits.cache := 0.U
   io.axi.writeAddr.bits.lock := 0.U
   io.axi.writeAddr.bits.prot := 0.U
   io.axi.writeAddr.bits.burst := 2.U
-  val writeAddrValidReg = RegInit(false.B)
-  io.axi.writeAddr.valid := writeAddrValidReg
+  io.axi.writeAddr.valid := false.B
 //  writeAddrValidReg:= false.B
   io.axi.writeAddr.bits.addr := buffer.addr(waySel)
 
@@ -162,16 +161,18 @@ class Victim(val config:CacheConfig) extends Module {
       when(io.op === 1.U) {
         when(io.dirty) {
           state := sWaitHandShake
-          writeAddrValidReg := true.B
+          io.axi.writeAddr.valid := true.B
         }
       }
     }
     is(sWaitHandShake) {
       state := sWaitHandShake
-      when(io.axi.writeAddr.fire()){
-        writeAddrValidReg := false.B
+      when(io.axi.writeAddr.ready){
+        io.axi.writeAddr.valid := false.B
         state := sWriteBack
         WtCounter.reset()
+      }.otherwise{
+        io.axi.writeAddr.valid := true.B
       }
     }
     is(sWriteBack){
