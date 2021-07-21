@@ -3,6 +3,7 @@ package com.github.hectormips
 import chisel3._
 import chisel3.stage.ChiselStage
 import chisel3.util.experimental.forceName
+import com.github.hectormips.cache.access_judge.MemAccessJudge
 import com.github.hectormips.cache.cache.Cache
 import com.github.hectormips.cache.dcache.DCache
 import com.github.hectormips.cache.icache.ICache
@@ -19,7 +20,7 @@ class axi_crossbar_2x1 extends BlackBox{
     val aclk    = Input(Clock())
     val aresetn = Input(Bool())
     //64 bit 输入
-    val in      = Flipped(new AXIIOWithoutWid(2))
+    val in      = Flipped(new AXIIOWithoutWid(3))
     val arqos   = Input(UInt(8.W))
     //32 bit 输出
     val out     = new AXIIOWithoutWid(1)
@@ -109,11 +110,18 @@ class SocTopAXI extends Module {
     val cpu_top: CpuTopSRamLike = Module(new CpuTopSRamLike(0xbfbffffcL, 0))
     val cache  : Cache          = Module(new Cache(new CacheConfig()))
     val crossbar : axi_crossbar_2x1 =  Module(new axi_crossbar_2x1)
+    val mem_judge: MemAccessJudge = Module(new MemAccessJudge)
 
 
     io.axi_io.force_name()
     cpu_top.io.interrupt := io.interrupt
     io.debug := cpu_top.io.debug
+    cpu_top.io.inst_sram_like_io <> mem_judge.io.inst
+    cpu_top.io.data_sram_like_io <> mem_judge.io.data
+
+    mem_judge.io.cached_inst <> cache.io.icache
+    mem_judge.io.cached_data <> cache.io.dcache
+    mem_judge.io.uncached_data <> cache.io.uncached
 
     cache.io.axi <> crossbar.io.in
 
@@ -161,8 +169,8 @@ class SocTopAXI extends Module {
     crossbar.io.out.bvalid :=  io.axi_io.bvalid
     io.axi_io.bready := crossbar.io.out.bready
 
-    cpu_top.io.inst_sram_like_io <> cache.io.icache
-    cpu_top.io.data_sram_like_io <> cache.io.dcache
+
+
   }
   forceName(clock, "aclk")
   forceName(reset, "aresetn")

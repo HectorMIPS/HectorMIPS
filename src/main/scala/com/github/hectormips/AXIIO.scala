@@ -29,7 +29,7 @@ class AXIIOWithoutWid(num:Int) extends Bundle {
 
   val awid   : UInt = Output(UInt((4*num).W))
   val awaddr : UInt = Output(UInt((32*num).W))
-  val awlen  : UInt = Output(UInt((8*num).W))
+  val awlen  : UInt = Output(UInt((4*num).W)) //AXI3
   val awsize : UInt = Output(UInt((3*num).W))
   val awburst: UInt = Output(UInt((2*num).W))
   val awlock : UInt = Output(UInt((2*num).W))
@@ -37,6 +37,7 @@ class AXIIOWithoutWid(num:Int) extends Bundle {
   val awprot : UInt = Output(UInt((3*num).W))
   val awvalid: UInt = Output(UInt((1*num).W))
   val awready: UInt = Input(UInt((1*num).W))
+
   val wdata  : UInt = Output(UInt((32*num).W))
   val wstrb  : UInt = Output(UInt((4*num).W))
   val wlast  : UInt = Output(UInt((1*num).W))
@@ -92,7 +93,8 @@ class AXIIOWithoutWid(num:Int) extends Bundle {
 class AXIIO(num:Int) extends AXIIOWithoutWid(num:Int) {
   // axi
   val wid    : UInt = Output(UInt((4*num).W))
-  def force_name():Unit= {
+
+  override  def force_name():Unit= {
     forceName(arid, "arid")
     forceName(araddr, "araddr")
     forceName(arlen, "arlen")

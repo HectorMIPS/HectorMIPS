@@ -6,6 +6,7 @@ import chisel3.util._
 
 
 
+
 /**
  * 访存判断逻辑
  *
@@ -29,40 +30,94 @@ class MemAccessJudge extends Module{
   //不管inst，直接和inst cache连在一起
   io.inst <> io.cached_inst
 
-  val sIDLE::sReq::sWait::Nil = Enum(2)
-  val state = RegInit(0.U(1.W))
+  val sIDLE::sNop::sReqCache::sWaitCache::sReqAXI::sWaitAXI::Nil = Enum(6)
+  val state = RegInit(0.U(3.W))
+
   val should_cache_data = Wire(Bool())
   val should_cache_data_r = RegInit(false.B)
-  when(io.data.addr>="h1faf_0000".U && io.data.data_ok <="h1aff_ffff".U){
-    should_cache_data := false.B
-  }.elsewhen(io.data.addr>="h8000_0000".U &&io.data.addr <="hbfff_ffff".U){
-    should_cache_data := false.B
-  }.otherwise{
-    should_cache_data := true.B
-  }
+//  when(io.data.addr>="h1faf_0000".U && io.data.data_ok <="h1aff_ffff".U){
+//    should_cache_data := false.B
+//  }.elsewhen(io.data.addr>="h8000_0000".U &&io.data.addr <="hbfff_ffff".U){
+//    should_cache_data := false.B
+//  }.otherwise{
+//    should_cache_data := true.B
+//  }
+  should_cache_data := false.B
+
+
+  io.data.data_ok := false.B
+  io.data.addr_ok := false.B
+  io.uncached_data.addr := 0.U
+  io.cached_data.size := 2.U
+  io.uncached_data.wr := 0.U
+  io.cached_data.req :=0.U
+  io.data.rdata := 0.U
+  io.cached_data.wdata := 0.U
+  io.uncached_data.wdata := 0.U
+  io.uncached_data.size := 2.U
+  io.uncached_data.req :=0.U
+  io.cached_data.addr := 0.U
+  io.cached_data.wr := 0.U
+
+  val wr_r = Reg(Bool())
+  val size_r =Reg(UInt(3.W))
+  val addr_r = Reg(UInt(32.W))
+  val wdata_r  = RegInit(0.U(32.W))
+
+  io.data.addr_ok := true.B
+
   switch(state){
     is(sIDLE){
       when(io.data.req){
-        state := sReq
         should_cache_data_r := should_cache_data
-        when(should_cache_data) {
-          io.data <> io.cached_data
-        }.otherwise{
-          io.data <> io.uncached_data
-        }
+        wdata_r := io.data.wdata
+        addr_r := io.data.addr
+        size_r := io.data.size
+        wr_r := io.data.wr
+        state := sNop
       }
     }
-    is(sReq){
+    is(sNop){
       when(should_cache_data_r) {
-        io.data <> io.cached_data
+        when(io.cached_data.addr_ok) {
+          state := sWaitCache
+          io.cached_data.req :=true.B
+          io.data.addr_ok := false.B
+        }
+        io.cached_data.wr := wr_r
+        io.cached_data.size := size_r
+        io.cached_data.addr := addr_r
+        io.cached_data.wdata := wdata_r
       }.otherwise{
-        io.data <> io.uncached_data
+        when(io.uncached_data.addr_ok) {
+          state := sWaitAXI
+          io.uncached_data.req :=true.B
+          io.data.addr_ok := false.B
+        }
+        io.uncached_data.wr := wr_r
+        io.uncached_data.size := size_r
+        io.uncached_data.addr := addr_r
+        io.uncached_data.wdata := wdata_r
       }
-      when(io.data.data_ok === true.B){
+    }
+    is(sWaitCache){
+      when(io.cached_data.data_ok){
+          state := sIDLE
+          io.data.data_ok := true.B
+      }.otherwise{
+        io.cached_data.req :=false.B
+        state := sWaitCache
+      }
+    }
+    is(sWaitAXI){
+      when(io.uncached_data.data_ok){
         state := sIDLE
+        io.data.data_ok := true.B
       }.otherwise{
-        state := sReq
+        io.uncached_data.req :=false.B
+        state := sWaitAXI
       }
+
     }
   }
 
