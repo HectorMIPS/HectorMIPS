@@ -132,7 +132,7 @@ class InsSufFetchBundle extends WithAllowin {
 class InsSufFetch extends Module {
   val io           : InsSufFetchBundle = IO(new InsSufFetchBundle())
   val if_buffer_reg: UInt              = Reg(UInt(32.W))
-  when(io.ins_ram_data_ok) {
+  when(io.ins_ram_data_ok && !io.flush) {
     if_buffer_reg := io.ins_ram_data
   }
 

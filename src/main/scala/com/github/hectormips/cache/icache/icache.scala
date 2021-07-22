@@ -120,18 +120,18 @@ class ICache(val config:CacheConfig)
 
 
   val addrokReg = RegInit(false.B)
-  io.addr_ok := false.B
+  io.addr_ok := state === sIDLE
   state := sIDLE
 
   val index  = Wire(UInt(config.indexWidth.W))
   val bankIndex = Wire(UInt((config.offsetWidth-2).W))
   val tag  = Wire(UInt(config.tagWidth.W))
   val waySelReg = Reg(UInt(config.wayNumWidth.W))
-  index := config.getIndex(io.addr)
+  index := config.getIndex(addrReg)
 
-  bankIndex := config.getBankIndex(io.addr)
+  bankIndex := config.getBankIndex(addrReg)
 
-  tag := config.getTag(io.addr)
+  tag := config.getTag(addrReg)
 
 //  val dataBankWtMask = WireInit(VecInit.tabulate(4) { _ => true.B })
 //  val writeData =WireInit(VecInit.tabulate(4) { _ => 0.U(8.W) })
@@ -142,24 +142,13 @@ class ICache(val config:CacheConfig)
     dataMem(way).indices.foreach(bank=>{
       val m = dataMem(way)(bank)
       when(bData.wEn(way)(bank) && state === sREFILL){
-//        writeData(0) := bData.write(bank)(31,24)
-//        writeData(1) := bData.write(bank)(23,16)
-//        writeData(2) := bData.write(bank)(15,8)
-//        writeData(3) := bData.write(bank)(7,0)
         m.write(bData.addr,bData.write(bank))
-//        bData.read(way)(bank) := DontCare
       }
       bData.read(way)(bank) := m(config.getIndex(io.addr))
       bData.write(bank) := io.axi.readData.bits.data
     })
   })
-//  tagvMem.indices.foreach(way=>{
-//    val m = tagvMem(way)
-//    when(tagvData.wEn(way)){//写使能
-//      m.write(tagvData.addr,tagvData.write)
-//    }
-//    tagvData.read(way) := m.read(tagvData.addr)
-//  })
+
   for(way <- 0 until config.wayNum){
     val m = tagvMem(way)
     when(tagvData.wEn(way)){//写使能
@@ -265,7 +254,7 @@ class ICache(val config:CacheConfig)
     is(sIDLE){
       when(io.valid){
         state := sLOOKUP
-        io.addr_ok:= true.B
+//        io.addr_ok:= true.B
 //        addrokReg := true.B
         addrReg := io.addr
       }
@@ -282,7 +271,7 @@ class ICache(val config:CacheConfig)
         lruMem.io.visit := cache_hit_way // lru记录命中
         when(io.valid) {
           // 直接进入下一轮
-          io.addr_ok := true.B
+//          io.addr_ok := true.B
           addrReg := io.addr
         }.otherwise {
           state := sIDLE

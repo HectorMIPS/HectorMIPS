@@ -151,7 +151,7 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
     fetch_state_reg := RamState.waiting_for_request
   }
   when(pipeline_flush_ex) {
-    when(fetch_state_reg === RamState.waiting_for_response) {
+    when(fetch_state_reg === RamState.waiting_for_response && !io.inst_sram_like_io.data_ok) {
       fetch_state_reg := RamState.cancel
     }.otherwise {
       fetch_state_reg := RamState.waiting_for_request
@@ -257,7 +257,7 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
       data_sram_state_reg := RamState.waiting_for_request
     }
   }.otherwise {
-    when(data_sram_state_reg === RamState.waiting_for_response) {
+    when(data_sram_state_reg === RamState.waiting_for_response && !io.data_sram_like_io.data_ok) {
       data_sram_state_reg := RamState.cancel
     }.otherwise {
       data_sram_state_reg := RamState.waiting_for_request

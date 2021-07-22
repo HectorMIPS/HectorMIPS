@@ -72,7 +72,7 @@ class DCache(val config:CacheConfig)
 
   val dataMem = List.fill(config.wayNum) {
     List.fill(config.bankNum) { // 4字节长就有4个
-      SyncReadMem(config.indexWidth,Vec(4, UInt(8.W)))
+      SyncReadMem(config.lineNum,Vec(4, UInt(8.W)))
     }
   }
   val tagvMem = List.fill(config.wayNum) {
@@ -246,20 +246,6 @@ class DCache(val config:CacheConfig)
   lruMem.io.visit := 0.U
   lruMem.io.visitValid := is_hitWay
 
-  /**
-   * reset
-   */
-  val tmp = Wire(UInt(config.indexWidth.W))
-  withClockAndReset(clock,false.B){
-    val resetValidCounter = RegInit(0.U(config.indexWidth.W))
-    resetValidCounter := resetValidCounter + 1.U
-    tmp:= resetValidCounter
-  }
-
-  when(reset.asBool()){
-    tagvData.write := 0.U((config.tagWidth+1).W)
-    tagvData.addr := tmp
-  }
 
 //  printf("[%d] %d,%d tagv=%x\n",tmp,tagvData.wEn(0),tagvData.wEn(1),tagvData.write)
   /**
@@ -400,8 +386,6 @@ class DCache(val config:CacheConfig)
   io.axi.readAddr.bits.prot := 0.U
   io.axi.readAddr.bits.burst := 2.U //突发模式2
 
-  //  val AXIReadDataReady = RegInit(false.B)
-  //  AXIReadDataReady := () &&
   io.axi.readData.ready := true.B  //ready最多持续一拍
 
 
