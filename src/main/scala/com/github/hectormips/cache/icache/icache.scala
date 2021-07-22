@@ -16,44 +16,10 @@ class BankData(val config: CacheConfig) extends Bundle {
 }
 class TAGVData(val config: CacheConfig) extends Bundle {
   val addr = Wire(UInt(config.indexWidth.W))
-  val read = Wire(Vec(config.wayNum, UInt((config.tagWidth+1).W)))//一次读n个
-  val write = Wire(UInt((config.tagWidth+1).W)) //一次写1个
+  val read = Wire(Vec(config.wayNum, UInt((config.tagWidth).W)))//一次读n个
+  val write = Wire(UInt((config.tagWidth).W)) //一次写1个
   val wEn = Wire(Vec(config.wayNum, Bool()))
-  def tag(way: Int):UInt={
-    read(way)(19,0)
-  }
-  def valid(way:Int):UInt={
-    read(way)(20)
-  }
 }
-//class DataBank(val AddrLength: Int) extends BlackBox{
-//  val io = IO(new Bundle {
-//    val clka = Input(Clock())
-//    val ena = Input(Bool())
-//    val wea = Input(UInt(4.W))
-//    val addra = Input(UInt(AddrLength.W)) //log2行数
-//    val dina = Input(UInt(32.W))
-//    val dout = Output(UInt(32.W))
-//  })
-//}
-//class TAGVBank(val AddrLength: Int,val TAGVLength:Int) extends BlackBox{
-//  val io = IO(new Bundle {
-//    val clka = Input(Clock())
-//    val ena = Input(Bool())
-//    val wea = Input(Bool())
-//    val addra = Input(UInt(AddrLength.W))
-//    val dina = Input(UInt(TAGVLength.W))
-//    val dout = Output(UInt(TAGVLength.W))
-//  })
-//}
-/**
- *
- * 第一拍：取bram中数据
- * 第二拍：比
- */
-//object CacheFSMState extends ChiselEnum {
-//  val IDLE,LOOKUP,REPLACE,REFILL = Value
-//}
 
 
 class ICache(val config:CacheConfig)
@@ -65,28 +31,17 @@ class ICache(val config:CacheConfig)
 
     val inst   = Output(UInt(64.W))
     val instOK = Output(Bool())
-//    val inst1    = Output(UInt(32.W))
-//    val inst1Valid =Output(Bool())
-//    val inst1OK  = Output(Bool())
-//    val inst2    = Output(UInt(32.W))
-    val instValid =Output(Bool())
-//    val inst2OK  = Output(Bool())
 
-//    val inst3    = Output(UInt(32.W))
-//    val inst3Valid =Output(Bool())
-//    val inst4    = Output(UInt(32.W))
-//    val inst4Valid =Output(Bool())
+    val instValid =Output(Bool())
 
     val axi     = new Bundle{
       val readAddr  =  Decoupled(new AXIAddr(32,4))
       val readData  = Flipped(Decoupled(new AXIReadData(32,4)))
     }
   })
-  val sIDLE::sLOOKUP::sREPLACE::sREFILL::sWaiting::sInit::Nil =Enum(6)
-  val state = RegInit(5.U(3.W))// 初始化阶段
+  val sIDLE::sLOOKUP::sREPLACE::sREFILL::sWaiting::Nil =Enum(5)
+  val state = RegInit(0.U(3.W))// 初始化阶段
 
-  val debug_clock = RegInit(0.U(20.W))
-  debug_clock := debug_clock + 1.U
   /**
    * cache的数据
    */
@@ -96,8 +51,10 @@ class ICache(val config:CacheConfig)
     }
   }
   val tagvMem = List.fill(config.wayNum) {
-    SyncReadMem(config.lineNum, UInt((config.tagWidth+1).W))
+    SyncReadMem(config.lineNum, UInt((config.tagWidth).W))
   }
+
+  val validMem = RegInit(VecInit(Seq.fill(config.wayNum)(VecInit(Seq.fill(config.lineNum)(false.B)))))
 
   val lruMem = Module(new LruMem(config.wayNumWidth,config.indexWidth))// lru
 
@@ -106,15 +63,13 @@ class ICache(val config:CacheConfig)
 
   val addrReg = RegInit(0.U(32.W)) //地址寄存器
   val bData = new BankData(config)
-//  val bDataWriteReg = RegInit(VecInit(Seq.fill(config.bankNum)(0.U(32.W))))
-
   val tagvData = new TAGVData(config)
+
+
   val dataMemEn = RegInit(false.B)
   val bDataWtBank = RegInit(0.U((config.offsetWidth-2).W))
   val AXI_readyReg = RegInit(false.B)
-  /**
-   * 其他配置
-   */
+
   val is_hitWay = Wire(Bool())
   is_hitWay := cache_hit_onehot.asUInt().orR() // 判断是否命中cache
 
@@ -153,6 +108,7 @@ class ICache(val config:CacheConfig)
     val m = tagvMem(way)
     when(tagvData.wEn(way)){//写使能
       m.write(tagvData.addr,tagvData.write)
+      validMem(way)(tagvData.addr) := true.B
 //      tagvData.read(way) := DontCare
     }
     tagvData.read(way) := m(config.getIndex(io.addr))
@@ -163,28 +119,27 @@ class ICache(val config:CacheConfig)
     }
   }
   for(way<- 0 until config.wayNum){
-    tagvData.wEn(way) := state === sInit || (state === sREFILL && waySelReg===way.U)
+    tagvData.wEn(way) :=  (state === sREFILL && waySelReg===way.U)
   }
 
-  tagvData.write := Cat(true.B,tag)
+  tagvData.write := tag
   bData.addr := index
   tagvData.addr := index
   cache_hit_way := OHToUInt(cache_hit_onehot)
   // 判断是否命中cache
   cache_hit_onehot.indices.foreach(i=>{
-    cache_hit_onehot(i) :=  tagvData.tag(i) === tag & tagvData.valid(i)
+    cache_hit_onehot(i) :=  tagvData.read(i) === tag & validMem(i)(index)
   })
 
   /**
    * IO初始化
    */
-//  io.inst1Valid := true.B
+
   io.instValid := Cat(true.B,bankIndex =/= ((config.bankNum) - 1).U) //==bank-1
   io.instOK    := false.B
-//  io.inst2OK    := false.B
+
   io.inst := 0.U
-//  io.inst1 := 0.U
-//  addrokReg := false.B
+
   /**
    * LRU 配置
    */
@@ -205,10 +160,6 @@ class ICache(val config:CacheConfig)
 //    tmp:= resetValidCounter
 //  }
 
-  when(state===sInit){
-    tagvData.write := 0.U
-    tagvData.addr := resetCounter.value
-  }
 
 //  printf("[%d] %d,%d tagv=%x\n",tmp,tagvData.wEn(0),tagvData.wEn(1),tagvData.write)
 
@@ -232,20 +183,6 @@ class ICache(val config:CacheConfig)
   //  AXIReadDataReady := () &&
   io.axi.readData.ready := true.B  //ready最多持续一拍
 
-  /**
-   * TODO:uncache部分
-   * 暂时由cache处理这一部分
-   *
-   */
-  val should_cache = Wire(Bool())
-  when(io.addr >= "h1faf0000".U && io.addr <="h1fafffff".U){
-    //confreg
-    should_cache := false.B
-  }.elsewhen(io.addr >= "h80000000".U){
-    should_cache := false.B
-  }.otherwise{
-    should_cache := true.B
-  }
 
   /**
    * Cache状态机
@@ -319,12 +256,6 @@ class ICache(val config:CacheConfig)
 //      io.inst(31,0) := bData.read(waySelReg)(bankIndex)
 //      io.inst(63,32) := bData.read(waySelReg)(bankIndex+1.U)
       io.instOK := true.B
-    }
-    is(sInit){
-      state := sInit
-      when(resetCounter.value=== ((1<<config.indexWidth)-1).U){
-        state := sIDLE
-      }
     }
   }
 
