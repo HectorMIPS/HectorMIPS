@@ -192,7 +192,6 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   id_module.io.regfile_read1 := regfile.io.rdata1
   id_module.io.regfile_read2 := regfile.io.rdata2
   id_module.io.bypass_bus := bypass_bus
-  id_module.io.ex_out_valid := ex_ms_bus.bus_valid
   id_module.io.flush := pipeline_flush_ex
   // 回馈给预取阶段的输出
   id_pf_bus := id_module.io.id_pf_out

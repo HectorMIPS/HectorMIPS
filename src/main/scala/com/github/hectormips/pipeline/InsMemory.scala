@@ -104,15 +104,14 @@ class InsMemory extends Module {
   io.ms_wb_out.bus_valid := bus_valid
   io.ms_wb_out.pc_ms_wb := io.ex_ms_in.pc_ex_ms_debug
 
-  val bypass_bus_valid: Bool = io.ex_ms_in.bus_valid && io.ex_ms_in.regfile_wsrc_sel_ex_ms &&
-    (io.data_ram_state === RamState.waiting_for_response || io.data_ram_data_ok)
+  val bypass_bus_valid: Bool = io.ex_ms_in.bus_valid && Mux(io.ex_ms_in.regfile_wsrc_sel_ex_ms,
+    io.data_ram_state === RamState.waiting_for_response || io.data_ram_data_ok, 1.B)
 
   io.bypass_ms_id.bus_valid := bypass_bus_valid
   io.bypass_ms_id.data_valid := bus_valid && io.ex_ms_in.regfile_we_ex_ms &&
     Mux(io.ex_ms_in.regfile_wsrc_sel_ex_ms, io.data_ram_data_ok, 1.B)
-  io.bypass_ms_id.reg_data := Mux(io.ex_ms_in.regfile_wsrc_sel_ex_ms, io.mem_rdata, io.ex_ms_in.alu_val_ex_ms)
-  io.bypass_ms_id.reg_addr := 0.U
-  io.bypass_ms_id.reg_addr := Mux1H(Seq(
+  io.bypass_ms_id.reg_data := Mux(io.ex_ms_in.regfile_wsrc_sel_ex_ms, mem_rdata_out, io.ex_ms_in.alu_val_ex_ms)
+  io.bypass_ms_id.reg_addr := MuxCase(0.U, Seq(
     (io.ex_ms_in.regfile_waddr_sel_ex_ms === RegFileWAddrSel.inst_rd) -> io.ex_ms_in.inst_rd_ex_ms,
     (io.ex_ms_in.regfile_waddr_sel_ex_ms === RegFileWAddrSel.inst_rt) -> io.ex_ms_in.inst_rt_ex_ms,
     (io.ex_ms_in.regfile_waddr_sel_ex_ms === RegFileWAddrSel.const_31) -> 31.U))
