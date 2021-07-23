@@ -69,8 +69,8 @@ class Victim(val config:CacheConfig) extends Module {
 
   hit_victim := OHToUInt(hit_victim_onehot)
   for(item <- 0 until config.victimDepth){
-    hit_victim_onehot(item) := config.getVictimTag(buffer.addr(item)) === config.getTag(io.addr)&&
-      config.getVictimIndex(buffer.addr(item)) === config.getIndex(io.addr) &&
+    hit_victim_onehot(item) := config.getVictimTag(buffer.addr(item)) === config.getTag(addr_r)&&
+      config.getVictimIndex(buffer.addr(item)) === config.getIndex(addr_r) &&
       buffer.valid(item)
 //    printf("[%d]id=[%d] %x %x   | %x %x  | %d result=%d\n",debug_counter,item.U,config.getVictimTag(buffer.addr(item)),config.getTag(io.addr),
 //      config.getVictimIndex(buffer.addr(item)),config.getIndex(io.addr), buffer.valid(item),
@@ -142,15 +142,15 @@ class Victim(val config:CacheConfig) extends Module {
 
   switch(state) {
     is(sIDLE) {
+      for(bank <- 0 until config.bankNum){
+        idata_r(bank) := io.idata(bank)
+      }
+      addr_r := io.addr
+
       when(io.op === 1.U) {
         when(io.dirty) {
           state := sWaitHandShake
           io.axi.writeAddr.valid := true.B
-
-          for(bank <- 0 until config.bankNum){
-            idata_r(bank) := io.idata(bank)
-          }
-          addr_r := io.addr
         }
       }
     }

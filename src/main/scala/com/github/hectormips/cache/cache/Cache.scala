@@ -26,7 +26,7 @@ class Cache(val config:CacheConfig)  extends Module{
     val dcache = Flipped(new SRamLikeDataIO())
     val uncached = Flipped(new SRamLikeDataIO())
 
-    val axi = new AXIIOWithoutWid(3)
+    val axi = new AXIIO(3)
   }
   )
   val dcache = Module(new DCache(new CacheConfig()))
@@ -103,7 +103,7 @@ class Cache(val config:CacheConfig)  extends Module{
   dcache.io.axi.writeAddr.ready := io.axi.awready(0)
 
   // 写数据通道
-//  io.axi.wid := Cat(0.U,dcache.io.axi.writeAddr.bits.id) // writeData 没有id ，直接用writeAddr的id
+  io.axi.wid := Cat(uncached.io.axi.awid,0.U,dcache.io.axi.writeAddr.bits.id) // writeData 没有id ，直接用writeAddr的id
   io.axi.wdata := Cat(uncached.io.axi.wdata,0.U(32.W),dcache.io.axi.writeData.bits.data)
   io.axi.wstrb := Cat(uncached.io.axi.wstrb,0.U(4.W),dcache.io.axi.writeData.bits.strb)
   io.axi.wlast := Cat(uncached.io.axi.wlast,0.U(1.W),dcache.io.axi.writeData.bits.last)

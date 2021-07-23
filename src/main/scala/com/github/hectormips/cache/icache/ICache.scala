@@ -98,8 +98,10 @@ class ICache(val config:CacheConfig)
       val m = dataMem(way)(bank)
       when(bData.wEn(way)(bank) && state === sREFILL){
         m.write(bData.addr,bData.write(bank))
+        bData.read(way)(bank) := DontCare
+      }.otherwise{
+        bData.read(way)(bank) := m.read(config.getIndex(io.addr))
       }
-      bData.read(way)(bank) := m(config.getIndex(io.addr))
       bData.write(bank) := io.axi.readData.bits.data
     })
   })
@@ -109,9 +111,10 @@ class ICache(val config:CacheConfig)
     when(tagvData.wEn(way)){//写使能
       m.write(tagvData.addr,tagvData.write)
       validMem(way)(tagvData.addr) := true.B
-//      tagvData.read(way) := DontCare
+      tagvData.read(way) := DontCare
+    }.otherwise{
+      tagvData.read(way) := m.read(config.getIndex(io.addr))
     }
-    tagvData.read(way) := m(config.getIndex(io.addr))
   }
   for(way<- 0 until config.wayNum){
     for(bank <- 0 until config.bankNum) {

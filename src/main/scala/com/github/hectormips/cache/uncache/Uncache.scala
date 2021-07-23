@@ -3,7 +3,7 @@ package com.github.hectormips.cache.uncache
 
 import chisel3._
 import chisel3.util._
-import com.github.hectormips.{AXIIOWithoutWid, SRamLikeIO}
+import com.github.hectormips.{AXIIO, SRamLikeIO}
 import com.github.hectormips.cache.setting._
 import com.github.hectormips.cache.utils.Wstrb
 
@@ -13,7 +13,7 @@ import com.github.hectormips.cache.utils.Wstrb
 class Uncache extends Module{
   val io = IO(new Bundle{
     val input = Flipped(new SRamLikeIO())
-    val axi = new AXIIOWithoutWid(1)
+    val axi = new AXIIO(1)
   })
   val wstrb = Module(new Wstrb())
   val do_req =  RegInit(false.B)
@@ -94,6 +94,7 @@ class Uncache extends Module{
   io.axi.awvalid := do_req && do_wr_r && !addr_rev
   
   //w
+  io.axi.wid := 2.U
   io.axi.wdata := do_wdata_r
   
   wstrb.io.offset := do_addr_r(1,0)

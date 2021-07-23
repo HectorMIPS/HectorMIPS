@@ -28,10 +28,14 @@ class MemAccessJudge extends Module{
   })
 
   //不管inst，直接和inst cache连在一起
+
   io.inst <> io.cached_inst
 
-  val sIDLE::sNop::sReqCache::sWaitCache::sReqAXI::sWaitAXI::Nil = Enum(6)
+  val sIDLE::sNop::sReqCache::sWaitCache::sReqAXI::sWaitAXI::sWaitInst::Nil = Enum(7)
   val state = RegInit(0.U(3.W))
+//  val inst_state = RegInit(0.U(3.W))
+//  val data_state = RegInit(0.U(3.W))
+
 
   val should_cache_data = Wire(Bool())
   val should_cache_data_r = RegInit(false.B)

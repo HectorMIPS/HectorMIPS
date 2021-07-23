@@ -9,16 +9,16 @@ import chisel3.util._
 import chisel3.stage.{ChiselGeneratorAnnotation, ChiselStage}
 
 class BankData(val config: CacheConfig) extends Bundle {
-  val addr = UInt(config.indexWidth.W)
-  val read = Vec(config.wayNum, Vec(config.bankNum, UInt(32.W)))
+  val addr = Wire(UInt(config.indexWidth.W))
+  val read = Wire(Vec(config.wayNum, Vec(config.bankNum, UInt(32.W))))
   //  val write = Vec(config.bankNum, UInt(32.W))
-  val wEn = Vec(config.wayNum, Vec(config.bankNum,Bool()))
+  val wEn = Wire(Vec(config.wayNum, Vec(config.bankNum,Bool())))
 }
 class TAGVData(val config: CacheConfig) extends Bundle {
-  val addr = UInt(config.indexWidth.W)
-  val read = Vec(config.wayNum, UInt((config.tagWidth).W)) //一次读n个
-  val write = UInt((config.tagWidth).W) //一次写1个
-  val wEn = Vec(config.wayNum, Bool())
+  val addr = Wire(UInt(config.indexWidth.W))
+  val read = Wire(Vec(config.wayNum, UInt((config.tagWidth).W))) //一次读n个
+  val write = Wire(UInt((config.tagWidth).W)) //一次写1个
+  val wEn = Wire(Vec(config.wayNum, Bool()))
 }
 class DirtyData(val config:CacheConfig) extends Bundle{
   val addr = UInt(config.indexWidth.W)
@@ -88,7 +88,7 @@ class DCache(val config:CacheConfig)
       val writeResp =  Flipped(Decoupled( new AXIWriteResponse(4)))
     }
   })
-  val sIDLE::sLOOKUP::sREPLACE::sREFILL::sWaiting::Nil =Enum(5)
+  val sIDLE::sLOOKUP::sCheckVictim::sREPLACE::sREFILL::sWaiting::Nil =Enum(6)
   val state = RegInit(5.U(3.W))
   val debug_counter = RegInit(0.U(10.W))
 
@@ -126,8 +126,8 @@ class DCache(val config:CacheConfig)
 //  val wstrb_r = RegInit("b1111".U(4.W))
   val wdata_r = RegInit(0.U(32.W))
 
-  val bData = Wire(new BankData(config))
-  val tagvData = Wire(new TAGVData(config))
+  val bData = new BankData(config)
+  val tagvData = new TAGVData(config)
   val dataMemEn = RegInit(false.B)
   val bDataWtBank = RegInit(0.U((config.offsetWidth-2).W))
   val AXI_readyReg = RegInit(false.B)
@@ -187,7 +187,7 @@ class DCache(val config:CacheConfig)
     })
   })
 
-  when(victim.io.find) {
+  when(victim.io.find && state === sCheckVictim) {
     // 用victim里的数据替换
     dataMem.indices.foreach(way => {
       dataMem(way).indices.foreach(bank => {
@@ -199,8 +199,11 @@ class DCache(val config:CacheConfig)
             m.write(bData.addr, _victim_odata_vec(bank))//重填
           }
           dirtyMem(way)(bData.addr) := false.B
+          _read_data(way)(bank)  := DontCare
+        }.otherwise{
+          _read_data(way)(bank)  := m(config.getIndex(io.addr))
         }
-        _read_data(way)(bank)  := m(config.getIndex(io.addr))
+
       })
     })
   }.otherwise {
@@ -215,8 +218,8 @@ class DCache(val config:CacheConfig)
             }.otherwise {
               dirtyMem(way)(bData.addr) := false.B //read miss
             }
-            when(bank.U === bankIndex){
-              when(wr_r ) {
+            when(bank.U === bDataWtBank){
+              when(wr_r) {
                 m.write(bData.addr, _wdata_vec, _wstrb_vec)
               }.otherwise {
                 m.write(bData.addr, _bdata_vec(bank))
@@ -229,9 +232,10 @@ class DCache(val config:CacheConfig)
               m.write(bData.addr, _wdata_vec,_wstrb_vec)
             }
           }
+          _read_data(way)(bank)  := DontCare
+        }.otherwise{
+          _read_data(way)(bank)  := m(config.getIndex(io.addr))
         }
-        //        bData.write(bank) := io.axi.readData.bits.data
-        _read_data(way)(bank)  := m(config.getIndex(io.addr))
       })
     })
   }
@@ -241,21 +245,23 @@ class DCache(val config:CacheConfig)
     when(tagvData.wEn(way)){//写使能
       m.write(tagvData.addr,tagvData.write)
       validMem(way)(tagvData.addr) := true.B
+      tagvData.read(way) := DontCare
+    }.otherwise{
+      tagvData.read(way) := m(config.getIndex(io.addr))
     }
-    tagvData.read(way) := m(config.getIndex(io.addr))
   }
   for(way<- 0 until config.wayNum){
     for(bank <- 0 until config.bankNum) {
       bData.wEn(way)(bank) := (state===sREFILL && waySelReg === way.U && bDataWtBank ===bank.U && !clock.asBool() )||
         //          (state===sREPLACE && victim.io.find && waySelReg === way.U) ||// 如果victim buffer里找到了
-        (is_hitWay && state === sLOOKUP && cache_hit_way === way.U && bankIndex ===bank.U && wr_r === true.B)||  //写命中
-        (is_hitWay && state === sREFILL && waySelReg === way.U && bDataWtBank ===bank.U && wr_r === true.B)||
-        (state===sLOOKUP && !is_hitWay  && victim.io.find && waySelReg === way.U )
+        (state === sLOOKUP && wr_r && cache_hit_way === way.U)||
+        (state === sCheckVictim && victim.io.find && cache_hit_way === way.U && bankIndex ===bank.U)||  //读/写命中victim
+        (is_hitWay && state === sREFILL && waySelReg === way.U && bDataWtBank ===bank.U && wr_r === true.B)
     }
   }
   for(way<- 0 until config.wayNum){
     tagvData.wEn(way) := (state === sREFILL && waySelReg===way.U) ||
-      (state === sLOOKUP && victim.io.find && waySelReg===way.U)
+      (state === sCheckVictim && victim.io.find && waySelReg===way.U)
   }
 
   tagvData.write := Cat(true.B,tag)
@@ -319,30 +325,29 @@ class DCache(val config:CacheConfig)
         when(!wr_r) {
           // 读
           io.rdata := bData.read(cache_hit_way)(bankIndex)
-
         }
-      }.elsewhen(victim.io.find){
+      }.otherwise {
+        //没命中,检查victim
+        state := sCheckVictim
+      }
+    }
+    is(sCheckVictim){
+      // 检查victim buffer
+      when(victim.io.find){
         // 在 victim buffer里找到了
-        when(fetch_ready_go){
-          state := sIDLE
-          victim.io.odata
-        }.otherwise{
-          state := sLOOKUP
-        }
         io.data_ok := true.B
-//        printf("%x\n",victim.io.odata(bankIndex))
         when(!wr_r) {
           // 读
           io.rdata := victim.io.odata(bankIndex)
         }
-      }.otherwise {
-        //没命中,尝试请求
         when(fetch_ready_go){
-          io.axi.readAddr.valid := true.B
-          state := sREPLACE
+          state := sIDLE
         }.otherwise{
-          state := sLOOKUP
+          state := sCheckVictim
         }
+      }.otherwise{
+        io.axi.readAddr.valid := true.B
+        state := sREPLACE
       }
     }
     is(sREPLACE){

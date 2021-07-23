@@ -20,10 +20,10 @@ class axi_crossbar_2x1 extends BlackBox{
     val aclk    = Input(Clock())
     val aresetn = Input(Bool())
     //64 bit 输入
-    val in      = Flipped(new AXIIOWithoutWid(3))
+    val in      = Flipped(new AXIIO(3))
     val arqos   = Input(UInt(8.W))
     //32 bit 输出
-    val out     = new AXIIOWithoutWid(1)
+    val out     = new AXIIO(1)
   })
   forceName(io.in.arid, "s_axi_arid")
   forceName(io.in.araddr, "s_axi_araddr")
@@ -51,6 +51,7 @@ class axi_crossbar_2x1 extends BlackBox{
   forceName(io.in.awprot, "s_axi_awprot")
   forceName(io.in.awvalid, "s_axi_awvalid")
   forceName(io.in.awready, "s_axi_awready")
+  forceName(io.in.wid, "s_axi_wid")
   forceName(io.in.wdata, "s_axi_wdata")
   forceName(io.in.wstrb, "s_axi_wstrb")
   forceName(io.in.wlast, "s_axi_wlast")
@@ -89,7 +90,7 @@ class axi_crossbar_2x1 extends BlackBox{
   forceName(io.out.awprot, "m_axi_awprot")
   forceName(io.out.awvalid, "m_axi_awvalid")
   forceName(io.out.awready, "m_axi_awready")
-//  forceName(io.out.wid, "m_axi_wid")
+  forceName(io.out.wid, "m_axi_wid")
   forceName(io.out.wdata, "m_axi_wdata")
   forceName(io.out.wstrb, "m_axi_wstrb")
   forceName(io.out.wlast, "m_axi_wlast")
@@ -169,7 +170,7 @@ class SocTopAXI extends Module {
     io.axi_io.awvalid := crossbar.io.out.awvalid
     crossbar.io.out.awready := io.axi_io.awready
 
-    io.axi_io.wid := crossbar.io.out.awid
+    io.axi_io.wid := crossbar.io.out.wid
     io.axi_io.wdata := crossbar.io.out.wdata
     io.axi_io.wstrb := crossbar.io.out.wstrb
     io.axi_io.wlast := crossbar.io.out.wlast
