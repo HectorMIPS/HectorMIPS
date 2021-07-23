@@ -5,13 +5,13 @@ import chisel3.util.experimental.forceName
 
 /**
  * 没有WID的接口，给crossbar
- * @param num
+ * @param num AXI 接口的数量，一般是1
  */
-class AXIIOWithoutWid(num:Int) extends Bundle {
+class AXIIOWithoutWid(num:Int = 1) extends Bundle {
   // axi
   val arid   : UInt = Output(UInt((4*num).W))
   val araddr : UInt = Output(UInt((32*num).W))
-  val arlen  : UInt = Output(UInt((4*num).W)) // axi3 arlen长度是3
+  val arlen  : UInt = Output(UInt((4*num).W)) // axi3 arlen长度是3，如果要
   val arsize : UInt = Output(UInt((3*num).W))
   val arburst: UInt = Output(UInt((2*num).W))
   val arlock : UInt = Output(UInt((2*num).W))
@@ -88,7 +88,7 @@ class AXIIOWithoutWid(num:Int) extends Bundle {
 
 /**
  *
- * @param num 接入的AXI口数量
+ * @param num AXI 接口的数量，一般是1
  */
 class AXIIO(num:Int) extends AXIIOWithoutWid(num:Int) {
   // axi

@@ -118,7 +118,7 @@ class Victim(val config:CacheConfig) extends Module {
   /**
    * AXI
    */
-  io.axi.writeAddr.bits.id := 2.U
+  io.axi.writeAddr.bits.id := 1.U
   io.axi.writeAddr.bits.size := 2.U
   io.axi.writeAddr.bits.len := (config.bankNum -1).U
   io.axi.writeAddr.bits.cache := 0.U

@@ -36,44 +36,7 @@ import com.github.hectormips.cache.setting.CacheConfig
       }
     }
   }
-class TestWstrb extends FlatSpec with ChiselScalatestTester with Matchers {
-  behavior of "TestWstrb"
-  it should "TestWstrb test good" in {
-    test(new Wstrb()).withAnnotations(Seq(WriteVcdAnnotation)) { wstrb =>
-      wstrb.io.offset.poke(0.U)
-      wstrb.io.size.poke(0.U)
-      wstrb.io.mask.expect("b0001".U)
 
-      wstrb.io.offset.poke(1.U)
-      wstrb.io.size.poke(0.U)
-      wstrb.io.mask.expect("b0010".U)
-
-      wstrb.io.offset.poke(2.U)
-      wstrb.io.size.poke(0.U)
-      wstrb.io.mask.expect("b0100".U)
-
-      wstrb.io.offset.poke(3.U)
-      wstrb.io.size.poke(0.U)
-      wstrb.io.mask.expect("b1000".U)
-
-      wstrb.io.offset.poke(0.U)
-      wstrb.io.size.poke(1.U)
-      wstrb.io.mask.expect("b0011".U)
-
-      wstrb.io.offset.poke(2.U)
-      wstrb.io.size.poke(1.U)
-      wstrb.io.mask.expect("b1100".U)
-
-      wstrb.io.offset.poke(0.U)
-      wstrb.io.size.poke(2.U)
-      wstrb.io.mask.expect("b1111".U)
-
-      wstrb.io.offset.poke(1.U)
-      wstrb.io.size.poke(2.U)
-      wstrb.io.mask.expect("b0000".U)
-    }
-  }
-}
 //class dcacheTester extends FlatSpec with ChiselScalatestTester with Matchers{
 //  behavior of "TestDCache"
 //  def give_data(dcache:DCache,data:Seq[UInt]):Unit={

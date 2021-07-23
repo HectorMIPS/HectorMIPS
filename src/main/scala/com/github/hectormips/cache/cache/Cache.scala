@@ -7,23 +7,24 @@ import com.github.hectormips.{AXIIO, AXIIOWithoutWid, SRamLikeDataIO, SRamLikeIO
 import chisel3.stage.{ChiselGeneratorAnnotation, ChiselStage}
 import com.github.hectormips.cache.dcache.DCache
 import com.github.hectormips.cache.icache.ICache
+import com.github.hectormips.cache.uncache.Uncache
 import chisel3.util.experimental.forceName
 
-class cpu_axi_interface extends BlackBox{//TODO:暂用
-  var io = IO(new Bundle{
-    val clk    = Input(new Clock())
-    val resetn = Input(Bool())
-    val data = Flipped(new SRamLikeDataIO())
-    val axi  = new AXIIOWithoutWid(1)
-  })
-  io.axi.force_name()
-}
+//class cpu_axi_interface extends BlackBox{//TODO:暂用
+//  var io = IO(new Bundle{
+//    val clk    = Input(new Clock())
+//    val resetn = Input(Bool())
+//    val data = Flipped(new SRamLikeDataIO())
+//    val axi  = new AXIIOWithoutWid(1)
+//  })
+//  io.axi.force_name()
+//}
 
 class Cache(val config:CacheConfig)  extends Module{
   val io = IO(new Bundle{
     val icache = Flipped(new SRamLikeInstIO)
     val dcache = Flipped(new SRamLikeDataIO())
-    val uncached = Flipped(new SRamLikeDataIO()) // TODO:暂用
+    val uncached = Flipped(new SRamLikeDataIO())
 
     val axi = new AXIIOWithoutWid(3)
   }
@@ -32,9 +33,8 @@ class Cache(val config:CacheConfig)  extends Module{
 //  val icache = Module(new ICache(new CacheConfig(WayWidth=8*1024,DataWidthByByte=32)))
   // 2路组相连，每页8KB 每行32B
   val icache = Module(new ICache(new CacheConfig()))
-  val uncached = Module(new cpu_axi_interface) // TODO:暂用
-  uncached.io.clk := clock
-  uncached.io.resetn := !reset.asBool()
+  val uncached = Module(new Uncache())
+
   //icache 与CPU接口
   icache.io.valid := io.icache.req
   icache.io.addr := io.icache.addr
@@ -55,7 +55,7 @@ class Cache(val config:CacheConfig)  extends Module{
   io.dcache.data_ok := dcache.io.data_ok
 
   //uncached
-  uncached.io.data <> io.uncached
+  uncached.io.input <> io.uncached
 
   // 读地址通道
   io.axi.arid := Cat(uncached.io.axi.araddr,icache.io.axi.readAddr.bits.id,dcache.io.axi.readAddr.bits.id)
