@@ -153,15 +153,6 @@ class ICache(val config:CacheConfig)
    */
   val resetCounter = Counter(1<<config.indexWidth)
   resetCounter.inc()
-//  val tmp = Wire(UInt(.W))
-//  withClockAndReset(clock,false.B){
-//    val resetValidCounter = RegInit(0.U))
-//    resetValidCounter := resetValidCounter + 1.U
-//    tmp:= resetValidCounter
-//  }
-
-
-//  printf("[%d] %d,%d tagv=%x\n",tmp,tagvData.wEn(0),tagvData.wEn(1),tagvData.write)
 
   /**
    * axi访问设置
@@ -226,7 +217,7 @@ class ICache(val config:CacheConfig)
       waySelReg := lruMem.io.waySel
       bDataWtBank := bankIndex
       when(io.axi.readAddr.ready) {
-        state := RegNext(sREFILL)
+        state := sREFILL
       }.otherwise{
         state := sREPLACE
         io.axi.readAddr.valid := true.B
@@ -236,7 +227,7 @@ class ICache(val config:CacheConfig)
       // 取数据，重写TAGV
 
       state := sREFILL
-      when(io.axi.readData.fire() && io.axi.readData.bits.id === io.axi.readAddr.bits.id){
+      when(io.axi.readData.valid && io.axi.readData.bits.id === io.axi.readAddr.bits.id){
         bDataWtBank := bDataWtBank+1.U
         when(io.axi.readData.bits.last){
           state := sWaiting

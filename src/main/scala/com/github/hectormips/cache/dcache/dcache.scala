@@ -15,21 +15,9 @@ class BankData(val config: CacheConfig) extends Bundle {
 }
 class TAGVData(val config: CacheConfig) extends Bundle {
   val addr = UInt(config.indexWidth.W)
-  val read = Vec(config.wayNum, UInt((config.tagWidth+1).W)) //一次读n个
-  val write = UInt((config.tagWidth+1).W) //一次写1个
+  val read = Vec(config.wayNum, UInt((config.tagWidth).W)) //一次读n个
+  val write = UInt((config.tagWidth).W) //一次写1个
   val wEn = Vec(config.wayNum, Bool())
-  def tag(way: Int):UInt={
-    read(way)(19,0)
-  }
-  def tag(way: UInt):UInt={
-    read(way)(19,0)
-  }
-  def valid(way:Int):UInt={
-    read(way)(20)
-  }
-  def valid(way:UInt):UInt={
-    read(way)(20)
-  }
 }
 class DirtyData(val config:CacheConfig) extends Bundle{
   val addr = UInt(config.indexWidth.W)
@@ -61,14 +49,17 @@ class DCache(val config:CacheConfig)
       val writeResp =  Flipped(Decoupled( new AXIWriteResponse(4)))
     }
   })
-  val sIDLE::sLOOKUP::sREPLACE::sREFILL::sWaiting::sInit::Nil =Enum(6)
+  val sIDLE::sLOOKUP::sREPLACE::sREFILL::sWaiting::Nil =Enum(5)
   val state = RegInit(5.U(3.W))
   val debug_counter = RegInit(0.U(10.W))
 
   /**
    * cache的数据
    */
-  val dirtyMem = Mem(config.lineNum,Vec(config.wayNum, Bool())) //注意前面的是way
+  val validMem = RegInit(VecInit(Seq.fill(config.wayNum)(VecInit(Seq.fill(config.lineNum)(false.B)))))
+  val dirtyMem = RegInit(VecInit(Seq.fill(config.wayNum)(VecInit(Seq.fill(config.lineNum)(false.B)))))
+
+//  val dirtyMem = Mem(config.lineNum,Vec(config.wayNum, Bool())) //注意前面的是way
 
   val dataMem = List.fill(config.wayNum) {
     List.fill(config.bankNum) { // 4字节长就有4个
@@ -88,33 +79,37 @@ class DCache(val config:CacheConfig)
   val cache_hit_onehot = Wire(Vec(config.wayNum, Bool())) // 命中的路
   val cache_hit_way = Wire(UInt(config.wayNumWidth.W))
 
-  val addrReg = RegInit(0.U(32.W)) //地址寄存器
+  val addr_r = RegInit(0.U(32.W)) //地址寄存器
+  val size_r = RegInit(2.U(2.W))
+  val wr_r = RegInit(false.B)
+  val wstrb_r = RegInit("b1111".U(4.W))
+  val wdata_r = RegInit(0.U(32.W))
+
   val bData = Wire(new BankData(config))
-  //  val bDataWriteReg = RegInit(VecInit(Seq.fill(config.bankNum)(0.U(32.W))))
   val tagvData = Wire(new TAGVData(config))
   val dataMemEn = RegInit(false.B)
   val bDataWtBank = RegInit(0.U((config.offsetWidth-2).W))
   val AXI_readyReg = RegInit(false.B)
 
   val is_hitWay = Wire(Bool())
-  val addrokReg = RegInit(false.B)
+//  val addrokReg = RegInit(false.B)
   val index  = Wire(UInt(config.indexWidth.W))
   val bankIndex = Wire(UInt((config.offsetWidth-2).W))
   val tag  = Wire(UInt(config.tagWidth.W))
+
   val waySelReg = RegInit(0.U(config.wayNumWidth.W))
   val fetch_ready_go = Wire(Bool())
   val eviction = Wire(Bool()) //出现驱逐
-  val sizeReg = RegInit(2.U(2.W))
-  val wrReg = RegInit(false.B)
+
   is_hitWay := cache_hit_onehot.asUInt().orR() // 判断是否命中cache
-  io.addr_ok := addrokReg
+  io.addr_ok := state === sIDLE
   state := sIDLE
 
-  index := config.getIndex(addrReg)
+  index := config.getIndex(addr_r)
 
-  bankIndex := config.getBankIndex(addrReg) //offset去掉尾部2位
+  bankIndex := config.getBankIndex(addr_r) //offset去掉尾部2位
 
-  tag := config.getTag(addrReg)
+  tag := config.getTag(addr_r)
 
   /**
    * dataMem
@@ -135,15 +130,15 @@ class DCache(val config:CacheConfig)
     _bdata_vec(bank)(3) := io.axi.readData.bits.data(31,24)
   }
   val _wdata_vec = Wire(Vec(4,UInt(8.W))) // 外部写数据
-  _wdata_vec(0) := io.wdata(7,0)
-  _wdata_vec(1) := io.wdata(15,8)
-  _wdata_vec(2) := io.wdata(23,16)
-  _wdata_vec(3) := io.wdata(31,24)
+  _wdata_vec(0) := wdata_r(7,0)
+  _wdata_vec(1) := wdata_r(15,8)
+  _wdata_vec(2) := wdata_r(23,16)
+  _wdata_vec(3) := wdata_r(31,24)
   val _wstrb_vec = Wire(Vec(4,Bool()))
-  _wstrb_vec(0) := io.wstrb(0)
-  _wstrb_vec(1) := io.wstrb(1)
-  _wstrb_vec(2) := io.wstrb(2)
-  _wstrb_vec(3) := io.wstrb(3)
+  _wstrb_vec(0) := wstrb_r(0)
+  _wstrb_vec(1) := wstrb_r(1)
+  _wstrb_vec(2) := wstrb_r(2)
+  _wstrb_vec(3) := wstrb_r(3)
   val _read_data = Wire(Vec(config.wayNum,Vec(config.bankNum,Vec(4,UInt(8.W)))))
   _read_data.indices.foreach(way => {
     _read_data(way).indices.foreach(bank =>{
@@ -151,39 +146,45 @@ class DCache(val config:CacheConfig)
         _read_data(way)(bank)(0))
     })
   })
+
   when(victim.io.find) {
+    // 用victim里的数据替换
     dataMem.indices.foreach(way => {
       dataMem(way).indices.foreach(bank => {
         val m = dataMem(way)(bank)
         when(bData.wEn(way)(bank)) {
-          m.write(bData.addr, _victim_odata_vec(bank))//重填
-          dirtyMem(bData.addr)(way) := false.B
+          when(wr_r && bank.U === bankIndex){
+            m.write(bData.addr,_wdata_vec)// 新数据
+          }.otherwise{
+            m.write(bData.addr, _victim_odata_vec(bank))//重填
+          }
+          dirtyMem(way)(bData.addr) := false.B
         }
         _read_data(way)(bank)  := m(config.getIndex(io.addr))
       })
     })
   }.otherwise {
+    // 新取的数据
     dataMem.indices.foreach(way => {
-//      printf("[%d] dirtyMem(%x)(%x)=%d \n",debug_counter,bData.addr,way.U,dirtyMem(bData.addr)(way))
       dataMem(way).indices.foreach(bank => {
         val m = dataMem(way)(bank)
         when(bData.wEn(way)(bank)) {
           when(state === sREFILL) {
-            when(wrReg){
-              dirtyMem(bData.addr)(way) := true.B //Write miss 的 目标
+            when(wr_r){
+              dirtyMem(way)(bData.addr) := true.B //Write miss 的 目标
             }.otherwise {
-              dirtyMem(bData.addr)(way) := false.B //进入到REFILL的必然是新数据
+              dirtyMem(way)(bData.addr) := false.B //进入到REFILL的必然是新数据
             }
-            when(wrReg && bank.U === bankIndex) {
+            when(wr_r && bank.U === bankIndex) {
               m.write(bData.addr, _wdata_vec, _wstrb_vec)
             }.otherwise {
               m.write(bData.addr, _bdata_vec(bank))
             }
           }.otherwise{
             when(is_hitWay){
-              dirtyMem(bData.addr)(way) := true.B //旧数据
+              dirtyMem(way)(bData.addr) := true.B //旧数据
             }.otherwise{
-              dirtyMem(bData.addr)(way) := false.B //新数据
+              dirtyMem(way)(bData.addr) := false.B //新数据
             }
             m.write(bData.addr, _wdata_vec,_wstrb_vec)
           }
@@ -194,18 +195,11 @@ class DCache(val config:CacheConfig)
     })
   }
 
-  // 初始化
-  val resetCounter = Counter(1<<config.indexWidth)
-  resetCounter.inc()
-  when(state===sInit){
-    tagvData.write := 0.U
-    tagvData.addr := resetCounter.value
-  }
-
   for(way <- 0 until config.wayNum){
     val m = tagvMem(way)
     when(tagvData.wEn(way)){//写使能
       m.write(tagvData.addr,tagvData.write)
+      validMem(way)(tagvData.addr) := true.B
     }
     tagvData.read(way) := m(config.getIndex(io.addr))
   }
@@ -213,14 +207,13 @@ class DCache(val config:CacheConfig)
     for(bank <- 0 until config.bankNum) {
       bData.wEn(way)(bank) := (state===sREFILL && waySelReg === way.U && bDataWtBank ===bank.U && !clock.asBool() )||
         //          (state===sREPLACE && victim.io.find && waySelReg === way.U) ||// 如果victim buffer里找到了
-        (is_hitWay && state === sLOOKUP && waySelReg === way.U && bDataWtBank ===bank.U && wrReg === true.B)||
-        (is_hitWay && state === sREFILL && waySelReg === way.U && bDataWtBank ===bank.U && wrReg === true.B)||
+        (is_hitWay && state === sLOOKUP && cache_hit_way === way.U && bankIndex ===bank.U && wr_r === true.B)||  //写命中
+        (is_hitWay && state === sREFILL && waySelReg === way.U && bDataWtBank ===bank.U && wr_r === true.B)||
         (state===sLOOKUP && !is_hitWay  && victim.io.find && waySelReg === way.U )
     }
   }
   for(way<- 0 until config.wayNum){
-    tagvData.wEn(way) := state === sInit ||
-      (state === sREFILL && waySelReg===way.U) ||
+    tagvData.wEn(way) := (state === sREFILL && waySelReg===way.U) ||
       (victim.io.find && waySelReg===way.U)
   }
 
@@ -230,7 +223,7 @@ class DCache(val config:CacheConfig)
   cache_hit_way := OHToUInt(cache_hit_onehot)
   // 判断是否命中cache
   cache_hit_onehot.indices.foreach(i=>{
-    cache_hit_onehot(i) :=  tagvData.tag(i) === tag & tagvData.valid(i)
+    cache_hit_onehot(i) :=  tagvData.read(i) === tag && validMem(i)(index)
   })
 
   /**
@@ -238,7 +231,7 @@ class DCache(val config:CacheConfig)
    */
   io.data_ok := false.B
   io.rdata := 0.U
-  addrokReg := false.B
+//  addrokReg := false.B
   /**
    * LRU 配置
    */
@@ -254,15 +247,17 @@ class DCache(val config:CacheConfig)
 
 
   io.axi.readAddr.valid :=  false.B
-  victim.io.addr := Cat(io.addr(31,config.offsetWidth))
+  victim.io.addr := Cat(io.addr(31,config.offsetWidth),0.U(config.offsetWidth.W))
   switch(state){
     is(sIDLE){
       when(io.valid){
         state := sLOOKUP
-        addrokReg := true.B
-        addrReg := io.addr
-        sizeReg := io.size
-        wrReg := io.wr
+//        addrokReg := true.B
+        addr_r := io.addr
+        size_r := io.size
+        wr_r := io.wr
+        wdata_r := io.wdata
+        wstrb_r := io.wstrb
       }
     }
     is(sLOOKUP){
@@ -271,17 +266,19 @@ class DCache(val config:CacheConfig)
         when(io.valid) {
           // 直接进入下一轮
           state := sLOOKUP
-          addrokReg := true.B
-          addrReg := io.addr
-          sizeReg := io.size
-          wrReg := io.wr
+//          addrokReg := true.B
+          addr_r := io.addr
+          size_r := io.size
+          wr_r := io.wr
+          wdata_r := io.wdata
+          wstrb_r := io.wstrb
         }.otherwise {
           state := sIDLE
         }
         io.data_ok := true.B
-        when(!wrReg) {
+        when(!wr_r) {
           // 读
-          io.rdata := get_read_data(bData.read(cache_hit_way)(bankIndex), addrReg(1, 0),sizeReg)
+          io.rdata := get_read_data(bData.read(cache_hit_way)(bankIndex), addr_r(1, 0),size_r)
         }
       }.elsewhen(victim.io.find){
         // 在 victim buffer里找到了
@@ -293,15 +290,14 @@ class DCache(val config:CacheConfig)
         }
         io.data_ok := true.B
 //        printf("%x\n",victim.io.odata(bankIndex))
-        when(!wrReg) {
+        when(!wr_r) {
           // 读
-          io.rdata := get_read_data(victim.io.odata(bankIndex), addrReg(1, 0),sizeReg)
+          io.rdata := get_read_data(victim.io.odata(bankIndex), addr_r(1, 0),size_r)
         }
       }.otherwise {
         //没命中,尝试请求
         when(fetch_ready_go){
           io.axi.readAddr.valid := true.B
-          waySelReg := lruMem.io.waySel
           state := sREPLACE
         }.otherwise{
           state := sLOOKUP
@@ -310,6 +306,7 @@ class DCache(val config:CacheConfig)
     }
     is(sREPLACE){
       bDataWtBank := bankIndex
+      waySelReg := lruMem.io.waySel
       when(io.axi.readAddr.ready) {
         state := sREFILL
       }.otherwise{
@@ -324,18 +321,17 @@ class DCache(val config:CacheConfig)
         bDataWtBank := bDataWtBank+1.U
         when(io.axi.readData.bits.last){
           state := sWaiting
-          when(!wrReg){
-            io.rdata := get_read_data(bData.read(waySelReg)(bankIndex),addrReg(1,0),sizeReg)
+          when(!wr_r){
+            io.rdata := get_read_data(bData.read(waySelReg)(bankIndex),addr_r(1,0),size_r)
             io.data_ok := true.B
           }
-
         }
       }
 
     }
     is(sWaiting){
       state := sIDLE
-      io.rdata := get_read_data(bData.read(waySelReg)(bankIndex),addrReg(1,0),sizeReg)
+      io.rdata := get_read_data(bData.read(waySelReg)(bankIndex),addr_r(1,0),size_r)
       io.data_ok := true.B
 //            lruMem.io.visit := waySelReg
 //      when(io.valid && !io.wr){
@@ -354,13 +350,12 @@ class DCache(val config:CacheConfig)
   debug_counter := debug_counter + 1.U
   fetch_ready_go := (eviction && !victim.io.full) || !eviction
   //TODO:改为state==sLOOKUP
-  when((tagvData.valid(waySelReg).asBool() && (state ===sREFILL) && !is_hitWay)){
+  when((validMem(waySelReg)(tagvData.addr) && (state ===sREFILL) && !is_hitWay)){
     // 没找到，并且要填充一个已存在的位置
-    //    printf("[%d]should eviction\n",debug_counter)
-    victim.io.addr := Cat(tagvData.read(waySelReg)(19,0) ,index(7,0))
+    victim.io.addr := Cat(tagvData.read(waySelReg) ,index,0.U(config.offsetWidth.W))
     eviction := true.B
     victim.io.op := true.B
-    victim.io.dirty := dirtyMem(index)(waySelReg)
+    victim.io.dirty := dirtyMem(waySelReg)(index)
     for(i <- 0 to 3){
       victim.io.idata(i) := bData.read(waySelReg)(i)
     }
@@ -380,7 +375,7 @@ class DCache(val config:CacheConfig)
 //  io.axi.readAddr.bits.len := 6.U
   io.axi.readAddr.bits.len := (config.bankNum - 1).U
   io.axi.readAddr.bits.size := 2.U // 4B
-  io.axi.readAddr.bits.addr := addrReg
+  io.axi.readAddr.bits.addr := addr_r
   io.axi.readAddr.bits.cache := 0.U
   io.axi.readAddr.bits.lock := 0.U
   io.axi.readAddr.bits.prot := 0.U

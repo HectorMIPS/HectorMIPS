@@ -35,14 +35,14 @@ class MemAccessJudge extends Module{
 
   val should_cache_data = Wire(Bool())
   val should_cache_data_r = RegInit(false.B)
-//  when(io.data.addr>="h1faf_0000".U && io.data.data_ok <="h1aff_ffff".U){
-//    should_cache_data := false.B
-//  }.elsewhen(io.data.addr>="h8000_0000".U &&io.data.addr <="hbfff_ffff".U){
-//    should_cache_data := false.B
-//  }.otherwise{
-//    should_cache_data := true.B
-//  }
-  should_cache_data := false.B
+  when(io.data.addr>="h1faf_0000".U && io.data.data_ok <="h1aff_ffff".U){
+    should_cache_data := false.B
+  }.elsewhen(io.data.addr>="h8000_0000".U &&io.data.addr <="hbfff_ffff".U){
+    should_cache_data := false.B
+  }.otherwise{
+    should_cache_data := true.B
+  }
+//  should_cache_data := false.B
 
 
   io.data.data_ok := false.B
@@ -64,6 +64,18 @@ class MemAccessJudge extends Module{
   val addr_r = Reg(UInt(32.W))
   val wdata_r  = RegInit(0.U(32.W))
 
+  when(should_cache_data_r){
+    io.cached_data.wr := wr_r
+    io.cached_data.size := size_r
+    io.cached_data.addr := addr_r
+    io.cached_data.wdata := wdata_r
+  }.otherwise{
+    io.uncached_data.wr := wr_r
+    io.uncached_data.size := size_r
+    io.uncached_data.addr := addr_r
+    io.uncached_data.wdata := wdata_r
+  }
+
 
   switch(state){
     is(sIDLE){
@@ -81,30 +93,12 @@ class MemAccessJudge extends Module{
         when(io.cached_data.addr_ok) {
           state := sWaitCache
           io.cached_data.req :=true.B
-//          io.data.addr_ok := false.B
-          io.cached_data.wr := wr_r
-          io.cached_data.size := size_r
-          io.cached_data.addr := addr_r
-          io.cached_data.wdata := wdata_r
         }
-        io.cached_data.wr := wr_r
-        io.cached_data.size := size_r
-        io.cached_data.addr := addr_r
-        io.cached_data.wdata := wdata_r
       }.otherwise{
         when(io.uncached_data.addr_ok) {
           state := sWaitAXI
           io.uncached_data.req :=true.B
-//          io.data.addr_ok := false.B
-          io.uncached_data.wr := wr_r
-          io.uncached_data.size := size_r
-          io.uncached_data.addr := addr_r
-          io.uncached_data.wdata := wdata_r
         }
-        io.uncached_data.wr := wr_r
-        io.uncached_data.size := size_r
-        io.uncached_data.addr := addr_r
-        io.uncached_data.wdata := wdata_r
       }
     }
     is(sWaitCache){

@@ -29,6 +29,8 @@ class Cache(val config:CacheConfig)  extends Module{
   }
   )
   val dcache = Module(new DCache(new CacheConfig()))
+//  val icache = Module(new ICache(new CacheConfig(WayWidth=8*1024,DataWidthByByte=32)))
+  // 2路组相连，每页8KB 每行32B
   val icache = Module(new ICache(new CacheConfig()))
   val uncached = Module(new cpu_axi_interface) // TODO:暂用
   uncached.io.clk := clock
@@ -109,13 +111,17 @@ class Cache(val config:CacheConfig)  extends Module{
   io.axi.wvalid := Cat(uncached.io.axi.wvalid,0.U(1.W),dcache.io.axi.writeData.valid)
   uncached.io.axi.wready := io.axi.wready(2)
   dcache.io.axi.writeData.ready := io.axi.wready(0)
+
   // 写响应通道
   uncached.io.axi.bid := io.axi.bid(11,8)
   dcache.io.axi.writeResp.bits.id := io.axi.bid(3,0)
+
   uncached.io.axi.bresp := io.axi.bresp(5,4)
   dcache.io.axi.writeResp.bits.resp := io.axi.bresp(1,0)
+
   uncached.io.axi.bvalid := io.axi.bvalid(2)
   dcache.io.axi.writeResp.valid := io.axi.bvalid(0)
+
   io.axi.bready := Cat(uncached.io.axi.bready,0.U(1.W),dcache.io.axi.writeResp.ready)
 
 }

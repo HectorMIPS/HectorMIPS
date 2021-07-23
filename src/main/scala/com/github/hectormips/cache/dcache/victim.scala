@@ -39,18 +39,13 @@ class Victim(val config:CacheConfig) extends Module {
       val writeResp =  Flipped(Decoupled( new AXIWriteResponse(4)))
     }
   })
-  val debug_counter = RegInit(0.U(11.W))
-  debug_counter := debug_counter + 1.U
-  val sIDLE::sWaitHandShake::sWriteBack::sCheck::Nil =Enum(4)
+//  val debug_counter = RegInit(0.U(11.W))
+//  debug_counter := debug_counter + 1.U
+  val sIDLE::sWaitHandShake::sWriteBack::sWaitResp::Nil =Enum(4)
   val buffer = new VictimBuffer(config,config.victimDepth)
   val state =  Reg(UInt(2.W))
-//  val queue = Module(new Queue(new VictimQueueItem(config.bankNum), 1))
-//  queue.io.enq.bits.data := io.idata
-//  queue.io.enq.bits.addr := io.addr
-//  queue.io.enq.bits.dirty := io.dirty
-//  queue.io.deq
-
-
+  val idata_r = RegInit(VecInit(Seq.fill(config.bankNum)(0.U(32.W))))
+  val addr_r  = RegInit(0.U(32.W))
   val hit_victim_onehot = Wire(Vec(config.victimDepth,Bool()))
   val hit_victim = Wire(UInt(log2Ceil(config.victimDepth).W))
   val is_hit_victim = Wire(Bool())
@@ -89,6 +84,7 @@ class Victim(val config:CacheConfig) extends Module {
     for(bank <- 0 until config.bankNum){
       io.odata(bank) := buffer.data(hit_victim)(bank)
     }
+    buffer.valid(hit_victim) := false.B //取走了，下一拍置false
   }.otherwise{
     io.odata.foreach(value=>{
       value := 0.U
@@ -129,32 +125,20 @@ class Victim(val config:CacheConfig) extends Module {
   io.axi.writeAddr.bits.lock := 0.U
   io.axi.writeAddr.bits.prot := 0.U
   io.axi.writeAddr.bits.burst := 2.U
+  io.axi.writeAddr.bits.addr := addr_r
   io.axi.writeAddr.valid := false.B
-//  writeAddrValidReg:= false.B
-  io.axi.writeAddr.bits.addr := buffer.addr(waySel)
 
   io.axi.writeData.bits.wid := 1.U
   io.axi.writeData.bits.strb := "b1111".U
   io.axi.writeData.bits.last := false.B
   io.axi.writeData.bits.data := 0.U
-  io.axi.writeResp.ready := state === sWriteBack
+  io.axi.writeData.valid := state === sWriteBack
 
-//  val confirm_sended = RegInit(false.B)
-  when(state === sWriteBack){
-    when(!io.axi.writeData.ready){
-      io.axi.writeData.valid := false.B
-    }.otherwise{
-      io.axi.writeData.valid := true.B
-    }
-  }.otherwise{
-    io.axi.writeData.valid := false.B
-  }
+  io.axi.writeResp.ready := state === sWaitResp
 
 
-  val WtCounter = Counter(config.bankNum)
+  val WtCounter = RegInit(0.U(config.bankNumWidth.W))
 
-  val count = Wire(UInt(10.W))
-  count := WtCounter.value
 
   switch(state) {
     is(sIDLE) {
@@ -162,6 +146,11 @@ class Victim(val config:CacheConfig) extends Module {
         when(io.dirty) {
           state := sWaitHandShake
           io.axi.writeAddr.valid := true.B
+
+          for(bank <- 0 until config.bankNum){
+            idata_r(bank) := io.idata(bank)
+          }
+          addr_r := io.addr
         }
       }
     }
@@ -170,28 +159,29 @@ class Victim(val config:CacheConfig) extends Module {
       when(io.axi.writeAddr.ready){
         io.axi.writeAddr.valid := false.B
         state := sWriteBack
-        WtCounter.reset()
+        WtCounter := 0.U
       }.otherwise{
         io.axi.writeAddr.valid := true.B
       }
     }
     is(sWriteBack){
       state := sWriteBack
-      io.axi.writeData.bits.data := buffer.data(waySel)(count)
-      when(!io.axi.writeData.fire()){
-        when(WtCounter.value===(config.bankNum-1).U){
+      io.axi.writeData.bits.data := idata_r(WtCounter)
+      when(io.axi.writeData.fire()){
+        WtCounter := WtCounter + 1.U
+        when(WtCounter===(config.bankNum-1).U){
           io.axi.writeData.bits.last := true.B
+          state := sWaitResp
         }
       }
-      when(io.axi.writeResp.fire()){
-        // 回复成功
-        WtCounter.inc()
-        when(WtCounter.value===(config.bankNum-1).U){
-          //下一拍归0
-          state := sIDLE
-        }.otherwise{
-          state := sWriteBack
-        }
+
+    }
+    is(sWaitResp){
+      when(io.axi.writeResp.fire() && io.axi.writeResp.bits.id ===io.axi.writeAddr.bits.id){
+        // 回复
+        state := sIDLE
+      }.otherwise{
+        state := sWaitResp
       }
     }
   }
