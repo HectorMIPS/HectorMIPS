@@ -116,7 +116,19 @@ class SocTopAXI extends Module {
     io.axi_io.force_name()
     cpu_top.io.interrupt := io.interrupt
     io.debug := cpu_top.io.debug
-    cpu_top.io.inst_sram_like_io <> mem_judge.io.inst
+
+    // TODO: 以后高32位要加上
+    mem_judge.io.inst.req := cpu_top.io.inst_sram_like_io.req
+    mem_judge.io.inst.wr := cpu_top.io.inst_sram_like_io.wr
+    mem_judge.io.inst.size := cpu_top.io.inst_sram_like_io.size
+    mem_judge.io.inst.addr := cpu_top.io.inst_sram_like_io.addr
+    mem_judge.io.inst.wdata := cpu_top.io.inst_sram_like_io.wdata
+    mem_judge.io.inst.wr := cpu_top.io.inst_sram_like_io.wr
+    cpu_top.io.inst_sram_like_io.addr_ok := mem_judge.io.inst.addr_ok
+    cpu_top.io.inst_sram_like_io.data_ok := mem_judge.io.inst.data_ok
+    cpu_top.io.inst_sram_like_io.rdata := mem_judge.io.inst.rdata(31,0)
+    //    cpu_top.io.inst_sram_like_io <> mem_judge.io.inst
+
     cpu_top.io.data_sram_like_io <> mem_judge.io.data
 
     mem_judge.io.cached_inst <> cache.io.icache

@@ -25,6 +25,68 @@ class DirtyData(val config:CacheConfig) extends Bundle{
   val write = Bool()
   val wEn = Vec(config.wayNum, Bool())
 }
+
+//@departed 废弃
+class ByteSelection extends Module{
+  val io = IO(new Bundle{
+      val data = Input(UInt(32.W))
+      val size = Input(UInt(2.W))
+      val offset  = Input(UInt(2.W))
+      val select_data = Output(UInt(32.W))
+  })
+  io.select_data := 0.U
+  when(io.size===0.U){
+    when(io.offset===0.U){
+      io.select_data := Cat(0.U(24.W),io.data(7,0))
+    }.elsewhen(io.offset===1.U) {
+      io.select_data := Cat(0.U(24.W),io.data(15,8))
+    }.elsewhen(io.offset===2.U) {
+      io.select_data := Cat(0.U(24.W),io.data(23,16))
+    }.elsewhen(io.offset===3.U) {
+      io.select_data := Cat(0.U(24.W),io.data(31,24))
+    }
+  }.elsewhen(io.size===1.U){
+    when(io.offset===0.U){
+      io.select_data := Cat(0.U(16.W),io.data(15,0))
+    }.elsewhen(io.offset===1.U) {
+      io.select_data := Cat(0.U(16.W),io.data(23,8))
+    }.elsewhen(io.offset===2.U) {
+      io.select_data := Cat(0.U(16.W),io.data(31,16))
+    }.otherwise{
+      io.select_data := Cat(0.U(16.W),io.data(31,16))
+    }
+  }.elsewhen(io.size===2.U){
+    io.select_data := io.data
+  }.otherwise{
+    io.select_data := io.data
+  }
+}
+
+class Wstrb extends Module {
+  val io = IO(new Bundle{
+    val size = Input(UInt(2.W))
+    val offset = Input(UInt(2.W))
+    val mask =  Output(UInt(4.W))
+  })
+  io.mask := "b0000".U
+  when(io.size === 0.U){
+    switch(io.offset){
+      is(0.U){io.mask := "b0001".U(4.W)}
+      is(1.U){io.mask := "b0010".U(4.W)}
+      is(2.U){io.mask := "b0100".U(4.W)}
+      is(3.U){io.mask := "b1000".U(4.W)}
+    }
+  }.elsewhen(io.size === 1.U){
+    when(io.offset=== 0.U){
+      io.mask := "b0011".U(4.W)
+    }.elsewhen(io.offset===2.U){
+      io.mask := "b1100".U(4.W)
+    }
+  }.elsewhen(io.size === 2.U){
+    when(io.offset===0.U){io.mask := "b1111".U(4.W)}
+  }
+}
+
 class DCache(val config:CacheConfig)
   extends Module {
   var io = IO(new Bundle {
@@ -39,7 +101,6 @@ class DCache(val config:CacheConfig)
     val rdata = Output(UInt(32.W))
 
     val wdata = Input(UInt(32.W))
-    val wstrb = Input(UInt(4.W))
 
     val axi     = new Bundle{
       val readAddr  =  Decoupled(new AXIAddr(32,4))
@@ -69,6 +130,8 @@ class DCache(val config:CacheConfig)
   val tagvMem = List.fill(config.wayNum) {
     SyncReadMem(config.lineNum, UInt((config.tagWidth+1).W))
   }
+//  val selection = Module(new ByteSelection)
+  val wstrb = Module(new Wstrb())
 
   val lruMem = Module(new LruMem(config.wayNumWidth,config.indexWidth))// lru
   val victim = Module(new Victim(config)) // 写代理
@@ -82,7 +145,7 @@ class DCache(val config:CacheConfig)
   val addr_r = RegInit(0.U(32.W)) //地址寄存器
   val size_r = RegInit(2.U(2.W))
   val wr_r = RegInit(false.B)
-  val wstrb_r = RegInit("b1111".U(4.W))
+//  val wstrb_r = RegInit("b1111".U(4.W))
   val wdata_r = RegInit(0.U(32.W))
 
   val bData = Wire(new BankData(config))
@@ -100,7 +163,6 @@ class DCache(val config:CacheConfig)
   val waySelReg = RegInit(0.U(config.wayNumWidth.W))
   val fetch_ready_go = Wire(Bool())
   val eviction = Wire(Bool()) //出现驱逐
-
   is_hitWay := cache_hit_onehot.asUInt().orR() // 判断是否命中cache
   io.addr_ok := state === sIDLE
   state := sIDLE
@@ -135,10 +197,10 @@ class DCache(val config:CacheConfig)
   _wdata_vec(2) := wdata_r(23,16)
   _wdata_vec(3) := wdata_r(31,24)
   val _wstrb_vec = Wire(Vec(4,Bool()))
-  _wstrb_vec(0) := wstrb_r(0)
-  _wstrb_vec(1) := wstrb_r(1)
-  _wstrb_vec(2) := wstrb_r(2)
-  _wstrb_vec(3) := wstrb_r(3)
+  _wstrb_vec(0) := wstrb.io.mask(0)
+  _wstrb_vec(1) := wstrb.io.mask(1)
+  _wstrb_vec(2) := wstrb.io.mask(2)
+  _wstrb_vec(3) := wstrb.io.mask(3)
   val _read_data = Wire(Vec(config.wayNum,Vec(config.bankNum,Vec(4,UInt(8.W)))))
   _read_data.indices.foreach(way => {
     _read_data(way).indices.foreach(bank =>{
@@ -173,20 +235,21 @@ class DCache(val config:CacheConfig)
             when(wr_r){
               dirtyMem(way)(bData.addr) := true.B //Write miss 的 目标
             }.otherwise {
-              dirtyMem(way)(bData.addr) := false.B //进入到REFILL的必然是新数据
+              dirtyMem(way)(bData.addr) := false.B //read miss
             }
-            when(wr_r && bank.U === bankIndex) {
-              m.write(bData.addr, _wdata_vec, _wstrb_vec)
-            }.otherwise {
-              m.write(bData.addr, _bdata_vec(bank))
+            when(bank.U === bankIndex){
+              when(wr_r ) {
+                m.write(bData.addr, _wdata_vec, _wstrb_vec)
+              }.otherwise {
+                m.write(bData.addr, _bdata_vec(bank))
+              }
             }
-          }.otherwise{
-            when(is_hitWay){
-              dirtyMem(way)(bData.addr) := true.B //旧数据
-            }.otherwise{
-              dirtyMem(way)(bData.addr) := false.B //新数据
+          }.elsewhen(state===sLOOKUP && cache_hit_way === way.U && wr_r){
+            // write hit
+            dirtyMem(way)(bData.addr) := true.B //旧数据
+            when(bank.U === bankIndex){
+              m.write(bData.addr, _wdata_vec,_wstrb_vec)
             }
-            m.write(bData.addr, _wdata_vec,_wstrb_vec)
           }
         }
         //        bData.write(bank) := io.axi.readData.bits.data
@@ -214,7 +277,7 @@ class DCache(val config:CacheConfig)
   }
   for(way<- 0 until config.wayNum){
     tagvData.wEn(way) := (state === sREFILL && waySelReg===way.U) ||
-      (victim.io.find && waySelReg===way.U)
+      (state === sLOOKUP && victim.io.find && waySelReg===way.U)
   }
 
   tagvData.write := Cat(true.B,tag)
@@ -231,7 +294,8 @@ class DCache(val config:CacheConfig)
    */
   io.data_ok := false.B
   io.rdata := 0.U
-//  addrokReg := false.B
+  wstrb.io.offset := addr_r(1,0)
+  wstrb.io.size := size_r
   /**
    * LRU 配置
    */
@@ -257,7 +321,6 @@ class DCache(val config:CacheConfig)
         size_r := io.size
         wr_r := io.wr
         wdata_r := io.wdata
-        wstrb_r := io.wstrb
       }
     }
     is(sLOOKUP){
@@ -271,14 +334,14 @@ class DCache(val config:CacheConfig)
           size_r := io.size
           wr_r := io.wr
           wdata_r := io.wdata
-          wstrb_r := io.wstrb
         }.otherwise {
           state := sIDLE
         }
         io.data_ok := true.B
         when(!wr_r) {
           // 读
-          io.rdata := get_read_data(bData.read(cache_hit_way)(bankIndex), addr_r(1, 0),size_r)
+          io.rdata := bData.read(cache_hit_way)(bankIndex)
+
         }
       }.elsewhen(victim.io.find){
         // 在 victim buffer里找到了
@@ -292,7 +355,7 @@ class DCache(val config:CacheConfig)
 //        printf("%x\n",victim.io.odata(bankIndex))
         when(!wr_r) {
           // 读
-          io.rdata := get_read_data(victim.io.odata(bankIndex), addr_r(1, 0),size_r)
+          io.rdata := victim.io.odata(bankIndex)
         }
       }.otherwise {
         //没命中,尝试请求
@@ -322,7 +385,7 @@ class DCache(val config:CacheConfig)
         when(io.axi.readData.bits.last){
           state := sWaiting
           when(!wr_r){
-            io.rdata := get_read_data(bData.read(waySelReg)(bankIndex),addr_r(1,0),size_r)
+            io.rdata := bData.read(waySelReg)(bankIndex)
             io.data_ok := true.B
           }
         }
@@ -331,7 +394,7 @@ class DCache(val config:CacheConfig)
     }
     is(sWaiting){
       state := sIDLE
-      io.rdata := get_read_data(bData.read(waySelReg)(bankIndex),addr_r(1,0),size_r)
+      io.rdata := bData.read(waySelReg)(bankIndex)
       io.data_ok := true.B
 //            lruMem.io.visit := waySelReg
 //      when(io.valid && !io.wr){
@@ -384,34 +447,6 @@ class DCache(val config:CacheConfig)
   io.axi.readData.ready := true.B  //ready最多持续一拍
 
 
-  def get_read_data(data:UInt,last_two_bit:UInt,size:UInt):UInt={
-    val output = Wire(UInt(32.W))
-    output:=data
-    when(size===0.U){
-      when(last_two_bit===0.U){
-        output := Cat(0.U(24.W),data(7,0))
-      }.elsewhen(last_two_bit===1.U) {
-        output := Cat(0.U(24.W),data(15,8))
-      }.elsewhen(last_two_bit===2.U) {
-        output := Cat(0.U(24.W),data(23,16))
-      }.elsewhen(last_two_bit===3.U) {
-        output := Cat(0.U(24.W),data(31,24))
-      }
-    }.elsewhen(size===1.U){
-      when(last_two_bit===0.U){
-        output := Cat(0.U(16.W),data(15,0))
-      }.elsewhen(last_two_bit===1.U) {
-        output := Cat(0.U(16.W),data(23,8))
-      }.elsewhen(last_two_bit===2.U) {
-        output := Cat(0.U(16.W),data(31,16))
-      }.otherwise{
-        output := Cat(0.U(16.W),data(31,16))
-      }
-    }.elsewhen(size===2.U){
-      output := data
-    }
-    output
-  }
 }
 
 object DCache extends App {

@@ -50,7 +50,6 @@ class Cache(val config:CacheConfig)  extends Module{
   dcache.io.size := io.dcache.size
   dcache.io.wr := io.dcache.wr
   dcache.io.wdata := io.dcache.wdata
-  dcache.io.wstrb := "b1111".U
   io.dcache.rdata :=  dcache.io.rdata
   io.dcache.addr_ok := dcache.io.addr_ok
   io.dcache.data_ok := dcache.io.data_ok
