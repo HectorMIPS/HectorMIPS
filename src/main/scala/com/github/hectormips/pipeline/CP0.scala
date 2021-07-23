@@ -1,6 +1,6 @@
 package com.github.hectormips.pipeline
 
-import Chisel.{BitPat, Cat, Counter, Mux1H, RegEnable, UIntToOH}
+import Chisel.{BitPat, Cat, Counter, Mux1H, MuxCase, RegEnable, UIntToOH}
 import chisel3._
 import chisel3.experimental.ChiselEnum
 import com.github.hectormips.pipeline.CP0Const
@@ -143,8 +143,7 @@ class CP0 extends Module {
   io.cp0_ex_out.status_ie := status(0)
 
 
-  io.rdata := 0.U
-  io.rdata := Mux(io.regsel === 0.U, Mux1H(Seq(
+  io.rdata := Mux(io.regsel === 0.U, MuxCase(0.U, Seq(
     (io.regaddr === CP0Const.CP0_REGADDR_EPC) -> epc,
     (io.regaddr === CP0Const.CP0_REGADDR_CAUSE) -> Cat(cause(31, 16), cause_15_10, cause(9, 0)),
     (io.regaddr === CP0Const.CP0_REGADDR_STATUS) -> status,

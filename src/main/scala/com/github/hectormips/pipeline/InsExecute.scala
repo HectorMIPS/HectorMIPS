@@ -117,7 +117,7 @@ class InsExecuteBundle extends WithAllowin {
   val mem_wen  : UInt = Output(UInt(4.W))
   val mem_addr : UInt = Output(UInt(32.W))
   val mem_wdata: UInt = Output(UInt(32.W))
-  val mem_size : UInt = Output(UInt(32.W))
+  val mem_size : UInt = Output(UInt(2.W))
 
   val bypass_ex_id: BypassMsgBundle = Output(new BypassMsgBundle)
 
@@ -264,14 +264,13 @@ class InsExecute extends Module {
   }
 
   val bus_valid: Bool = Wire(Bool())
-  bus_valid := io.id_ex_in.bus_valid && !reset.asBool() && !flush
+  bus_valid := io.id_ex_in.bus_valid && !reset.asBool() && (!flush || io.id_ex_in.ins_eret)
 
   io.ex_ms_out.alu_val_ex_ms := alu_out
   val src_sum     : UInt            = src1 + src2
   val mem_wen     : Bool            = io.id_ex_in.bus_valid && io.id_ex_in.mem_wen_id_ex =/= 0.U
   val mem_data_sel: MemDataSel.Type = io.id_ex_in.mem_data_sel_id_ex
   // 直出内存地址，连接到sram上，写使能有效的时候直接写入对应的地址
-  // 若只是读使能有效，则抹掉最低两位
   io.mem_addr := src_sum
 
 
@@ -294,7 +293,7 @@ class InsExecute extends Module {
     (io.id_ex_in.regfile_waddr_sel_id_ex === RegFileWAddrSel.inst_rt) -> io.id_ex_in.inst_rt_id_ex,
     (io.id_ex_in.regfile_waddr_sel_id_ex === RegFileWAddrSel.const_31) -> 31.U))
   io.bypass_ex_id.force_stall := io.id_ex_in.regfile_wdata_from_cp0_id_ex
-  // 至此所有可能会拉例外的情况都已经发生，我们选择直接在执行级和CP0交互处理这些例外
+  // 至此所有可能会拉例外的情况都已经发生，选择直接在执行级和CP0交互处理这些例外
   val exception_flags: UInt = io.id_ex_in.exception_flags |
     Mux(overflow_occurred && io.id_ex_in.overflow_detection_en, ExceptionConst.EXCEPTION_INT_OVERFLOW, 0.U) |
     Mux(io.id_ex_in.mem_en_id_ex && io.id_ex_in.mem_en_id_ex &&
@@ -313,9 +312,11 @@ class InsExecute extends Module {
   val wb_cp0_ip0_wen: Bool = io.cp0_hazard_bypass_wb_ex.bus_valid && io.cp0_hazard_bypass_wb_ex.cp0_ip_wen
 
 
-  val exception_occur     : Bool = io.id_ex_in.bus_valid && exception_flags =/= 0.U // 当输入有效且例外标识不为0则发生例外
+  val exception_occur     : Bool = io.id_ex_in.bus_valid && !io.id_ex_in.ins_eret &&
+    exception_flags =/= 0.U // 当输入有效且例外标识不为0则发生例外
   val interrupt_flag      : UInt = io.cp0_cause_ip & io.cp0_status_im
-  val interrupt_occur     : Bool = interrupt_flag =/= 0.U
+  val interrupt_occur     : Bool = io.id_ex_in.bus_valid && !io.id_ex_in.ins_eret &&
+    interrupt_flag =/= 0.U
   val soft_interrupt_occur: Bool = interrupt_flag(1, 0) =/= 0.U
   val hard_interrupt_occur: Bool = interrupt_flag(7, 2) =/= 0.U
   val eret_occur          : Bool = io.id_ex_in.bus_valid && io.id_ex_in.ins_eret
@@ -359,9 +360,7 @@ class InsExecute extends Module {
   // 如果是软中断导致的例外，将pc指向下一条指令
   // 如果是硬中断导致的例外，pc指向最后一条没有生效的指令
   // 由于只有前方流水线会被清空，所以最后一条没有生效的指令就是当前的指令
-  io.ex_cp0_out.pc := Mux(interrupt_occur && interrupt_available && soft_interrupt_occur,
-    io.id_ex_in.pc_id_ex_debug + 4.U,
-    io.id_ex_in.pc_id_ex_debug)
+  io.ex_cp0_out.pc := io.id_ex_in.pc_id_ex_debug
   io.ex_cp0_out.badvaddr := MuxCase(io.id_ex_in.pc_id_ex_debug, Seq(
     (exception_flags(0) || exception_flags(1) || exception_flags(2) ||
       exception_flags(3) || exception_flags(4)) -> io.id_ex_in.pc_id_ex_debug,
@@ -387,6 +386,6 @@ class InsExecute extends Module {
   io.pipeline_flush := flush
   io.to_exception_service_en_ex_pf := ((exception_available && exception_occur) ||
     (interrupt_occur && interrupt_available)) && ready_go
-  io.to_epc_en_ex_pf := (io.id_ex_in.bus_valid && io.id_ex_in.ins_eret) && ready_go
+  io.to_epc_en_ex_pf := io.id_ex_in.bus_valid && io.id_ex_in.ins_eret
 
 }

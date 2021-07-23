@@ -54,7 +54,7 @@ class BypassMsgBundle extends Bundle {
   val reg_data   : UInt = UInt(32.W)
   val bus_valid  : Bool = Bool()
   val data_valid : Bool = Bool()
-  // 当需要读的数据来自于cp0时，需要强制强制暂停前面的所有指令
+  // 当需要读或者写的数据来自于cp0时，需要强制强制暂停前面的所有指令
   val force_stall: Bool = Bool()
 }
 
@@ -152,7 +152,6 @@ class InsDecode extends Module {
   val ins_syscall : Bool            = opcode === 0.U && func === 0x0c.U
   val ins_break   : Bool            = opcode === 0.U && func === 0x0d.U
   val ins_eret    : Bool            = io.if_id_in.ins_if_id === 0x42000018.U
-
 
   // 使用sint进行有符号拓展
   val offset                   : SInt = Wire(SInt(32.W))
@@ -403,7 +402,6 @@ class InsDecode extends Module {
   io.decode_to_fetch_next_pc(1) := Cat(Seq(io.if_id_in.pc_if_id(31, 28), instr_index, "b00".U(2.W)))
   // sw会使用寄存器堆读端口2的数据写入内存
   io.id_ex_out.mem_wdata_id_ex := MuxCase(regfile_read2_with_bypass, Seq(
-    ins_sh -> VecInit(Seq.fill(2)(regfile_read2_with_bypass(15, 0))).asUInt(),
     ins_sb -> VecInit(Seq.fill(4)(regfile_read2_with_bypass(7, 0))).asUInt(),
   ))
 
