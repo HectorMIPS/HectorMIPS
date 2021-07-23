@@ -107,7 +107,7 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   io.inst_sram_like_io.size := 2.U
   pc_wen := pf_module.io.pc_wen
   pc_next := pf_module.io.next_pc
-  when(!pipeline_flush_ex) {
+  when(!pipeline_flush_ex && !to_epc_en_ex_pf) {
     when((id_pf_buffer.bus_valid && id_pf_buffer.is_jump) ||
       (id_pf_bus.bus_valid && id_pf_bus.is_jump)) {
       when(branch_state_reg === BranchState.no_branch && ((id_pf_buffer.bus_valid && id_pf_buffer.jump_taken) ||
@@ -150,7 +150,7 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   when(id_allowin && fetch_state_reg === RamState.waiting_for_read) {
     fetch_state_reg := RamState.waiting_for_request
   }
-  when(pipeline_flush_ex) {
+  when(pipeline_flush_ex || to_epc_en_ex_pf) {
     when(fetch_state_reg === RamState.waiting_for_response) {
       fetch_state_reg := RamState.cancel
     }.otherwise {
@@ -192,7 +192,6 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   id_module.io.regfile_read1 := regfile.io.rdata1
   id_module.io.regfile_read2 := regfile.io.rdata2
   id_module.io.bypass_bus := bypass_bus
-  id_module.io.ex_out_valid := ex_ms_bus.bus_valid
   id_module.io.flush := pipeline_flush_ex
   // 回馈给预取阶段的输出
   id_pf_bus := id_module.io.id_pf_out
@@ -248,11 +247,7 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
     }.elsewhen((data_sram_state_reg === RamState.requesting ||
       (data_sram_state_reg === RamState.waiting_for_request && ex_module.io.mem_en && ex_module.io.id_ex_in.bus_valid)) &&
       io.data_sram_like_io.addr_ok) {
-      when(ex_module.io.mem_wen =/= 0.U) {
-        data_sram_state_reg := RamState.waiting_for_request
-      }.otherwise {
-        data_sram_state_reg := RamState.waiting_for_response
-      }
+      data_sram_state_reg := RamState.waiting_for_response
     }.elsewhen(data_sram_state_reg === RamState.waiting_for_response && io.data_sram_like_io.data_ok) {
       data_sram_state_reg := RamState.waiting_for_request
     }

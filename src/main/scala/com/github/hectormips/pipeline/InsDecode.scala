@@ -54,7 +54,7 @@ class BypassMsgBundle extends Bundle {
   val reg_data   : UInt = UInt(32.W)
   val bus_valid  : Bool = Bool()
   val data_valid : Bool = Bool()
-  // 当需要读的数据来自于cp0时，需要强制强制暂停前面的所有指令
+  // 当需要读或者写的数据来自于cp0时，需要强制强制暂停前面的所有指令
   val force_stall: Bool = Bool()
 }
 
@@ -72,12 +72,11 @@ class InsDecodeBundle extends WithAllowin {
   val regfile_read2: UInt                 = Input(UInt(32.W))
   val id_pf_out    : DecodePreFetchBundle = Output(new DecodePreFetchBundle)
 
-  val iram_en     : Bool                = Output(Bool())
-  val iram_we     : Bool                = Output(Bool())
-  val id_ex_out   : DecodeExecuteBundle = Output(new DecodeExecuteBundle)
-  val ins_opcode  : UInt                = Output(UInt(6.W))
-  val ex_out_valid: Bool                = Input(Bool())
-  val flush       : Bool                = Input(Bool())
+  val iram_en   : Bool                = Output(Bool())
+  val iram_we   : Bool                = Output(Bool())
+  val id_ex_out : DecodeExecuteBundle = Output(new DecodeExecuteBundle)
+  val ins_opcode: UInt                = Output(UInt(6.W))
+  val flush     : Bool                = Input(Bool())
 
 
   val decode_to_fetch_next_pc: Vec[UInt] = Output(Vec(2, UInt(32.W))) // 回馈给取值的pc通路
@@ -154,7 +153,6 @@ class InsDecode extends Module {
   val ins_break   : Bool            = opcode === 0.U && func === 0x0d.U
   val ins_eret    : Bool            = io.if_id_in.ins_if_id === 0x42000018.U
 
-
   // 使用sint进行有符号拓展
   val offset                   : SInt = Wire(SInt(32.W))
   val instr_index              : UInt = io.if_id_in.ins_if_id(25, 0)
@@ -163,7 +161,7 @@ class InsDecode extends Module {
   val regfile_read2_with_bypass: UInt = Wire(UInt(32.W))
 
   def byPassData(rf_addr: UInt, bypass: BypassMsgBundle): (Bool, UInt) = {
-    (bypass.bus_valid && bypass.reg_addr === rf_addr) -> bypass.reg_data
+    (bypass.bus_valid && bypass.data_valid && bypass.reg_addr === rf_addr) -> bypass.reg_data
   }
 
   regfile_read1_with_bypass := Mux(rs === 0.U, 0.U, MuxCase(io.regfile_read1, Seq(
@@ -230,18 +228,29 @@ class InsDecode extends Module {
   val alu_src1: UInt            = Wire(UInt(32.W))
   val alu_src2: UInt            = Wire(UInt(32.W))
 
-  val bp_ex_id_reg_addr : UInt = io.bypass_bus.bp_ex_id.reg_addr
-  val branch_inst_hazard: Bool = ((io.bypass_bus.bp_ex_id.bus_valid && !io.bypass_bus.bp_ex_id.data_valid) ||
-    io.bypass_bus.bp_ms_id.bus_valid && !io.bypass_bus.bp_ms_id.data_valid) && bp_ex_id_reg_addr =/= 0.U &&
-    (((ins_jr || ins_jalr) && rs === bp_ex_id_reg_addr) ||
-      ((ins_beq || ins_bne) && (rs === bp_ex_id_reg_addr || rt === bp_ex_id_reg_addr)) ||
-      ((ins_bgez || ins_bgtz || ins_blez || ins_bltz || ins_bltzal || ins_bgezal) && (rs === bp_ex_id_reg_addr)))
-  val normal_inst_hazard: Bool = ((io.bypass_bus.bp_ex_id.bus_valid && !io.bypass_bus.bp_ex_id.data_valid) ||
-    io.bypass_bus.bp_ms_id.bus_valid && !io.bypass_bus.bp_ms_id.data_valid) && io.bypass_bus.bp_ex_id.reg_addr =/= 0.U &&
-    ((src1_sel === AluSrc1Sel.regfile_read1 && rs === io.bypass_bus.bp_ex_id.reg_addr) ||
-      (src2_sel === AluSrc2Sel.regfile_read2 && rt === io.bypass_bus.bp_ex_id.reg_addr)) &&
-    // 当ex阶段的输出有效的时候说明lw指令还停留在ex阶段
-    io.ex_out_valid
+  val bp_ex_id_reg_addr         : UInt = io.bypass_bus.bp_ex_id.reg_addr
+  val bp_ms_id_reg_addr         : UInt = io.bypass_bus.bp_ms_id.reg_addr
+  val ex_id_hazard_but_not_ready: Bool = (io.bypass_bus.bp_ex_id.bus_valid && !io.bypass_bus.bp_ex_id.data_valid) &&
+    bp_ex_id_reg_addr =/= 0.U
+  val ms_id_hazard_but_not_ready: Bool = (io.bypass_bus.bp_ms_id.bus_valid && !io.bypass_bus.bp_ms_id.data_valid) &&
+    bp_ms_id_reg_addr =/= 0.U
+
+  def hasBranchHazard(bus_hazard_but_not_ready: Bool, regaddr: UInt): Bool = {
+    bus_hazard_but_not_ready &&
+      (((ins_jr || ins_jalr) && (rs === regaddr)) ||
+        ((ins_beq || ins_bne) && (rs === regaddr || rt === regaddr)) ||
+        ((ins_bgez || ins_bgtz || ins_blez || ins_bltz || ins_bltzal || ins_bgezal) && (rs === regaddr)))
+  }
+
+  val load_branch_hazard: Bool = hasBranchHazard(ex_id_hazard_but_not_ready, bp_ex_id_reg_addr) ||
+    hasBranchHazard(ms_id_hazard_but_not_ready, bp_ms_id_reg_addr)
+
+  val load_regular_hazard: Bool = (ex_id_hazard_but_not_ready &&
+    ((src1_sel === AluSrc1Sel.regfile_read1 && rs === bp_ex_id_reg_addr) ||
+      (src2_sel === AluSrc2Sel.regfile_read2 && rt === bp_ex_id_reg_addr))) ||
+    (ms_id_hazard_but_not_ready &&
+      ((src1_sel === AluSrc1Sel.regfile_read1 && rs === bp_ms_id_reg_addr) ||
+        (src2_sel === AluSrc2Sel.regfile_read2 && rt === bp_ms_id_reg_addr)))
 
   // 译码输出准备完毕条件：
   //  上一条lw的目的操作数为0
@@ -265,7 +274,7 @@ class InsDecode extends Module {
   val bp_ms_id_stall_required: Bool = hasBypassHazard(io.bypass_bus.bp_ms_id.reg_addr) &&
     (io.bypass_bus.bp_ms_id.bus_valid && (!io.bypass_bus.bp_ms_id.data_valid || io.bypass_bus.bp_ms_id.force_stall))
 
-  ready_go := !normal_inst_hazard && !branch_inst_hazard && (!bp_ex_id_stall_required && !bp_ms_id_stall_required)
+  ready_go := !load_regular_hazard && !load_branch_hazard && (!bp_ex_id_stall_required && !bp_ms_id_stall_required)
 
 
   src1_sel := Mux1H(Seq(
@@ -393,7 +402,6 @@ class InsDecode extends Module {
   io.decode_to_fetch_next_pc(1) := Cat(Seq(io.if_id_in.pc_if_id(31, 28), instr_index, "b00".U(2.W)))
   // sw会使用寄存器堆读端口2的数据写入内存
   io.id_ex_out.mem_wdata_id_ex := MuxCase(regfile_read2_with_bypass, Seq(
-    ins_sh -> VecInit(Seq.fill(2)(regfile_read2_with_bypass(15, 0))).asUInt(),
     ins_sb -> VecInit(Seq.fill(4)(regfile_read2_with_bypass(7, 0))).asUInt(),
   ))
 
@@ -401,9 +409,9 @@ class InsDecode extends Module {
   io.id_ex_out.bus_valid := io.if_id_in.bus_valid && !reset.asBool() && ready_go && !io.flush
 
   // 只有在分支命令产生冲突时才向预取阶段发送stall
-  io.id_pf_out.stall_id_pf := branch_inst_hazard
+  io.id_pf_out.stall_id_pf := load_branch_hazard
   // 在指令数据冲突期间，给予pf阶段的选择是无效的
-  io.id_pf_out.bus_valid := io.if_id_in.bus_valid && !io.flush && !branch_inst_hazard
+  io.id_pf_out.bus_valid := io.if_id_in.bus_valid && !io.flush && !load_branch_hazard
 
   io.id_ex_out.cp0_wen_id_ex := ins_mtc0
   io.id_ex_out.cp0_addr_id_ex := rd
