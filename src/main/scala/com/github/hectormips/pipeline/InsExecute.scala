@@ -283,16 +283,16 @@ class InsExecute extends Module {
   io.ex_ms_out.mem_rdata_offset := src_sum(1, 0)
   io.ex_ms_out.mem_rdata_sel_ex_ms := io.id_ex_in.mem_data_sel_id_ex
   io.ex_ms_out.mem_rdata_extend_is_signed_ex_ms := io.id_ex_in.mem_rdata_extend_is_signed_id_ex
-  // 当指令为从内存中取出存放至寄存器堆中时，ex阶段无法得出结果，前递通路有效，数据无效
+  // 当指令为从内存或者cp0中取出存放至寄存器堆中时，ex阶段无法得出结果，前递通路有效，数据无效
   io.bypass_ex_id.bus_valid := bus_valid && io.id_ex_in.regfile_we_id_ex
-  io.bypass_ex_id.data_valid := io.id_ex_in.bus_valid && !io.id_ex_in.regfile_wsrc_sel_id_ex
+  io.bypass_ex_id.data_valid := io.id_ex_in.bus_valid &&
+    (!io.id_ex_in.regfile_wsrc_sel_id_ex || io.id_ex_in.regfile_wdata_from_cp0_id_ex)
   // 写寄存器来源为内存，并且此时ex阶段有效
   io.bypass_ex_id.reg_data := alu_out
   io.bypass_ex_id.reg_addr := Mux1H(Seq(
     (io.id_ex_in.regfile_waddr_sel_id_ex === RegFileWAddrSel.inst_rd) -> io.id_ex_in.inst_rd_id_ex,
     (io.id_ex_in.regfile_waddr_sel_id_ex === RegFileWAddrSel.inst_rt) -> io.id_ex_in.inst_rt_id_ex,
     (io.id_ex_in.regfile_waddr_sel_id_ex === RegFileWAddrSel.const_31) -> 31.U))
-  io.bypass_ex_id.force_stall := io.id_ex_in.regfile_wdata_from_cp0_id_ex
   // 至此所有可能会拉例外的情况都已经发生，选择直接在执行级和CP0交互处理这些例外
   val exception_flags: UInt = io.id_ex_in.exception_flags |
     Mux(overflow_occurred && io.id_ex_in.overflow_detection_en, ExceptionConst.EXCEPTION_INT_OVERFLOW, 0.U) |

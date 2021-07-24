@@ -12,7 +12,7 @@ class InsDecodeTest extends FlatSpec with ChiselScalatestTester with Matchers {
       val addu_ins = "b00000000001000101000000000100001".U
 
       c.io.if_id_in.ins_if_id.poke(addu_ins)
-      c.io.if_id_in.pc_if_id.poke(0.U)
+      c.io.if_id_in.pc_delay_slot_if_id.poke(0.U)
       c.clock.step()
 
       c.io.id_ex_out.alu_op_id_ex.expect(AluOp.op_add)
@@ -27,7 +27,7 @@ class InsDecodeTest extends FlatSpec with ChiselScalatestTester with Matchers {
 
       val jal_ins = "b00001111111000001010101010101010".U
       c.io.if_id_in.ins_if_id.poke(jal_ins)
-      c.io.if_id_in.pc_if_id.poke(0.U)
+      c.io.if_id_in.pc_delay_slot_if_id.poke(0.U)
       c.clock.step()
       c.io.id_ex_out.alu_op_id_ex.expect(AluOp.op_add)
       c.io.id_ex_out.regfile_we_id_ex.expect(1.B)
@@ -37,7 +37,7 @@ class InsDecodeTest extends FlatSpec with ChiselScalatestTester with Matchers {
       // JAL 0x3F1A884
       val jal_ins2 = 0x0ff1a884.U
       c.io.if_id_in.ins_if_id.poke(jal_ins2)
-      c.io.if_id_in.pc_if_id.poke(0xbfc00000L.U)
+      c.io.if_id_in.pc_delay_slot_if_id.poke(0xbfc00000L.U)
       c.clock.step()
       c.io.id_ex_out.alu_op_id_ex.expect(AluOp.op_add)
       c.io.id_ex_out.regfile_we_id_ex.expect(1.B)
@@ -45,7 +45,7 @@ class InsDecodeTest extends FlatSpec with ChiselScalatestTester with Matchers {
 
       val bne = 0x16400002.U
       c.io.if_id_in.ins_if_id.poke(bne)
-      c.io.if_id_in.pc_if_id.poke(0xbfc00000L.U)
+      c.io.if_id_in.pc_delay_slot_if_id.poke(0xbfc00000L.U)
       c.io.regfile_read1.poke(2.U)
       c.io.regfile_read2.poke(0.U)
       c.io.id_pf_out.jump_sel_id_pf.expect(InsJumpSel.pc_add_offset)

@@ -3,7 +3,7 @@ package com.github.hectormips.pipeline
 import chisel3._
 import chisel3.experimental.ChiselEnum
 
-object AluOp extends ChiselEnum {
+object AluOp extends OneHotEnum {
   val op_add   : Type = Value(1.U)
   val op_sub   : Type = Value(2.U)
   val op_slt   : Type = Value(4.U)

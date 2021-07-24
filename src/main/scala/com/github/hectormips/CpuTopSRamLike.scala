@@ -171,6 +171,7 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   if_module.io.next_allowin := id_allowin
   if_module.io.flush := pipeline_flush_ex
   if_module.io.ins_ram_data_ok := io.inst_sram_like_io.data_ok
+  if_module.io.ins_ram_data_valid := io.inst_sram_like_io.inst_valid
   if_module.io.fetch_state := fetch_state_reg
   if_module.io.is_delay_slot := branch_state_reg === BranchState.delay_slot ||
     branch_state_reg === BranchState.delay_slot_no_jump
@@ -180,6 +181,7 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
 
 
   // 译码
+  // 使用fifo来替代译码阶段的来源寄存器
   val id_reg: FetchDecodeBundle = RegEnableWithValid(next = if_id_bus, enable = id_allowin && if_id_bus.bus_valid, init = {
     val bundle: FetchDecodeBundle = Wire(new FetchDecodeBundle)
     bundle.defaults()
@@ -197,8 +199,8 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   id_pf_bus := id_module.io.id_pf_out
 
   // 请求寄存器堆
-  regfile.io.raddr1 := id_module.io.id_ex_out.inst_rs_id_ex
-  regfile.io.raddr2 := id_module.io.id_ex_out.inst_rt_id_ex
+  regfile.io.raddr1 := id_module.io.regfile_raddr1
+  regfile.io.raddr2 := id_module.io.regfile_raddr2
 
   id_ex_bus := id_module.io.id_ex_out
   id_allowin := id_module.io.this_allowin
