@@ -240,25 +240,15 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   io.data_sram_like_io.wr := ex_module.io.mem_wen =/= 0.U
   io.data_sram_like_io.addr := addr_mapping(ex_module.io.mem_addr)
   io.data_sram_like_io.size := ex_module.io.mem_size
-  when(!pipeline_flush_ex) {
-    when(data_sram_state_reg === RamState.waiting_for_request && ex_module.io.mem_en &&
-      ex_module.io.id_ex_in.bus_valid && !io.data_sram_like_io.addr_ok) {
-      data_sram_state_reg := RamState.requesting
-    }.elsewhen((data_sram_state_reg === RamState.requesting ||
-      (data_sram_state_reg === RamState.waiting_for_request && ex_module.io.mem_en && ex_module.io.id_ex_in.bus_valid)) &&
-      io.data_sram_like_io.addr_ok) {
-      data_sram_state_reg := RamState.waiting_for_response
-    }.elsewhen(data_sram_state_reg === RamState.waiting_for_response && io.data_sram_like_io.data_ok) {
-      data_sram_state_reg := RamState.waiting_for_request
-    }
-  }.otherwise {
-    when(data_sram_state_reg === RamState.waiting_for_response) {
-      data_sram_state_reg := RamState.cancel
-    }.otherwise {
-      data_sram_state_reg := RamState.waiting_for_request
-    }
-  }
-  when(data_sram_state_reg === RamState.cancel && io.data_sram_like_io.data_ok) {
+  // 在flush的时候，当前指令会被取消，对后面的访存指令不要做其他操作
+  when(data_sram_state_reg === RamState.waiting_for_request && ex_module.io.mem_en &&
+    ex_module.io.id_ex_in.bus_valid && !io.data_sram_like_io.addr_ok) {
+    data_sram_state_reg := RamState.requesting
+  }.elsewhen((data_sram_state_reg === RamState.requesting ||
+    (data_sram_state_reg === RamState.waiting_for_request && ex_module.io.mem_en && ex_module.io.id_ex_in.bus_valid)) &&
+    io.data_sram_like_io.addr_ok) {
+    data_sram_state_reg := RamState.waiting_for_response
+  }.elsewhen(data_sram_state_reg === RamState.waiting_for_response && io.data_sram_like_io.data_ok) {
     data_sram_state_reg := RamState.waiting_for_request
   }
 
