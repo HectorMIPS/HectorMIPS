@@ -51,7 +51,7 @@ class ICache(val config:CacheConfig)
     }
   }
   val tagvMem = List.fill(config.wayNum) {
-    SyncReadMem(config.lineNum, UInt((config.tagWidth).W))
+    SyncReadMem(config.lineNum, UInt(config.tagWidth.W))
   }
 
   val validMem = RegInit(VecInit(Seq.fill(config.wayNum)(VecInit(Seq.fill(config.lineNum)(false.B)))))
@@ -93,27 +93,26 @@ class ICache(val config:CacheConfig)
   /**
    * dataMem
    */
-  dataMem.indices.foreach(way=>{
-    dataMem(way).indices.foreach(bank=>{
-      val m = dataMem(way)(bank)
-      when(bData.wEn(way)(bank) && state === sREFILL){
-        m.write(bData.addr,bData.write(bank))
-        bData.read(way)(bank) := DontCare
-      }.otherwise{
-        bData.read(way)(bank) := m.read(config.getIndex(io.addr))
-      }
-      bData.write(bank) := io.axi.readData.bits.data
-    })
-  })
-
   for(way <- 0 until config.wayNum){
-    val m = tagvMem(way)
+    for(bank <- 0 until config.bankNum) {
+      bData.read(way)(bank) := dataMem(way)(bank).read(config.getIndex(io.addr))
+      bData.write(bank) := io.axi.readData.bits.data
+    }
+  }
+  for(way <- 0 until config.wayNum){
+    tagvData.read(way) := tagvMem(way).read(config.getIndex(io.addr))
+  }
+  for(way <- 0 until config.wayNum ) {
+    for (bank <- 0 until config.bankNum) {
+      when(bData.wEn(way)(bank) && state === sREFILL) {
+        dataMem(way)(bank).write(bData.addr, bData.write(bank))
+      }
+    }
+  }
+  for(way <- 0 until config.wayNum){
     when(tagvData.wEn(way)){//写使能
-      m.write(tagvData.addr,tagvData.write)
+      tagvMem(way).write(tagvData.addr,tag)
       validMem(way)(tagvData.addr) := true.B
-      tagvData.read(way) := DontCare
-    }.otherwise{
-      tagvData.read(way) := m.read(config.getIndex(io.addr))
     }
   }
   for(way<- 0 until config.wayNum){

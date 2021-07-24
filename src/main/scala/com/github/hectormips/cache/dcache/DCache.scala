@@ -187,6 +187,13 @@ class DCache(val config:CacheConfig)
     })
   })
 
+  for(way <- 0 until  config.wayNum){
+    tagvData.read(way) := tagvMem(way).read(config.getIndex(io.addr))
+    for(bank <- 0 until config.bankNum){
+      _read_data(way)(bank)  := dataMem(way)(bank).read(config.getIndex(io.addr))
+    }
+  }
+
   when(victim.io.find && state === sCheckVictim) {
     // 用victim里的数据替换
     dataMem.indices.foreach(way => {
@@ -199,11 +206,7 @@ class DCache(val config:CacheConfig)
             m.write(bData.addr, _victim_odata_vec(bank))//重填
           }
           dirtyMem(way)(bData.addr) := false.B
-          _read_data(way)(bank)  := DontCare
-        }.otherwise{
-          _read_data(way)(bank)  := m(config.getIndex(io.addr))
         }
-
       })
     })
   }.otherwise {
@@ -232,9 +235,6 @@ class DCache(val config:CacheConfig)
               m.write(bData.addr, _wdata_vec,_wstrb_vec)
             }
           }
-          _read_data(way)(bank)  := DontCare
-        }.otherwise{
-          _read_data(way)(bank)  := m(config.getIndex(io.addr))
         }
       })
     })
@@ -245,9 +245,6 @@ class DCache(val config:CacheConfig)
     when(tagvData.wEn(way)){//写使能
       m.write(tagvData.addr,tagvData.write)
       validMem(way)(tagvData.addr) := true.B
-      tagvData.read(way) := DontCare
-    }.otherwise{
-      tagvData.read(way) := m(config.getIndex(io.addr))
     }
   }
   for(way<- 0 until config.wayNum){

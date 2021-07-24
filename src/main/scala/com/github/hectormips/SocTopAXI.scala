@@ -21,7 +21,10 @@ class axi_crossbar_2x1 extends BlackBox{
     val aresetn = Input(Bool())
     //64 bit 输入
     val in      = Flipped(new AXIIO(3))
-    val arqos   = Input(UInt(8.W))
+    val s_arqos   = Input(UInt(8.W))
+    val s_awqos  = Input(UInt(3.W))
+    val m_arqos   = Output(UInt(3.W))
+    val m_awqos  = Output(UInt(1.W))
     //32 bit 输出
     val out     = new AXIIO(1)
   })
@@ -61,7 +64,8 @@ class axi_crossbar_2x1 extends BlackBox{
   forceName(io.in.bresp, "s_axi_bresp")
   forceName(io.in.bvalid, "s_axi_bvalid")
   forceName(io.in.bready, "s_axi_bready")
-  forceName(io.arqos,"s_axi_arqos")
+  forceName(io.s_arqos,"s_axi_arqos")
+  forceName(io.s_awqos,"s_axi_awqos")
 
 
   forceName(io.out.arid, "m_axi_arid")
@@ -100,6 +104,9 @@ class axi_crossbar_2x1 extends BlackBox{
   forceName(io.out.bready, "m_axi_bready")
   forceName(io.out.bresp, "m_axi_bresp")
   forceName(io.out.bvalid, "m_axi_bvalid")
+
+  forceName(io.m_arqos,"m_axi_arqos") // 这两个端口不用
+  forceName(io.m_awqos,"m_axi_awqos")// 这两个端口不用
 }
 
 
@@ -139,8 +146,9 @@ class SocTopAXI extends Module {
     cache.io.axi <> crossbar.io.in
 
     crossbar.io.aclk := clock
-    crossbar.io.aresetn := reset.asBool() // reset取反了
-    crossbar.io.arqos := 0.U
+    crossbar.io.aresetn := reset.asBool() // reset在上面取反了
+    crossbar.io.s_arqos := 0.U
+    crossbar.io.s_awqos := 0.U
     io.axi_io.arid := crossbar.io.out.arid
     io.axi_io.araddr := crossbar.io.out.araddr
     io.axi_io.arlen := crossbar.io.out.arlen
@@ -181,7 +189,6 @@ class SocTopAXI extends Module {
     crossbar.io.out.bresp := io.axi_io.bresp
     crossbar.io.out.bvalid :=  io.axi_io.bvalid
     io.axi_io.bready := crossbar.io.out.bready
-
 
 
   }
