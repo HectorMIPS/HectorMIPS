@@ -4,119 +4,137 @@ import chisel3._
 import chisel3.util._
 import com.github.hectormips.cache.setting.CacheConfig
 import chisel3.stage.{ChiselGeneratorAnnotation, ChiselStage}
-import com.github.hectormips.cache.lru.LruMem
 
 
 class VictimBuffer(val config:CacheConfig,val depth:Int) extends Bundle {
   val addr = RegInit(VecInit.tabulate(depth) { _ => 0.U(28.W) })
-  val data = RegInit(VecInit.tabulate(depth) { _ => VecInit.tabulate(config.bankNum) { _ => 0.U(32.W) } })
+  val data =RegInit(VecInit(Seq.fill(depth)(VecInit(Seq.fill(config.bankNum)(0.U(32.W))))))
   val valid = RegInit(VecInit.tabulate(depth) { _ => false.B })
 }
 
-class VictimQueueItem(val bankNum:Int) extends Bundle{
-  val addr  = UInt(32.W)
-  val data  = Vec(bankNum, UInt(32.W))
-  val dirty = Bool()
-}
+//class VictimQueueItem(val bankNum:Int) extends Bundle{
+//  val addr  = UInt(32.W)
+//  val data  = Vec(bankNum, UInt(32.W))
+//  val dirty = Bool()
+//}
 
 /**
- * 写回部件
+ * victim buffer，用于缓冲被驱逐的数据
+ *
+ * 后面会改成如果二次驱逐才会写回
  */
 class Victim(val config:CacheConfig) extends Module {
   var io = IO(new Bundle {
-    val addr = Input(UInt(32.W))
-    val idata = Input(Vec(config.bankNum, UInt(32.W)))
-
-    val op   = Input(Bool()) //op=0 读，op=1 驱逐写
+    val qaddr = Input(UInt(32.W))
+    val qdata = Output(Vec(config.victim_fetch_every_cycle, UInt(32.W)))
+    val qvalid = Input(Bool())
+    val wvalid   = Input(Bool()) //wvalid=1 驱逐写
     val dirty = Input(Bool())
-    val full   = Output(Bool())
-    val find = Output(Bool()) // 匹配
-    val odata = Output(Vec(config.bankNum, UInt(32.W)))
 
+    val find = Output(Bool()) // 匹配
+    val waddr = Input(UInt(32.W)) //驱逐的数据的地址
+    val wdata = Input(Vec(config.victim_fetch_every_cycle, UInt(32.W)))
+    val query_valid = Output(Bool()) // 查询允许
+    val fill_valid = Output(Bool()) // 输入允许
     val axi = new Bundle{
       val writeAddr  =  Decoupled(new AXIAddr(32,4))
       val writeData  = Decoupled(new AXIWriteData(32,4))
       val writeResp =  Flipped(Decoupled( new AXIWriteResponse(4)))
     }
   })
-//  val debug_counter = RegInit(0.U(11.W))
-//  debug_counter := debug_counter + 1.U
-  val sIDLE::sWaitHandShake::sWriteBack::sWaitResp::Nil =Enum(4)
+
+  val fsIDLE::fsWaitInputData::fsWaitHandShake::fsWriteBack::fsWaitResp::Nil =Enum(5) //填充状态机
+  val qsIDLE::qsSend::qsFind::Nil = Enum(3) // 查询状态机
   val buffer = new VictimBuffer(config,config.victimDepth)
-  val state =  Reg(UInt(2.W))
-  val idata_r = RegInit(VecInit(Seq.fill(config.bankNum)(0.U(32.W))))
-  val addr_r  = RegInit(0.U(32.W))
+  val fstate =  RegInit(0.U(3.W)) // fill state 填充状态
+  val qstate =  RegInit(0.U(2.W)) //query state 查询状态
+
+
+  val wdata_r = RegInit(VecInit(Seq.fill(config.bankNum)(0.U(32.W))))
+  val iaddr_r  = RegInit(0.U(32.W))
+  val waddr_r  = RegInit(0.U(32.W))
   val hit_victim_onehot = Wire(Vec(config.victimDepth,Bool()))
   val hit_victim = Wire(UInt(log2Ceil(config.victimDepth).W))
+  val hit_victim_r = Reg(UInt(log2Ceil(config.victimDepth).W))
   val is_hit_victim = Wire(Bool())
-  io.full := state =/= sIDLE // 队列已满
+//  io.full := fstate =/= fsIDLE // 队列已满
   /**
    * LRU 配置
    */
-//  val lruMem = Module(new LruMem(config.victimDepth,0))
-//  lruMem.io.setAddr := config.getVictimIndex(io.addr)
-//  lruMem.io.visit := hit_victim
-//  lruMem.io.visitValid := is_hit_victim
   val randomCounter = Counter(config.victimDepth)
   randomCounter.inc()
 
   val waySel = Reg(UInt(config.victimDepth.W))
-  when(state === sIDLE){
-    waySel := randomCounter.value
-  }
 
   is_hit_victim := hit_victim_onehot.asUInt().orR() =/= 0.U
 
   hit_victim := OHToUInt(hit_victim_onehot)
+
   for(item <- 0 until config.victimDepth){
-    hit_victim_onehot(item) := config.getVictimTag(buffer.addr(item)) === config.getTag(addr_r)&&
-      config.getVictimIndex(buffer.addr(item)) === config.getIndex(addr_r) &&
+    hit_victim_onehot(item) := config.getVictimTag(buffer.addr(item)) === config.getTag(iaddr_r)&&
+      config.getVictimIndex(buffer.addr(item)) === config.getIndex(iaddr_r) &&
       buffer.valid(item)
-//    printf("[%d]id=[%d] %x %x   | %x %x  | %d result=%d\n",debug_counter,item.U,config.getVictimTag(buffer.addr(item)),config.getTag(io.addr),
-//      config.getVictimIndex(buffer.addr(item)),config.getIndex(io.addr), buffer.valid(item),
-//      config.getVictimTag(buffer.addr(item)) === config.getTag(io.addr)&&
-//        config.getVictimIndex(buffer.addr(item)) === config.getIndex(io.addr) &&
-//        buffer.valid(item))
   }
 
-  io.find := is_hit_victim && state === sIDLE
-  when(io.find){
-    for(bank <- 0 until config.bankNum){
-      io.odata(bank) := buffer.data(hit_victim)(bank)
+  io.find := is_hit_victim && qstate === qsSend
+  val qdata_counter = RegInit(VecInit(Seq.fill(config.victim_fetch_every_cycle)(0.U(config.bankNumWidth.W))))
+  val wdata_counter = RegInit(VecInit(Seq.fill(config.victim_fetch_every_cycle)(0.U(config.bankNumWidth.W))))
+  val qdata_r = Reg(Vec(config.victim_fetch_every_cycle, UInt(32.W)))
+  for(i <- 0 until config.victim_fetch_every_cycle){
+    io.qdata := qdata_r
+  }
+  when(qstate===qsSend){
+    for(i <- 0 until config.victim_fetch_every_cycle){
+      qdata_r(i) := buffer.data(hit_victim_r)(qdata_counter(i))
     }
-    buffer.valid(hit_victim) := false.B //取走了，下一拍置false
   }.otherwise{
-    io.odata.foreach(value=>{
-      value := 0.U
-    })
+    io.qdata := DontCare
   }
 
-
-//  val operateIndex = Wire(UInt(config.victimDepthWidth.W))
-  when(io.op === true.B){
-    when(!is_hit_victim) {
-        for (bank <- 0 until config.bankNum) {
-          buffer.data(waySel)(bank) := io.idata(bank)
+  /**
+   * 查询状态
+   * 查询成功后，等待n拍
+   */
+  switch(qstate){
+    is(qsIDLE){
+      iaddr_r := io.qaddr
+      when(is_hit_victim && io.qvalid){
+        for(i <- 0 until config.victim_fetch_every_cycle){
+          qdata_counter(i) := i.U
         }
-        buffer.addr(waySel) := io.addr(31, config.offsetWidth)
-        buffer.valid(waySel) := true.B
-    }.otherwise{
-      //之前存过
-      for(bank <- 0 until config.bankNum){
-        buffer.data(hit_victim)(bank) := io.idata(bank)
+        hit_victim_r := hit_victim
+        qstate := qsSend
       }
     }
+    is(qsSend) {
+      for (i <- 0 until config.victim_fetch_every_cycle) {
+        qdata_counter(i) := qdata_counter(i) + config.victim_fetch_every_cycle.U
+      }
+      when(qdata_counter(0) === (config.bankNum-config.victim_fetch_every_cycle).U){
+        qstate := qsIDLE
+        buffer.valid(hit_victim_r) := false.B //取走了，下一拍置false
+      }.otherwise{
+        qstate := qsSend
+      }
+    }
+  }
+
+  when(fstate === fsWaitInputData){
+      for (i <- 0 until config.victim_fetch_every_cycle) {
+        buffer.data(waySel)(wdata_counter(i)) := io.wdata(i)
+      }
   }
 
   /**
    * 初始化
    */
 
-  state := sIDLE
-
-
+  fstate := fsIDLE
+  io.fill_valid := fstate === fsIDLE
+  io.query_valid := qstate === qsIDLE && (fstate =/= fsWaitInputData && (fstate===fsIDLE && io.wvalid===false.B))
   /**
    * AXI
+   * 如果异步写，可能会出现问题
    */
   io.axi.writeAddr.bits.id := 1.U
   io.axi.writeAddr.bits.size := 2.U
@@ -125,63 +143,77 @@ class Victim(val config:CacheConfig) extends Module {
   io.axi.writeAddr.bits.lock := 0.U
   io.axi.writeAddr.bits.prot := 0.U
   io.axi.writeAddr.bits.burst := 2.U
-  io.axi.writeAddr.bits.addr := addr_r
+  io.axi.writeAddr.bits.addr := waddr_r
   io.axi.writeAddr.valid := false.B
 
   io.axi.writeData.bits.wid := 1.U
   io.axi.writeData.bits.strb := "b1111".U
   io.axi.writeData.bits.last := false.B
   io.axi.writeData.bits.data := 0.U
-  io.axi.writeData.valid := state === sWriteBack
+  io.axi.writeData.valid := fstate === fsWriteBack
 
-  io.axi.writeResp.ready := state === sWaitResp
+  io.axi.writeResp.ready := fstate === fsWaitResp
 
 
   val WtCounter = RegInit(0.U(config.bankNumWidth.W))
 
 
-  switch(state) {
-    is(sIDLE) {
-      for(bank <- 0 until config.bankNum){
-        idata_r(bank) := io.idata(bank)
-      }
-      addr_r := io.addr
-
-      when(io.op === 1.U) {
-        when(io.dirty) {
-          state := sWaitHandShake
-          io.axi.writeAddr.valid := true.B
-        }
+  switch(fstate) {
+    is(fsIDLE) {
+      when(io.wvalid === true.B) {
+        waddr_r := io.waddr
+        waySel := randomCounter.value
+        fstate := fsWaitInputData
+          for(i <- 0 until config.victim_fetch_every_cycle){
+            wdata_counter(i) := i.U
+          }
+        buffer.addr(randomCounter.value) := io.waddr(31, config.offsetWidth)
+        buffer.valid(randomCounter.value) := true.B
       }
     }
-    is(sWaitHandShake) {
-      state := sWaitHandShake
+    is(fsWaitInputData){
+      for (i <- 0 until config.victim_fetch_every_cycle) {
+        wdata_counter(i) := wdata_counter(i) + config.victim_fetch_every_cycle.U
+      }
+      when(wdata_counter(0) === (config.bankNum-config.victim_fetch_every_cycle).U){
+        when(io.dirty) {
+          fstate := fsWaitHandShake
+          io.axi.writeAddr.valid := true.B
+        }.otherwise{
+          fstate := fsIDLE
+        }
+      }.otherwise{
+        fstate := fsWaitInputData
+      }
+    }
+    is(fsWaitHandShake) {
+      fstate := fsWaitHandShake
       when(io.axi.writeAddr.ready){
         io.axi.writeAddr.valid := false.B
-        state := sWriteBack
+        fstate := fsWriteBack
         WtCounter := 0.U
       }.otherwise{
         io.axi.writeAddr.valid := true.B
       }
     }
-    is(sWriteBack){
-      state := sWriteBack
-      io.axi.writeData.bits.data := idata_r(WtCounter)
+    is(fsWriteBack){
+      fstate := fsWriteBack
+      io.axi.writeData.bits.data := wdata_r(WtCounter)
       when(io.axi.writeData.fire()){
         WtCounter := WtCounter + 1.U
         when(WtCounter===(config.bankNum-1).U){
           io.axi.writeData.bits.last := true.B
-          state := sWaitResp
+          fstate := fsWaitResp
         }
       }
 
     }
-    is(sWaitResp){
+    is(fsWaitResp){
       when(io.axi.writeResp.fire() && io.axi.writeResp.bits.id ===io.axi.writeAddr.bits.id){
         // 回复
-        state := sIDLE
+        fstate := fsIDLE
       }.otherwise{
-        state := sWaitResp
+        fstate := fsWaitResp
       }
     }
   }
