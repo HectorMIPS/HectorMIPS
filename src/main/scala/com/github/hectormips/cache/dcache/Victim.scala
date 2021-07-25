@@ -26,14 +26,14 @@ class VictimBuffer(val config:CacheConfig,val depth:Int) extends Bundle {
 class Victim(val config:CacheConfig) extends Module {
   var io = IO(new Bundle {
     val qaddr = Input(UInt(32.W))
-    val qdata = Output(Vec(config.victim_fetch_every_cycle, UInt(32.W)))
+    val qdata = Output(UInt(32.W))
     val qvalid = Input(Bool())
     val wvalid   = Input(Bool()) //wvalid=1 驱逐写
     val dirty = Input(Bool())
 
     val find = Output(Bool()) // 匹配
     val waddr = Input(UInt(32.W)) //驱逐的数据的地址
-    val wdata = Input(Vec(config.victim_fetch_every_cycle, UInt(32.W)))
+    val wdata = Input( UInt(32.W))
     val query_valid = Output(Bool()) // 查询允许
     val fill_valid = Output(Bool()) // 输入允许
     val axi = new Bundle{
@@ -61,10 +61,10 @@ class Victim(val config:CacheConfig) extends Module {
   /**
    * LRU 配置
    */
-  val randomCounter = Counter(config.victimDepth)
-  randomCounter.inc()
+  val randomCounter = RegInit(0.U(log2Ceil(config.victimDepth).W))
+  randomCounter := randomCounter + 1.U
 
-  val waySel = Reg(UInt(config.victimDepth.W))
+  val waySel = RegInit(0.U(log2Ceil(config.victimDepth).W))
 
   is_hit_victim := hit_victim_onehot.asUInt().orR() =/= 0.U
 
@@ -77,16 +77,11 @@ class Victim(val config:CacheConfig) extends Module {
   }
 
   io.find := is_hit_victim && qstate === qsSend
-  val qdata_counter = RegInit(VecInit(Seq.fill(config.victim_fetch_every_cycle)(0.U(config.bankNumWidth.W))))
-  val wdata_counter = RegInit(VecInit(Seq.fill(config.victim_fetch_every_cycle)(0.U(config.bankNumWidth.W))))
-  val qdata_r = Reg(Vec(config.victim_fetch_every_cycle, UInt(32.W)))
-  for(i <- 0 until config.victim_fetch_every_cycle){
-    io.qdata := qdata_r
-  }
+  val qdata_counter = RegInit((0.U(config.bankNumWidth.W)))
+  val wdata_counter = RegInit((0.U(config.bankNumWidth.W)))
+
   when(qstate===qsSend){
-    for(i <- 0 until config.victim_fetch_every_cycle){
-      qdata_r(i) := buffer.data(hit_victim_r)(qdata_counter(i))
-    }
+    io.qdata := buffer.data(hit_victim_r)(qdata_counter)
   }.otherwise{
     io.qdata := DontCare
   }
@@ -99,18 +94,14 @@ class Victim(val config:CacheConfig) extends Module {
     is(qsIDLE){
       iaddr_r := io.qaddr
       when(is_hit_victim && io.qvalid){
-        for(i <- 0 until config.victim_fetch_every_cycle){
-          qdata_counter(i) := i.U
-        }
+        qdata_counter := 0.U
         hit_victim_r := hit_victim
         qstate := qsSend
       }
     }
     is(qsSend) {
-      for (i <- 0 until config.victim_fetch_every_cycle) {
-        qdata_counter(i) := qdata_counter(i) + config.victim_fetch_every_cycle.U
-      }
-      when(qdata_counter(0) === (config.bankNum-config.victim_fetch_every_cycle).U){
+      qdata_counter := qdata_counter + 1.U
+      when(qdata_counter === (config.bankNum-1).U){
         qstate := qsIDLE
         buffer.valid(hit_victim_r) := false.B //取走了，下一拍置false
       }.otherwise{
@@ -120,9 +111,7 @@ class Victim(val config:CacheConfig) extends Module {
   }
 
   when(fstate === fsWaitInputData){
-      for (i <- 0 until config.victim_fetch_every_cycle) {
-        buffer.data(waySel)(wdata_counter(i)) := io.wdata(i)
-      }
+    buffer.data(waySel)(wdata_counter) := io.wdata
   }
 
   /**
@@ -162,20 +151,16 @@ class Victim(val config:CacheConfig) extends Module {
     is(fsIDLE) {
       when(io.wvalid === true.B) {
         waddr_r := io.waddr
-        waySel := randomCounter.value
+        waySel := randomCounter
         fstate := fsWaitInputData
-          for(i <- 0 until config.victim_fetch_every_cycle){
-            wdata_counter(i) := i.U
-          }
-        buffer.addr(randomCounter.value) := io.waddr(31, config.offsetWidth)
-        buffer.valid(randomCounter.value) := true.B
+        wdata_counter := 0.U
+        buffer.addr(randomCounter) := io.waddr(31, config.offsetWidth)
+        buffer.valid(randomCounter) := true.B
       }
     }
     is(fsWaitInputData){
-      for (i <- 0 until config.victim_fetch_every_cycle) {
-        wdata_counter(i) := wdata_counter(i) + config.victim_fetch_every_cycle.U
-      }
-      when(wdata_counter(0) === (config.bankNum-config.victim_fetch_every_cycle).U){
+      wdata_counter := wdata_counter + 1.U
+      when(wdata_counter === (config.bankNum-1).U){
         when(io.dirty) {
           fstate := fsWaitHandShake
           io.axi.writeAddr.valid := true.B
