@@ -22,7 +22,7 @@ class DecoderRegularOut extends Bundle {
   val alu_src1                  : UInt                 = UInt(32.W)
   val alu_src2                  : UInt                 = UInt(32.W)
   val mem_en                    : Bool                 = Bool()
-  val mem_wen                   : UInt                 = UInt(4.W)
+  val mem_wen                   : Bool                 = Bool()
   val regfile_wsrc_sel          : Bool                 = Bool()
   val regfile_waddr_sel         : RegFileWAddrSel.Type = RegFileWAddrSel()
   val rs                        : UInt                 = UInt(5.W)
@@ -45,7 +45,7 @@ class DecoderRegularOut extends Bundle {
   val is_delay_slot             : Bool                 = Bool()
   val exception_flags           : UInt                 = UInt(ExceptionConst.EXCEPTION_FLAG_WIDTH.W)
   val ins_valid                 : Bool                 = Bool()
-
+  val src_use_hilo              : Bool                 = Bool()
 }
 
 class DecoderBranchOut extends Bundle {
@@ -61,6 +61,25 @@ class DecoderHazardOut extends Bundle {
   val load_to_regular: Bool = Bool()
 }
 
+class DecoderIssueOut extends Bundle {
+  val rf_wen    : Bool = Bool()
+  val rf_wnum   : UInt = UInt(5.W)
+  val op1_rf_num: UInt = UInt(5.W)
+  val op2_rf_num: UInt = UInt(5.W)
+
+  val cp0_wen     : Bool = Bool()
+  val cp0_addr    : UInt = UInt(8.W)
+  val op2_from_cp0: Bool = Bool()
+
+  val hilo_sel     : HiloSel.Type = HiloSel()
+  val hilo_wen     : Bool         = Bool()
+  val op2_from_hilo: Bool         = Bool()
+  val is_jump      : Bool         = Bool()
+  val div_or_mult  : Bool         = Bool()
+  val is_valid     : Bool         = Bool()
+  val is_eret      : Bool         = Bool()
+}
+
 class Decoder extends Module {
 
   class DecoderIO extends Bundle {
@@ -68,6 +87,7 @@ class Decoder extends Module {
     val out_regular: DecoderRegularOut = Output(new DecoderRegularOut)
     val out_branch : DecoderBranchOut  = Output(new DecoderBranchOut)
     val out_hazard : DecoderHazardOut  = Output(new DecoderHazardOut)
+    val out_issue  : DecoderIssueOut   = Output(new DecoderIssueOut)
   }
 
   val io: DecoderIO = IO(new DecoderIO)
@@ -260,8 +280,9 @@ class Decoder extends Module {
       (ins_blez && regfile1_gt_0)) -> InsJumpSel.seq_pc,
     (ins_jr | ins_jalr) -> InsJumpSel.regfile_read1
   ))
-  io.out_branch.is_jump := ins_beq | ins_bne | ins_bgez | ins_bgtz | ins_blez | ins_bltz |
+  val is_jump: Bool = ins_beq | ins_bne | ins_bgez | ins_bgtz | ins_blez | ins_bltz |
     ins_bgezal | ins_bltzal | ins_j | ins_jal | ins_jr | ins_jalr
+  io.out_branch.is_jump := is_jump
 
 
   // 0: pc=pc+(signed)(offset<<2)
@@ -410,12 +431,13 @@ class Decoder extends Module {
     ins_div -> AluOp.op_div,
     ins_divu -> AluOp.op_divu
   ))
-  io.out_regular.regfile_we := ins_addu | ins_add | ins_addiu | ins_addi | ins_subu | ins_sub |
+  val rf_wen     : Bool                 = ins_addu | ins_add | ins_addiu | ins_addi | ins_subu | ins_sub |
     ins_lw | ins_lb | ins_mul |
-    ins_lbu | ins_lh | ins_lhu | ins_jal | ins_bgezal | ins_bltzal | ins_slt | ins_sltu | ins_sll | ins_srl | ins_sra | ins_lui | ins_and | ins_or |
+    ins_lbu | ins_lh | ins_lhu | ins_jal | ins_bgezal | ins_bltzal | ins_slt | ins_sltu | ins_sll | ins_srl | ins_sra |
+    ins_lui | ins_and | ins_or |
     ins_xor | ins_nor | ins_sltiu | ins_slti | ins_andi | ins_ori | ins_xori | ins_sllv | ins_srlv |
     ins_srav | ins_mfhi | ins_mflo | ins_jalr | ins_mfc0
-  io.out_regular.regfile_waddr_sel := MuxCase(RegFileWAddrSel.nop, Seq(
+  val rf_wdst_sel: RegFileWAddrSel.Type = MuxCase(RegFileWAddrSel.nop, Seq(
     (ins_addu | ins_add | ins_subu | ins_sub | ins_slt | ins_sltu | ins_sll | ins_srl |
       ins_sra | ins_and | ins_or | ins_xor | ins_nor | ins_sllv | ins_srlv |
       ins_srav | ins_mfhi | ins_mflo | ins_jalr | ins_mul) -> RegFileWAddrSel.inst_rd,
@@ -424,6 +446,8 @@ class Decoder extends Module {
       ins_xori | ins_mfc0) -> RegFileWAddrSel.inst_rt,
     (ins_jal | ins_bgezal | ins_bltzal) -> RegFileWAddrSel.const_31
   ))
+  io.out_regular.regfile_we := rf_wen
+  io.out_regular.regfile_waddr_sel := rf_wdst_sel
 
   io.out_regular.rd := rd
   io.out_regular.rt := rt
@@ -434,11 +458,7 @@ class Decoder extends Module {
 
   io.out_regular.mem_en := ins_lw | ins_lb |
     ins_lbu | ins_lh | ins_lhu | ins_sw | ins_sh | ins_sb
-  io.out_regular.mem_wen := MuxCase(0.U, Seq(
-    ins_sw -> 0xf.U,
-    ins_sh -> 0x3.U,
-    ins_sb -> 0x1.U
-  ))
+  io.out_regular.mem_wen := ins_sw | ins_sh | ins_sb
   io.out_regular.regfile_wsrc_sel := ins_lw | ins_lb |
     ins_lbu | ins_lh | ins_lhu
   io.out_regular.mem_data_sel := MuxCase(MemDataSel.word, Seq(
@@ -448,13 +468,14 @@ class Decoder extends Module {
   )) // 正常情况下只在load指令时起效，可以用这个参数来捎带传输load指令的位选择宽度
   io.out_regular.mem_rdata_extend_is_signed := ins_lb | ins_lh
 
-  io.out_regular.hi_wen := ins_multu | ins_mult | ins_div | ins_divu | ins_mthi
-  io.out_regular.lo_wen := ins_multu | ins_mult | ins_div | ins_divu | ins_mtlo | ins_mul
-  io.out_regular.hilo_sel := HiloSel.hi
-  io.out_regular.hilo_sel := MuxCase(HiloSel.nop, Seq(
+  val hilo_sel: HiloSel.Type = MuxCase(HiloSel.nop, Seq(
     (ins_mthi | ins_mfhi) -> HiloSel.hi,
     (ins_mtlo | ins_mflo | ins_mul) -> HiloSel.lo
   ))
+  val hilo_wen: Bool         = ins_multu | ins_mult | ins_div | ins_divu | ins_mthi | ins_mtlo | ins_mul
+  io.out_regular.hi_wen := ins_multu | ins_mult | ins_div | ins_divu | ins_mthi
+  io.out_regular.lo_wen := ins_multu | ins_mult | ins_div | ins_divu | ins_mtlo | ins_mul
+  io.out_regular.hilo_sel := hilo_sel
 
 
   io.out_regular.pc_delay_slot := pc + 4.U
@@ -462,11 +483,14 @@ class Decoder extends Module {
   // sw会使用寄存器堆读端口2的数据写入内存
   io.out_regular.mem_wdata := regfile_read2_with_bypass
 
+  val cp0_wen    : Bool = ins_mtc0
+  val cp0_addr   : UInt = Cat(rd, instruction(2, 0))
+  val op_from_cp0: Bool = ins_mfc0
 
-  io.out_regular.cp0_wen := ins_mtc0
-  io.out_regular.cp0_addr := rd
-  io.out_regular.cp0_sel := instruction(2, 0)
-  io.out_regular.regfile_wdata_from_cp0 := ins_mfc0
+  io.out_regular.cp0_wen := cp0_wen
+  io.out_regular.cp0_addr := cp0_addr(7, 3)
+  io.out_regular.cp0_sel := cp0_addr(2, 0)
+  io.out_regular.regfile_wdata_from_cp0 := op_from_cp0
 
   // 相信我 其实我也不想写这么长
   val ins_valid: Bool = ins_addu ||
@@ -532,6 +556,7 @@ class Decoder extends Module {
   io.out_regular.is_delay_slot := io.in.is_delay_slot
   io.out_regular.overflow_detection_en := ins_add | ins_addi | ins_sub
   io.out_regular.ins_eret := ins_eret
+  io.out_regular.src_use_hilo := ins_mfhi | ins_mflo
 
   io.out_regular.exception_flags := Mux(pc(1, 0) === 0.U,
     0.U, ExceptionConst.EXCEPTION_FETCH_ADDR) |
@@ -539,4 +564,25 @@ class Decoder extends Module {
     Mux(ins_syscall, ExceptionConst.EXCEPTION_SYSCALL, 0.U) |
     Mux(ins_break, ExceptionConst.EXCEPTION_TRAP, 0.U)
   io.out_regular.ins_valid := io.in.ins_valid
+
+  io.out_issue.op1_rf_num := Mux(src1_sel === AluSrc1Sel.regfile_read1, rs, 0.U)
+  io.out_issue.op2_rf_num := Mux(src2_sel === AluSrc2Sel.regfile_read2, rs, 0.U)
+  io.out_issue.rf_wen := rf_wen
+  io.out_issue.rf_wnum := MuxCase(0.U, Seq(
+    (rf_wdst_sel === RegFileWAddrSel.inst_rt) -> rt,
+    (rf_wdst_sel === RegFileWAddrSel.inst_rd) -> rd,
+    (rf_wdst_sel === RegFileWAddrSel.const_31) -> 31.U
+  ))
+
+  io.out_issue.cp0_wen := cp0_wen
+  io.out_issue.cp0_addr := cp0_addr
+  io.out_issue.op2_from_cp0 := op_from_cp0
+
+  io.out_issue.hilo_sel := hilo_sel
+  io.out_issue.hilo_wen := hilo_wen
+  io.out_issue.op2_from_hilo := ins_mfhi | ins_mflo
+  io.out_issue.is_jump := is_jump
+  io.out_issue.div_or_mult := ins_div | ins_divu | ins_multu | ins_mult | ins_mul
+  io.out_issue.is_valid := io.in.ins_valid
+  io.out_issue.is_eret := ins_eret && io.in.ins_valid
 }

@@ -16,7 +16,7 @@ object MemDataSel extends ChiselEnum {
   val word : Type = Value(4.U)
 }
 
-class ExecuteMemoryBundle extends WithValid {
+class ExecuteMemoryBundle extends WithVEI {
   val alu_val_ex_ms                   : UInt                 = UInt(32.W)
   val regfile_wsrc_sel_ex_ms          : Bool                 = Bool()
   val regfile_waddr_sel_ex_ms         : RegFileWAddrSel.Type = RegFileWAddrSel()
@@ -54,77 +54,85 @@ class ExecuteMemoryBundle extends WithValid {
 }
 
 class InsMemoryBundle extends WithAllowin {
-  val mem_rdata       : UInt                  = Input(UInt(32.W))
-  val ex_ms_in        : ExecuteMemoryBundle   = Input(new ExecuteMemoryBundle)
-  val ms_wb_out       : MemoryWriteBackBundle = Output(new MemoryWriteBackBundle)
-  val data_ram_state  : RamState.Type         = Input(RamState())
-  val data_ram_data_ok: Bool                  = Input(Bool())
+  val mem_rdata     : Vec[UInt]                  = Input(Vec(2, UInt(32.W)))
+  val ex_ms_in      : Vec[ExecuteMemoryBundle]   = Input(Vec(2, new ExecuteMemoryBundle))
+  val data_ram_state: Vec[RamState.Type]         = Input(Vec(2, RamState()))
+  val ms_wb_out     : Vec[MemoryWriteBackBundle] = Output(Vec(2, new MemoryWriteBackBundle))
 
-  val bypass_ms_id           : BypassMsgBundle = Output(new BypassMsgBundle)
-  val cp0_hazard_bypass_ms_ex: CP0HazardBypass = Output(new CP0HazardBypass)
+  val bypass_ms_id           : Vec[BypassMsgBundle] = Output(Vec(2, new BypassMsgBundle))
+  val cp0_hazard_bypass_ms_ex: Vec[CP0HazardBypass] = Output(Vec(2, new CP0HazardBypass))
 }
+
 
 class InsMemory extends Module {
   val io: InsMemoryBundle = IO(new InsMemoryBundle)
-  io.ms_wb_out.regfile_waddr_sel_ms_wb := io.ex_ms_in.regfile_waddr_sel_ex_ms
-  io.ms_wb_out.inst_rd_ms_wb := io.ex_ms_in.inst_rd_ex_ms
-  io.ms_wb_out.inst_rt_ms_wb := io.ex_ms_in.inst_rt_ex_ms
-  io.ms_wb_out.regfile_we_ms_wb := io.ex_ms_in.regfile_we_ex_ms
-  val mem_rdata_fixed: UInt      = Wire(UInt(32.W))
-  val mem_rdata_vec  : Vec[UInt] = Wire(Vec(4, UInt(8.W)))
-  for (i <- 0 until 4) {
-    mem_rdata_vec(i) := mem_rdata_fixed(31 - i * 8, 24 - i * 8)
-  }
-  val mem_rdata_offset_byte: UInt = Wire(UInt(5.W))
-  // 以字节为单位进行位移操作
-  mem_rdata_offset_byte := io.ex_ms_in.mem_rdata_offset << 3.U
-  // 读有效时，低位被抹平，需要自行进行移位操作
-  mem_rdata_fixed := (io.mem_rdata >> mem_rdata_offset_byte).asUInt()
-  val mem_rdata_out: UInt = Wire(UInt(32.W))
-
-  def extendBySignFlag(sign_bit: Bool, width: Int): UInt = {
-    VecInit(Seq.fill(width)(io.ex_ms_in.mem_rdata_extend_is_signed_ex_ms & sign_bit)).asUInt()
-  }
-
-  mem_rdata_out := MuxCase(mem_rdata_fixed, Seq(
-    (io.ex_ms_in.mem_rdata_sel_ex_ms === MemDataSel.byte) -> Cat(extendBySignFlag(mem_rdata_fixed(7), 24), mem_rdata_fixed(7, 0)),
-    (io.ex_ms_in.mem_rdata_sel_ex_ms === MemDataSel.hword) -> Cat(extendBySignFlag(mem_rdata_fixed(15), 16), mem_rdata_fixed(15, 0)),
-    (io.ex_ms_in.mem_rdata_sel_ex_ms === MemDataSel.word) -> mem_rdata_fixed
-  ))
-
-
-  io.ms_wb_out.regfile_wdata_ms_wb := Mux(io.ex_ms_in.regfile_wsrc_sel_ex_ms, mem_rdata_out, io.ex_ms_in.alu_val_ex_ms)
-
 
   val bus_valid: Bool = Wire(Bool())
-  val ready_go : Bool = Mux(io.ex_ms_in.bus_valid && io.ex_ms_in.mem_req,
-    Mux(io.data_ram_state === RamState.waiting_for_response, io.data_ram_data_ok, 1.B), 1.B)
-  bus_valid := io.ex_ms_in.bus_valid && !reset.asBool() && ready_go
+
+
+  // 如果有需要请求数据ram的指令则需要等待其访问完毕两条指令才能继续向下行进
+  val ready_go: Bool = Mux(io.ex_ms_in(0).mem_req && io.ex_ms_in(0).bus_valid,
+    io.data_ram_state(0) === RamState.waiting_for_read, 1.B) &&
+    Mux(io.ex_ms_in(1).mem_req && io.ex_ms_in(1).bus_valid,
+      io.data_ram_state(1) === RamState.waiting_for_read, 1.B)
+  bus_valid := io.ex_ms_in(0).bus_valid && !reset.asBool() && ready_go
   io.this_allowin := io.next_allowin && !reset.asBool() && ready_go
-  io.ms_wb_out.bus_valid := bus_valid
-  io.ms_wb_out.pc_ms_wb := io.ex_ms_in.pc_ex_ms_debug
 
-  val bypass_bus_valid: Bool = io.ex_ms_in.bus_valid && Mux(io.ex_ms_in.regfile_wsrc_sel_ex_ms,
-    io.data_ram_state === RamState.waiting_for_response || io.data_ram_data_ok, 1.B)
+  for (i <- 0 to 1) {
+    io.ms_wb_out(i).regfile_waddr_sel_ms_wb := io.ex_ms_in(i).regfile_waddr_sel_ex_ms
+    io.ms_wb_out(i).inst_rd_ms_wb := io.ex_ms_in(i).inst_rd_ex_ms
+    io.ms_wb_out(i).inst_rt_ms_wb := io.ex_ms_in(i).inst_rt_ex_ms
+    io.ms_wb_out(i).regfile_we_ms_wb := io.ex_ms_in(i).regfile_we_ex_ms
+    io.ms_wb_out(i).issue_num := io.ex_ms_in(i).issue_num
+    val mem_rdata_fixed: UInt      = Wire(UInt(32.W))
+    val mem_rdata_vec  : Vec[UInt] = Wire(Vec(4, UInt(8.W)))
+    for (i <- 0 until 4) {
+      mem_rdata_vec(i) := mem_rdata_fixed(31 - i * 8, 24 - i * 8)
+    }
+    val mem_rdata_offset_byte: UInt = Wire(UInt(5.W))
+    // 以字节为单位进行位移操作
+    mem_rdata_offset_byte := io.ex_ms_in(i).mem_rdata_offset << 3.U
+    mem_rdata_fixed := (io.mem_rdata(i) >> mem_rdata_offset_byte).asUInt()
+    val mem_rdata_out: UInt = Wire(UInt(32.W))
 
-  io.bypass_ms_id.bus_valid := bypass_bus_valid
-  io.bypass_ms_id.data_valid := bus_valid && io.ex_ms_in.regfile_we_ex_ms &&
-    Mux(io.ex_ms_in.regfile_wsrc_sel_ex_ms, io.data_ram_data_ok, 1.B)
-  io.bypass_ms_id.reg_data := Mux(io.ex_ms_in.regfile_wsrc_sel_ex_ms, mem_rdata_out, io.ex_ms_in.alu_val_ex_ms)
-  io.bypass_ms_id.reg_addr := MuxCase(0.U, Seq(
-    (io.ex_ms_in.regfile_waddr_sel_ex_ms === RegFileWAddrSel.inst_rd) -> io.ex_ms_in.inst_rd_ex_ms,
-    (io.ex_ms_in.regfile_waddr_sel_ex_ms === RegFileWAddrSel.inst_rt) -> io.ex_ms_in.inst_rt_ex_ms,
-    (io.ex_ms_in.regfile_waddr_sel_ex_ms === RegFileWAddrSel.const_31) -> 31.U))
-  io.bypass_ms_id.force_stall := io.ms_wb_out.regfile_wdata_from_cp0_ms_wb
+    def extendBySignFlag(sign_bit: Bool, width: Int): UInt = {
+      VecInit(Seq.fill(width)(io.ex_ms_in(i).mem_rdata_extend_is_signed_ex_ms & sign_bit)).asUInt()
+    }
 
-  io.ms_wb_out.cp0_addr_ms_wb := io.ex_ms_in.cp0_addr_ex_ms
-  io.ms_wb_out.cp0_wen_ms_wb := io.ex_ms_in.cp0_wen_ex_ms
-  io.ms_wb_out.cp0_sel_ms_wb := io.ex_ms_in.cp0_sel_ex_ms
-  io.ms_wb_out.regfile_wdata_from_cp0_ms_wb := io.ex_ms_in.regfile_wdata_from_cp0_ex_ms
+    mem_rdata_out := MuxCase(mem_rdata_fixed, Seq(
+      (io.ex_ms_in(i).mem_rdata_sel_ex_ms === MemDataSel.byte) -> Cat(extendBySignFlag(mem_rdata_fixed(7), 24), mem_rdata_fixed(7, 0)),
+      (io.ex_ms_in(i).mem_rdata_sel_ex_ms === MemDataSel.hword) -> Cat(extendBySignFlag(mem_rdata_fixed(15), 16), mem_rdata_fixed(15, 0)),
+      (io.ex_ms_in(i).mem_rdata_sel_ex_ms === MemDataSel.word) -> mem_rdata_fixed
+    ))
 
-  io.cp0_hazard_bypass_ms_ex.bus_valid := bypass_bus_valid
-  io.cp0_hazard_bypass_ms_ex.cp0_en := io.ex_ms_in.regfile_wdata_from_cp0_ex_ms ||
-    io.ex_ms_in.cp0_wen_ex_ms
-  io.cp0_hazard_bypass_ms_ex.cp0_ip_wen := io.ex_ms_in.cp0_addr_ex_ms === CP0Const.CP0_REGADDR_CAUSE &&
-    io.ex_ms_in.cp0_sel_ex_ms === 0.U && io.ex_ms_in.cp0_wen_ex_ms
+
+    io.ms_wb_out(i).regfile_wdata_ms_wb := Mux(io.ex_ms_in(i).regfile_wsrc_sel_ex_ms, mem_rdata_out, io.ex_ms_in(i).alu_val_ex_ms)
+
+
+    io.ms_wb_out(i).bus_valid := bus_valid
+    io.ms_wb_out(i).pc_ms_wb := io.ex_ms_in(i).pc_ex_ms_debug
+
+    val bypass_bus_valid: Bool = io.ex_ms_in(i).bus_valid && Mux(io.ex_ms_in(i).regfile_wsrc_sel_ex_ms,
+      io.data_ram_state(i) === RamState.waiting_for_read, 1.B)
+
+    io.bypass_ms_id(i).bus_valid := bypass_bus_valid
+    io.bypass_ms_id(i).data_valid := bus_valid && io.ex_ms_in(i).regfile_we_ex_ms &&
+      Mux(io.ex_ms_in(i).regfile_wsrc_sel_ex_ms, io.data_ram_state(i) === RamState.waiting_for_read, 1.B)
+    io.bypass_ms_id(i).reg_data := Mux(io.ex_ms_in(i).regfile_wsrc_sel_ex_ms, mem_rdata_out, io.ex_ms_in(i).alu_val_ex_ms)
+    io.bypass_ms_id(i).reg_addr := MuxCase(0.U, Seq(
+      (io.ex_ms_in(i).regfile_waddr_sel_ex_ms === RegFileWAddrSel.inst_rd) -> io.ex_ms_in(i).inst_rd_ex_ms,
+      (io.ex_ms_in(i).regfile_waddr_sel_ex_ms === RegFileWAddrSel.inst_rt) -> io.ex_ms_in(i).inst_rt_ex_ms,
+      (io.ex_ms_in(i).regfile_waddr_sel_ex_ms === RegFileWAddrSel.const_31) -> 31.U))
+
+    io.ms_wb_out(i).cp0_addr_ms_wb := io.ex_ms_in(i).cp0_addr_ex_ms
+    io.ms_wb_out(i).cp0_wen_ms_wb := io.ex_ms_in(i).cp0_wen_ex_ms
+    io.ms_wb_out(i).cp0_sel_ms_wb := io.ex_ms_in(i).cp0_sel_ex_ms
+    io.ms_wb_out(i).regfile_wdata_from_cp0_ms_wb := io.ex_ms_in(i).regfile_wdata_from_cp0_ex_ms
+
+    io.cp0_hazard_bypass_ms_ex(i).bus_valid := bypass_bus_valid
+    io.cp0_hazard_bypass_ms_ex(i).cp0_en := io.ex_ms_in(i).regfile_wdata_from_cp0_ex_ms ||
+      io.ex_ms_in(i).cp0_wen_ex_ms
+    io.cp0_hazard_bypass_ms_ex(i).cp0_ip_wen := io.ex_ms_in(i).cp0_addr_ex_ms === CP0Const.CP0_REGADDR_CAUSE &&
+      io.ex_ms_in(i).cp0_sel_ex_ms === 0.U && io.ex_ms_in(i).cp0_wen_ex_ms
+  }
 }

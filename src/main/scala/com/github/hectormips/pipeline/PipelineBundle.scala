@@ -23,9 +23,18 @@ trait WithException extends Bundle {
   }
 }
 
-trait WithValidAndException extends WithValid with WithException {
+trait WithIssueNum extends Bundle {
+  val issue_num: UInt = UInt(2.W)
+
+  def defaults(): Unit = {
+    issue_num := 0.U
+  }
+}
+
+trait WithVEI extends WithValid with WithException with WithIssueNum {
   override def defaults(): Unit = {
     bus_valid := 0.B
     exception_flags := 0.U
+    issue_num := 0.U
   }
 }

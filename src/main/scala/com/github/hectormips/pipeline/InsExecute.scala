@@ -5,13 +5,12 @@ import chisel3.experimental.ChiselEnum
 import chisel3.util.Mux1H
 import chisel3.util._
 import com.github.hectormips.RamState
+import com.github.hectormips.pipeline.issue.{Alu, AluEx, AluOut}
 
 
 // 通过译码阶段传入的参数
-class DecodeExecuteBundle extends WithValidAndException {
+class DecodeExecuteBundle extends WithVEI {
   val alu_op_id_ex: AluOp.Type = AluOp()
-  // 寄存器堆读端口1 2
-  val pc_id_ex    : UInt       = UInt(32.W)
   val sa_32_id_ex : UInt       = UInt(32.W)
   val imm_32_id_ex: UInt       = UInt(32.W)
 
@@ -19,7 +18,7 @@ class DecodeExecuteBundle extends WithValidAndException {
   val alu_src2_id_ex                  : UInt                 = UInt(32.W)
   // 直传id_ex_ms
   val mem_en_id_ex                    : Bool                 = Bool()
-  val mem_wen_id_ex                   : UInt                 = UInt(4.W)
+  val mem_wen_id_ex                   : Bool                 = Bool()
   val regfile_wsrc_sel_id_ex          : Bool                 = Bool()
   val regfile_waddr_sel_id_ex         : RegFileWAddrSel.Type = RegFileWAddrSel()
   val inst_rs_id_ex                   : UInt                 = UInt(5.W)
@@ -39,13 +38,13 @@ class DecodeExecuteBundle extends WithValidAndException {
   val regfile_wdata_from_cp0_id_ex    : Bool                 = Bool()
   val overflow_detection_en           : Bool                 = Bool()
   val ins_eret                        : Bool                 = Bool()
+  val src_use_hilo                    : Bool                 = Bool()
 
 
   val is_delay_slot: Bool = Bool()
 
   override def defaults(): Unit = {
     alu_op_id_ex := AluOp.op_add
-    pc_id_ex := 0.U
     sa_32_id_ex := 0.U
     imm_32_id_ex := 0.U
 
@@ -97,295 +96,210 @@ object DividerState extends ChiselEnum {
 
 // 由cp0传给执行阶段的信息
 class CP0ExecuteBundle extends Bundle {
-  val status_exl: Bool = Bool()
-  val status_ie : Bool = Bool()
-  val epc       : UInt = UInt(32.W)
+  val status_exl   : Bool = Bool()
+  val status_ie    : Bool = Bool()
+  val epc          : UInt = UInt(32.W)
+  val cp0_status_im: UInt = Input(UInt(8.W))
+  val cp0_cause_ip : UInt = Input(UInt(8.W))
 }
 
-class InsExecuteBundle extends WithAllowin {
-  val cp0_ex_in              : CP0ExecuteBundle    = Input(new CP0ExecuteBundle)
-  val ex_cp0_out             : ExecuteCP0Bundle    = Output(new ExecuteCP0Bundle)
-  val id_ex_in               : DecodeExecuteBundle = Input(new DecodeExecuteBundle)
-  val cp0_hazard_bypass_ms_ex: CP0HazardBypass     = Input(new CP0HazardBypass)
-  val cp0_hazard_bypass_wb_ex: CP0HazardBypass     = Input(new CP0HazardBypass)
-
-  // 传递给访存的输出
-  val ex_ms_out: ExecuteMemoryBundle = Output(new ExecuteMemoryBundle)
-
-  // 传给data ram的使能信号和数据信号
+class ExecuteRamBundle extends Bundle {
   val mem_en   : Bool = Output(Bool())
-  val mem_wen  : UInt = Output(UInt(4.W))
+  val mem_wen  : UInt = Output(Bool())
   val mem_addr : UInt = Output(UInt(32.W))
   val mem_wdata: UInt = Output(UInt(32.W))
   val mem_size : UInt = Output(UInt(2.W))
+}
 
-  val bypass_ex_id: BypassMsgBundle = Output(new BypassMsgBundle)
-
+class ExecuteHILOBundle extends Bundle {
   val hi_out: UInt = Output(UInt(32.W))
   val hi_in : UInt = Input(UInt(32.W))
   val hi_wen: Bool = Output(Bool())
   val lo_out: UInt = Output(UInt(32.W))
   val lo_in : UInt = Input(UInt(32.W))
   val lo_wen: Bool = Output(Bool())
+}
 
-  val divider_required   : Bool          = Output(Bool())
-  val multiplier_required: Bool          = Output(Bool())
-  val divider_tready     : Bool          = Output(Bool())
-  val divider_tvalid     : Bool          = Input(Bool())
-  val data_ram_addr_ok   : Bool          = Input(Bool())
-  val data_ram_state     : RamState.Type = Input(RamState())
 
-  // 流水线清空使能信号
-  val pipeline_flush: Bool = Output(Bool())
-
-  // 回传给预取阶段的例外跳转使能
-  val to_exception_service_en_ex_pf: Bool = Output(Bool())
-  val to_epc_en_ex_pf              : Bool = Output(Bool())
-  val cp0_status_im                : UInt = Input(UInt(8.W))
-  val cp0_cause_ip                 : UInt = Input(UInt(8.W))
+class InsExecuteBundle extends WithAllowin {
+  val id_ex_in               : Vec[DecodeExecuteBundle] = Input(Vec(2, new DecodeExecuteBundle))
+  val cp0_hazard_bypass_ms_ex: Vec[CP0HazardBypass]     = Input(Vec(2, new CP0HazardBypass))
+  val cp0_hazard_bypass_wb_ex: Vec[CP0HazardBypass]     = Input(Vec(2, new CP0HazardBypass))
+  val ex_ram_out             : Vec[ExecuteRamBundle]    = Vec(2, new ExecuteRamBundle)
+  val ex_ms_out              : Vec[ExecuteMemoryBundle] = Output(Vec(2, new ExecuteMemoryBundle))
+  val ex_cp0_out             : ExecuteCP0Bundle         = Output(new ExecuteCP0Bundle)
+  val bypass_ex_id           : Vec[BypassMsgBundle]     = Output(Vec(2, new BypassMsgBundle))
+  val cp0_ex_in              : CP0ExecuteBundle         = Input(new CP0ExecuteBundle)
+  val ex_hilo                : ExecuteHILOBundle        = new ExecuteHILOBundle
+  val ex_pf_out              : ExecutePrefetchBundle    = Output(new ExecutePrefetchBundle)
+  val pipeline_flush         : Bool                     = Output(Bool())
+  val data_ram_state         : Vec[RamState.Type]       = Input(Vec(2, RamState()))
+  // 执行阶段是否*至少*完成了其应该完成的任务
+  val ready_go               : Bool                     = Bool()
 }
 
 
 class InsExecute extends Module {
   val io                 : InsExecuteBundle = IO(new InsExecuteBundle)
-  val alu_out            : UInt             = Wire(UInt(32.W))
   val src1               : UInt             = Wire(UInt(32.W))
   val src2               : UInt             = Wire(UInt(32.W))
-  val divider_required   : Bool             = io.id_ex_in.alu_op_id_ex === AluOp.op_divu ||
-    io.id_ex_in.alu_op_id_ex === AluOp.op_div
-  val multiplier_required: Bool             = io.id_ex_in.alu_op_id_ex === AluOp.op_mult ||
-    io.id_ex_in.alu_op_id_ex === AluOp.op_multu
   val overflow_occurred  : Bool             = Wire(Bool())
   val flush              : Bool             = Wire(Bool())
-  src1 := io.id_ex_in.alu_src1_id_ex
-  src2 := io.id_ex_in.alu_src2_id_ex
+  val this_allowin       : Bool             = Wire(Bool())
+  val alu                : Vec[Alu#AluIO]   = VecInit(Seq(Module(new AluEx).io, Module(new Alu).io))
+  // alu输出的结果仍然按照指令原本的顺序
+  val alu_out            : Vec[AluOut]      = Wire(Vec(2, new AluOut))
+  val ins2_op            : AluOp.Type       = io.id_ex_in(1).alu_op_id_ex
+  // 默认将index=0的送至alu_ex，1的送至alu，如果1有效并且需要使用乘除法器，则反转指令（仅限内部）
+  val order_flipped      : Bool             = io.id_ex_in(1).bus_valid && (ins2_op === AluOp.op_div || ins2_op === AluOp.op_divu ||
+    ins2_op === AluOp.op_mult || ins2_op === AluOp.op_multu)
+  val exception_occur    : Vec[Bool]        = Wire(Vec(2, Bool()))
+  val exception_flags    : Vec[UInt]        = Wire(Vec(2, UInt(ExceptionConst.EXCEPTION_FLAG_WIDTH.W)))
+  val interrupt_occur    : Vec[Bool]        = Wire(Vec(2, Bool()))
+  val eret_occur         : Bool             = io.id_ex_in(0).bus_valid && io.id_ex_in(0).ins_eret
+  val interrupt_available: Bool             = io.cp0_ex_in.status_ie && !io.cp0_ex_in.status_exl
+  // 当同时写相同的内存地址时会产生waw冲突，结果只采用靠后的一条指令
+  val mem_waddr_hazard   : Bool             = io.id_ex_in(0).bus_valid && io.id_ex_in(1).bus_valid &&
+    io.id_ex_in(0).mem_wen_id_ex && io.id_ex_in(1).mem_wen_id_ex &&
+    alu_out(0).alu_sum(31, 3) === alu_out(1).alu_sum(31, 3)
+  val exception_index    : UInt             = Mux(exception_occur(0) || !io.id_ex_in(1).bus_valid, 0.B, 1.B)
 
-  val calc_done : Bool             = RegInit(init = 0.B)
-  val multiplier: CommonMultiplier = Module(new CommonMultiplier)
-  multiplier.io.mult1 := src1
-  multiplier.io.mult2 := src2
-  multiplier.io.req := multiplier_required && multiplier.io.state === MultiplierState.waiting_for_input && !calc_done
-  multiplier.io.is_signed := io.id_ex_in.alu_op_id_ex === AluOp.op_mult
-  multiplier.io.flush := flush
-
-
-  val divider: CommonDivider = Module(new CommonDivider)
-  divider.io.divisor := src2
-  divider.io.dividend := src1
-  divider.io.is_signed := io.id_ex_in.alu_op_id_ex === AluOp.op_div
-  divider.io.tvalid := io.divider_tvalid && !calc_done
-  io.divider_tready := divider.io.tready && !calc_done
-  io.divider_required := divider_required
-  io.multiplier_required := multiplier_required
-  when(io.this_allowin || flush) {
-    calc_done := 0.B
-  }.elsewhen(divider.io.out_valid || multiplier.io.res_valid) {
-    calc_done := 1.B
-  }
-
-  def mult_div_sel(mult_res: UInt, div_res: UInt): UInt = {
-    MuxCase(src1, Seq(
-      (io.id_ex_in.alu_op_id_ex === AluOp.op_mult | io.id_ex_in.alu_op_id_ex === AluOp.op_multu) -> mult_res,
-      (io.id_ex_in.alu_op_id_ex === AluOp.op_div | io.id_ex_in.alu_op_id_ex === AluOp.op_divu) -> div_res,
-    ))
-  }
-
-
-  io.hi_out := mult_div_sel(multiplier.io.mult_res_63_32, divider.io.remainder)
-  io.hi_wen := MuxCase(1.B, Seq(
-    divider_required -> divider.io.out_valid,
-    multiplier_required -> multiplier.io.res_valid
-  )) && io.id_ex_in.hi_wen && !flush
-  io.lo_out := mult_div_sel(multiplier.io.mult_res_31_0, divider.io.quotient)
-  io.lo_wen := MuxCase(1.B, Seq(
-    divider_required -> divider.io.out_valid,
-    multiplier_required -> multiplier.io.res_valid
-  )) && io.id_ex_in.lo_wen && !flush
-
-  alu_out := Mux(io.id_ex_in.hilo_sel === HiloSel.hi, io.hi_in, io.lo_in)
-  // 使用带有保护位的补码加法来实现溢出的检测
-  val src_1_e: UInt = Wire(UInt(33.W))
-  val src_2_e: UInt = Wire(UInt(33.W))
-  src_1_e := Cat(src1(31), src1)
-  src_2_e := Cat(src2(31), src2)
-  overflow_occurred := 0.B
-  switch(io.id_ex_in.alu_op_id_ex) {
-    is(AluOp.op_add) {
-      val alu_out_e = src_1_e + src_2_e
-      overflow_occurred := alu_out_e(32) ^ alu_out_e(31)
-      alu_out := alu_out_e(31, 0)
-    }
-    is(AluOp.op_sub) {
-      val src2_neg: UInt = -src2
-      src_2_e := Cat(src2_neg(31), src2_neg)
-      val alu_out_e = src_1_e + src_2_e
-      overflow_occurred := (alu_out_e(32) ^ alu_out_e(31))
-      alu_out := alu_out_e(31, 0)
-    }
-    is(AluOp.op_slt) {
-      alu_out := src1.asSInt() < src2.asSInt()
-    }
-    is(AluOp.op_sltu) {
-      alu_out := src1 < src2
-    }
-    is(AluOp.op_and) {
-      alu_out := src1 & src2
-    }
-    is(AluOp.op_nor) {
-      alu_out := ~(src1 | src2)
-    }
-    is(AluOp.op_or) {
-      alu_out := src1 | src2
-    }
-    is(AluOp.op_xor) {
-      alu_out := src1 ^ src2
-    }
-    is(AluOp.op_sll) {
-      alu_out := src2 << src1(4, 0) // 由sa指定位移数（src1）
-    }
-    is(AluOp.op_srl) {
-      alu_out := src2 >> src1(4, 0) // 由sa指定位移位数（src1）
-    }
-    is(AluOp.op_sra) {
-      alu_out := (src2.asSInt() >> src1(4, 0)).asUInt()
-    }
-    is(AluOp.op_lui) {
-      alu_out := src2 << 16.U
-    }
-    is(AluOp.op_hi_dir) {
-      alu_out := io.hi_in
-    }
-    is(AluOp.op_lo_dir) {
-      alu_out := io.lo_in
-    }
-    is(AluOp.op_mult) {
-      alu_out := Mux(multiplier.io.res_valid, multiplier.io.mult_res_31_0, io.lo_in)
-    }
-  }
-
-  val bus_valid: Bool = Wire(Bool())
-  bus_valid := io.id_ex_in.bus_valid && !reset.asBool() && (!flush || io.id_ex_in.ins_eret)
-
-  io.ex_ms_out.alu_val_ex_ms := alu_out
-  val src_sum     : UInt            = src1 + src2
-  val mem_wen     : Bool            = io.id_ex_in.bus_valid && io.id_ex_in.mem_wen_id_ex =/= 0.U
-  val mem_data_sel: MemDataSel.Type = io.id_ex_in.mem_data_sel_id_ex
-  // 直出内存地址，连接到sram上，写使能有效的时候直接写入对应的地址
-  io.mem_addr := src_sum
-
-
-  io.ex_ms_out.regfile_wsrc_sel_ex_ms := io.id_ex_in.regfile_wsrc_sel_id_ex
-  io.ex_ms_out.regfile_waddr_sel_ex_ms := io.id_ex_in.regfile_waddr_sel_id_ex
-  io.ex_ms_out.inst_rd_ex_ms := io.id_ex_in.inst_rd_id_ex
-  io.ex_ms_out.inst_rt_ex_ms := io.id_ex_in.inst_rt_id_ex
-  io.ex_ms_out.regfile_we_ex_ms := io.id_ex_in.regfile_we_id_ex
-  io.ex_ms_out.pc_ex_ms_debug := io.id_ex_in.pc_id_ex_debug
-  io.ex_ms_out.mem_rdata_offset := src_sum(1, 0)
-  io.ex_ms_out.mem_rdata_sel_ex_ms := io.id_ex_in.mem_data_sel_id_ex
-  io.ex_ms_out.mem_rdata_extend_is_signed_ex_ms := io.id_ex_in.mem_rdata_extend_is_signed_id_ex
-  // 当指令为从内存或者cp0中取出存放至寄存器堆中时，ex阶段无法得出结果，前递通路有效，数据无效
-  io.bypass_ex_id.bus_valid := bus_valid && io.id_ex_in.regfile_we_id_ex
-  io.bypass_ex_id.data_valid := io.id_ex_in.bus_valid &&
-    (!io.id_ex_in.regfile_wsrc_sel_id_ex || io.id_ex_in.regfile_wdata_from_cp0_id_ex)
-  // 写寄存器来源为内存，并且此时ex阶段有效
-  io.bypass_ex_id.reg_data := alu_out
-  io.bypass_ex_id.reg_addr := Mux1H(Seq(
-    (io.id_ex_in.regfile_waddr_sel_id_ex === RegFileWAddrSel.inst_rd) -> io.id_ex_in.inst_rd_id_ex,
-    (io.id_ex_in.regfile_waddr_sel_id_ex === RegFileWAddrSel.inst_rt) -> io.id_ex_in.inst_rt_id_ex,
-    (io.id_ex_in.regfile_waddr_sel_id_ex === RegFileWAddrSel.const_31) -> 31.U))
-  // 至此所有可能会拉例外的情况都已经发生，选择直接在执行级和CP0交互处理这些例外
-  val exception_flags: UInt = io.id_ex_in.exception_flags |
-    Mux(overflow_occurred && io.id_ex_in.overflow_detection_en, ExceptionConst.EXCEPTION_INT_OVERFLOW, 0.U) |
-    Mux(io.id_ex_in.mem_en_id_ex && io.id_ex_in.mem_en_id_ex &&
-      ((mem_data_sel === MemDataSel.word && src_sum(1, 0) =/= 0.U) ||
-        mem_data_sel === MemDataSel.hword && src_sum(0) =/= 0.U),
-      // 写使能非零说明是写地址异常
-      Mux(io.id_ex_in.mem_wen_id_ex =/= 0.U, ExceptionConst.EXCEPTION_BAD_RAM_ADDR_WRITE,
-        ExceptionConst.EXCEPTION_BAD_RAM_ADDR_READ), 0.U)
-
-
-  val ms_cp0_hazard: Bool = io.cp0_hazard_bypass_ms_ex.bus_valid && io.cp0_hazard_bypass_ms_ex.cp0_en
-  val wb_cp0_hazard: Bool = io.cp0_hazard_bypass_wb_ex.bus_valid && io.cp0_hazard_bypass_wb_ex.cp0_en
-
+  // 后方流水线是否写cp0
+  val ms_cp0_hazard : Bool = (io.cp0_hazard_bypass_ms_ex(0).bus_valid && io.cp0_hazard_bypass_ms_ex(0).cp0_en) ||
+    (io.cp0_hazard_bypass_ms_ex(1).bus_valid && io.cp0_hazard_bypass_ms_ex(1).cp0_en)
+  val wb_cp0_hazard : Bool = (io.cp0_hazard_bypass_wb_ex(0).bus_valid && io.cp0_hazard_bypass_wb_ex(0).cp0_en) ||
+    (io.cp0_hazard_bypass_wb_ex(1).bus_valid && io.cp0_hazard_bypass_wb_ex(1).cp0_en)
   // 当ms、wb的指令正在写cp0的ip域时，暂停流水线
-  val ms_cp0_ip0_wen: Bool = io.cp0_hazard_bypass_ms_ex.bus_valid && io.cp0_hazard_bypass_ms_ex.cp0_ip_wen
-  val wb_cp0_ip0_wen: Bool = io.cp0_hazard_bypass_wb_ex.bus_valid && io.cp0_hazard_bypass_wb_ex.cp0_ip_wen
-
-
-  val exception_occur     : Bool = io.id_ex_in.bus_valid && !io.id_ex_in.ins_eret &&
-    exception_flags =/= 0.U // 当输入有效且例外标识不为0则发生例外
-  val interrupt_flag      : UInt = io.cp0_cause_ip & io.cp0_status_im
-  val interrupt_occur     : Bool = io.id_ex_in.bus_valid && !io.id_ex_in.ins_eret &&
-    interrupt_flag =/= 0.U
-  val soft_interrupt_occur: Bool = interrupt_flag(1, 0) =/= 0.U
-  val hard_interrupt_occur: Bool = interrupt_flag(7, 2) =/= 0.U
-  val eret_occur          : Bool = io.id_ex_in.bus_valid && io.id_ex_in.ins_eret
-  val exception_available : Bool = 1.B // 永远允许例外发生
-  val interrupt_available : Bool = !io.cp0_ex_in.status_exl && io.cp0_ex_in.status_ie
-
-  val wdata_offset: UInt = Wire(UInt(5.W))
-  wdata_offset := src_sum(1, 0) << 3.U
-  // 实际写入数据与size、addr相关，并非永远都选择低位有效
-  io.mem_wdata := io.id_ex_in.mem_wdata_id_ex << wdata_offset
-  io.mem_en := io.id_ex_in.mem_en_id_ex && !flush && io.next_allowin && bus_valid
-  io.mem_wen := io.id_ex_in.mem_wen_id_ex &
-    VecInit(Seq.fill(4)(!((exception_available && exception_occur) || (interrupt_occur && interrupt_available)) &&
-      bus_valid)).asUInt()
-  io.mem_size := MuxCase(0.U, Seq(
-    (mem_data_sel === MemDataSel.word) -> 2.U,
-    (mem_data_sel === MemDataSel.hword) -> 1.U,
-    (mem_data_sel === MemDataSel.byte) -> 0.U
-  ))
+  val ms_cp0_ip0_wen: Bool = (io.cp0_hazard_bypass_ms_ex(0).bus_valid && io.cp0_hazard_bypass_ms_ex(0).cp0_ip_wen) ||
+    (io.cp0_hazard_bypass_ms_ex(1).bus_valid && io.cp0_hazard_bypass_ms_ex(1).cp0_ip_wen)
+  val wb_cp0_ip0_wen: Bool = (io.cp0_hazard_bypass_wb_ex(0).bus_valid && io.cp0_hazard_bypass_wb_ex(0).cp0_ip_wen) ||
+    (io.cp0_hazard_bypass_wb_ex(1).bus_valid && io.cp0_hazard_bypass_wb_ex(1).cp0_ip_wen)
 
   val ready_go: Bool = !ms_cp0_ip0_wen && !wb_cp0_ip0_wen &&
-    Mux(divider_required, divider.io.out_valid, 1.B) &&
-    Mux(multiplier_required, multiplier.io.res_valid, 1.B) &&
-    Mux((exception_occur && exception_available) || (interrupt_occur && interrupt_available), !ms_cp0_hazard && !wb_cp0_hazard, 1.B) &&
-    Mux(io.id_ex_in.bus_valid && io.id_ex_in.mem_en_id_ex,
-      io.data_ram_state === RamState.waiting_for_response,
-      1.B)
-  io.this_allowin := ready_go && io.next_allowin && !reset.asBool()
-  io.ex_ms_out.bus_valid := ready_go && bus_valid
+    Mux(io.id_ex_in(0).bus_valid, alu(0).out.out_valid, 1.B) &&
+    Mux(io.id_ex_in(1).bus_valid, alu(1).out.out_valid, 1.B) &&
+    Mux(exception_occur(exception_index) || (interrupt_occur(exception_index) && interrupt_available(exception_index)),
+      !ms_cp0_hazard && !wb_cp0_hazard, 1.B) &&
+    // 由于可能存在同时两条访存指令，可能当一个指令返回了addr_ok和data_ok后另一条指令还没返回addr_ok
+    Mux(io.id_ex_in(0).bus_valid && io.id_ex_in(0).mem_en_id_ex,
+      io.data_ram_state(0) === RamState.waiting_for_response || io.data_ram_state(0) === RamState.waiting_for_read, 1.B) &&
+    Mux(io.id_ex_in(1).bus_valid && io.id_ex_in(1).mem_en_id_ex,
+      io.data_ram_state(1) === RamState.waiting_for_response || io.data_ram_state(1) === RamState.waiting_for_read, 1.B)
 
-  io.ex_ms_out.cp0_addr_ex_ms := io.id_ex_in.cp0_addr_id_ex
-  io.ex_ms_out.cp0_wen_ex_ms := io.id_ex_in.cp0_wen_id_ex
-  io.ex_ms_out.cp0_sel_ex_ms := io.id_ex_in.cp0_sel_id_ex
-  io.ex_ms_out.regfile_wdata_from_cp0_ex_ms := io.id_ex_in.regfile_wdata_from_cp0_id_ex
-  io.ex_ms_out.mem_req := io.id_ex_in.mem_en_id_ex
+  val in_bus_valid: Bool = io.id_ex_in(0).bus_valid && !reset.asBool() && (!flush || eret_occur)
+  for (i_in <- 0 to 1) {
+    val i_alu: UInt = i_in.U ^ order_flipped
+    alu(i_alu).in.alu_op := io.id_ex_in(i_in).alu_op_id_ex
+    alu(i_alu).in.src1 := Mux(io.id_ex_in(i_in).src_use_hilo,
+      Mux(io.id_ex_in(i_in).hilo_sel === HiloSel.hi, io.ex_hilo.hi_in, io.ex_hilo.lo_in),
+      io.id_ex_in(i_in).alu_src1_id_ex)
+    alu(i_alu).in.src2 := io.id_ex_in(i_in).alu_src2_id_ex
+    alu(i_alu).in.en := io.id_ex_in(i_in).bus_valid
+    alu(i_alu).in.flush := flush
+    alu(i_alu).in.lo := io.ex_hilo.lo_in
+    alu(i_alu).in.ex_allowin := this_allowin
+    alu_out(i_in) := alu(i_alu).out
+  }
 
-  io.ex_cp0_out.is_delay_slot := io.id_ex_in.is_delay_slot // 延迟槽指令是接在分支指令之后一定会执行的那条指令
+  // 判断例外屏蔽
+  // 若第一条指令产生例外会屏蔽两条指令
+  // 否则只会屏蔽第二条指令
+  def exceptionShielded(index: Int): Bool = {
+    io.id_ex_in(index).bus_valid && Mux(exception_occur(0), 1.B, exception_occur(1) && index.U === 1.U)
+  }
 
+  flush := ((interrupt_occur(exception_index) && interrupt_available) || exception_occur(exception_index) ||
+    eret_occur) && ready_go
 
-  io.ex_cp0_out.exception_occur := (exception_occur || interrupt_occur) && ready_go
+  // dram操作
+  for (i <- 0 to 1) {
+    io.ex_ram_out(i).mem_en := !flush && io.id_ex_in(i).bus_valid && io.next_allowin &&
+      // 如果waw冲突，前一条指令被屏蔽
+      io.id_ex_in(i).mem_en_id_ex && !(i.U === 0.U && mem_waddr_hazard) &&
+      !exceptionShielded(i)
+    io.ex_ram_out(i).mem_addr := alu_out(i).alu_sum
+    io.ex_ram_out(i).mem_size := MuxCase(0.U, Seq(
+      (io.id_ex_in(i).mem_data_sel_id_ex === MemDataSel.word) -> 2.U,
+      (io.id_ex_in(i).mem_data_sel_id_ex === MemDataSel.hword) -> 1.U,
+      (io.id_ex_in(i).mem_data_sel_id_ex === MemDataSel.byte) -> 0.U
+    ))
+    val wdata_offset: UInt = Wire(UInt(5.W))
+    wdata_offset := alu_out(i).alu_sum(1, 0) << 3.U
+    // 实际写入数据与size、addr相关，并非永远都选择低位有效
+    io.ex_ram_out(i).mem_wdata := io.id_ex_in(i).mem_wdata_id_ex << wdata_offset
+    io.ex_ram_out(i).mem_wen := io.id_ex_in(i).mem_wen_id_ex &&
+      !exceptionShielded(i) && io.id_ex_in(i).bus_valid
+  }
+
+  // 送给memory阶段的输出
+  for (i <- 0 to 1) {
+    io.ex_ms_out(i).alu_val_ex_ms := alu_out(i).alu_res
+    io.ex_ms_out(i).regfile_wsrc_sel_ex_ms := io.id_ex_in(i).regfile_wsrc_sel_id_ex
+    io.ex_ms_out(i).regfile_waddr_sel_ex_ms := io.id_ex_in(i).regfile_waddr_sel_id_ex
+    io.ex_ms_out(i).inst_rd_ex_ms := io.id_ex_in(i).inst_rd_id_ex
+    io.ex_ms_out(i).inst_rt_ex_ms := io.id_ex_in(i).inst_rt_id_ex
+    io.ex_ms_out(i).regfile_we_ex_ms := io.id_ex_in(i).regfile_we_id_ex
+    io.ex_ms_out(i).pc_ex_ms_debug := io.id_ex_in(i).pc_id_ex_debug
+    io.ex_ms_out(i).mem_rdata_offset := alu_out(i).alu_sum(1, 0)
+    io.ex_ms_out(i).mem_rdata_sel_ex_ms := io.id_ex_in(i).mem_data_sel_id_ex
+    io.ex_ms_out(i).mem_rdata_extend_is_signed_ex_ms := io.id_ex_in(i).mem_rdata_extend_is_signed_id_ex
+    io.ex_ms_out(i).cp0_addr_ex_ms := io.id_ex_in(i).cp0_addr_id_ex
+    io.ex_ms_out(i).cp0_wen_ex_ms := io.id_ex_in(i).cp0_wen_id_ex
+    io.ex_ms_out(i).cp0_sel_ex_ms := io.id_ex_in(i).cp0_sel_id_ex
+    io.ex_ms_out(i).regfile_wdata_from_cp0_ex_ms := io.id_ex_in(i).regfile_wdata_from_cp0_id_ex
+    io.ex_ms_out(i).mem_req := io.id_ex_in(i).mem_en_id_ex
+    io.ex_ms_out(i).issue_num := io.id_ex_in(i).issue_num
+  }
+
+  // 送给cp0的输出
+  io.ex_cp0_out.is_delay_slot := io.id_ex_in(exception_index).is_delay_slot
+  io.ex_cp0_out.exception_occur := (exception_occur(exception_index) || interrupt_occur(exception_index)) &&
+    io.id_ex_in(exception_index).bus_valid && ready_go
   // 如果是软中断导致的例外，将pc指向下一条指令
   // 如果是硬中断导致的例外，pc指向最后一条没有生效的指令
   // 由于只有前方流水线会被清空，所以最后一条没有生效的指令就是当前的指令
-  io.ex_cp0_out.pc := io.id_ex_in.pc_id_ex_debug
-  io.ex_cp0_out.badvaddr := MuxCase(io.id_ex_in.pc_id_ex_debug, Seq(
-    (exception_flags(0) || exception_flags(1) || exception_flags(2) ||
-      exception_flags(3) || exception_flags(4)) -> io.id_ex_in.pc_id_ex_debug,
+  io.ex_cp0_out.pc := io.id_ex_in(exception_index).pc_id_ex_debug
+  io.ex_cp0_out.badvaddr := MuxCase(io.id_ex_in(exception_index).pc_id_ex_debug, Seq(
+    (exception_flags(exception_index)(0) || exception_flags(exception_index)(1) || exception_flags(exception_index)(2) ||
+      exception_flags(exception_index)(3) || exception_flags(exception_index)(4)) -> io.id_ex_in(exception_index).pc_id_ex_debug,
     // 只有当内存地址取值出错的时候，badvaddr返回的是内存对应的地址而不是指令地址
-    (exception_flags(5) || exception_flags(6)) -> src_sum
+    (exception_flags(exception_index)(5) || exception_flags(exception_index)(6)) -> alu_out(exception_index).alu_sum
   ))
   io.ex_cp0_out.eret_occur := eret_occur && ready_go
   io.ex_cp0_out.exc_code := MuxCase(0.U, Seq(
-    (interrupt_occur && interrupt_available) -> ExcCodeConst.INT,
-    exception_flags(0) -> ExcCodeConst.ADEL,
-    exception_flags(1) -> ExcCodeConst.RI,
-    exception_flags(2) -> ExcCodeConst.OV,
-    exception_flags(3) -> ExcCodeConst.BP,
-    exception_flags(4) -> ExcCodeConst.SYS,
-    exception_flags(5) -> ExcCodeConst.ADES,
-    exception_flags(6) -> ExcCodeConst.ADEL
+    (interrupt_occur(exception_index) && interrupt_available) -> ExcCodeConst.INT,
+    exception_flags(exception_index)(0) -> ExcCodeConst.ADEL,
+    exception_flags(exception_index)(1) -> ExcCodeConst.RI,
+    exception_flags(exception_index)(2) -> ExcCodeConst.OV,
+    exception_flags(exception_index)(3) -> ExcCodeConst.BP,
+    exception_flags(exception_index)(4) -> ExcCodeConst.SYS,
+    exception_flags(exception_index)(5) -> ExcCodeConst.ADES,
+    exception_flags(exception_index)(6) -> ExcCodeConst.ADEL
   ))
-  // 例外发生的时候需要流水线执行以下操作
-  //  排空执行阶段以及之前的流水线
-  //  预取阶段下一条指令位置为中断服务程序
-  flush := ((interrupt_occur && interrupt_available) || (exception_available && exception_occur) ||
-    (io.id_ex_in.bus_valid && io.id_ex_in.ins_eret)) && ready_go
+
+  // 给译码的前递
+  for (i <- 0 to 1) {
+    io.bypass_ex_id(i).bus_valid := io.id_ex_in(i).bus_valid && !flush && io.id_ex_in(i).regfile_we_id_ex
+    io.bypass_ex_id(i).data_valid := io.id_ex_in(i).bus_valid &&
+      // 写寄存器来源为内存或者cp0时，前递的数据尚未准备完成
+      (!io.id_ex_in(i).regfile_wsrc_sel_id_ex || io.id_ex_in(i).regfile_wdata_from_cp0_id_ex)
+    io.bypass_ex_id(i).reg_data := alu_out
+    io.bypass_ex_id(i).reg_addr := MuxCase(0.U, Seq(
+      (io.id_ex_in(i).regfile_waddr_sel_id_ex === RegFileWAddrSel.inst_rd) -> io.id_ex_in(i).inst_rd_id_ex,
+      (io.id_ex_in(i).regfile_waddr_sel_id_ex === RegFileWAddrSel.inst_rt) -> io.id_ex_in(i).inst_rt_id_ex,
+      (io.id_ex_in(i).regfile_waddr_sel_id_ex === RegFileWAddrSel.const_31) -> 31.U))
+  }
+
+  // 给hilo的输出
+
+  io.ex_pf_out.to_exception_service_en_ex_pf := (exception_occur(exception_index) ||
+    (interrupt_occur(exception_index) && interrupt_available)) && ready_go
+  io.ex_pf_out.to_epc_en_ex_pf := eret_occur && ready_go
+
   io.pipeline_flush := flush
-  io.to_exception_service_en_ex_pf := ((exception_available && exception_occur) ||
-    (interrupt_occur && interrupt_available)) && ready_go
-  io.to_epc_en_ex_pf := io.id_ex_in.bus_valid && io.id_ex_in.ins_eret
+  io.ex_hilo.hi_out := alu(0).out.alu_res(63, 32)
+  io.ex_hilo.hi_wen := io.id_ex_in(order_flipped).hi_wen
+  io.ex_hilo.lo_out := alu(0).out.alu_res(31, 0)
+  io.ex_hilo.lo_wen := io.id_ex_in(order_flipped).lo_wen
 
 }

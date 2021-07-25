@@ -20,6 +20,4 @@ object AluOp extends OneHotEnum {
   val op_multu : Type = Value(8192.U)
   val op_div   : Type = Value(16384.U)
   val op_divu  : Type = Value(32768.U)
-  val op_lo_dir: Type = Value(65536.U)
-  val op_hi_dir: Type = Value(131072.U)
 }

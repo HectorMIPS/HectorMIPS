@@ -25,6 +25,8 @@ class DecodePreFetchBundle extends Bundle {
   val stall_id_pf     : Bool            = Output(Bool())
   // 请求新获取的指令数
   val inst_num_request: UInt            = Input(UInt(2.W))
+  // 是否需要将pc回退4
+  val pc_back_4       : Bool            = Input(Bool())
 
   def defaults(): Unit = {
     jump_sel_id_pf := InsJumpSel.seq_pc
@@ -34,7 +36,13 @@ class DecodePreFetchBundle extends Bundle {
     jump_taken := 0.B
     stall_id_pf := 0.B
     inst_num_request := 2.U
+    pc_back_4 := 0.B
   }
+}
+
+class ExecutePrefetchBundle extends Bundle {
+  val to_exception_service_en_ex_pf: Bool = Bool()
+  val to_epc_en_ex_pf              : Bool = Bool()
 }
 
 
@@ -50,8 +58,7 @@ class InsPreFetchBundle extends WithAllowin {
   val next_pc                      : UInt                 = Output(UInt(32.W))
   val pc_wen                       : Bool                 = Output(Bool())
   // 一次读入两条指令
-  val delay_slot_pc_pf_if          : Vec[UInt]            = Output(Vec(2, UInt(32.W)))
-  val pc_debug_pf_if               : Vec[UInt]            = Output(Vec(2, UInt(32.W)))
+  val pc_debug_pf_if               : UInt                 = Output(UInt(32.W))
   val to_exception_service_en_ex_pf: Bool                 = Input(Bool())
   val to_epc_en_ex_pf              : Bool                 = Input(Bool())
   val flush                        : Bool                 = Input(Bool())
@@ -59,7 +66,7 @@ class InsPreFetchBundle extends WithAllowin {
   val fetch_state                  : RamState.Type        = Input(RamState())
   val branch_state                 : BranchState.Type     = Input(BranchState())
   val ins_ram_data_ok              : Bool                 = Input(Bool())
-
+  val inst_num_request             : UInt                 = Input(UInt(2.W))
 
   val in_valid: Bool = Input(Bool()) // 传入预取的输入是否有效
 
@@ -69,8 +76,8 @@ class InsPreFetchBundle extends WithAllowin {
 class InsPreFetch extends Module {
   val io      : InsPreFetchBundle = IO(new InsPreFetchBundle())
   val pc_jump : UInt              = Wire(UInt(32.W))
-  val seq_pc_4: UInt              = io.pc + 4.U
-  val seq_pc_8: UInt              = io.pc + 8.U
+  val seq_pc_4: UInt              = Mux(io.id_pf_in.pc_back_4, io.pc, io.pc + 4.U)
+  val seq_pc_8: UInt              = Mux(io.id_pf_in.pc_back_4, io.pc + 4.U, io.pc + 8.U)
   val req     : Bool              = !io.id_pf_in.stall_id_pf && io.next_allowin &&
     (io.fetch_state === RamState.waiting_for_request || io.fetch_state === RamState.requesting)
   pc_jump := seq_pc_4
@@ -110,17 +117,15 @@ class InsPreFetch extends Module {
   // 当需要暂停的时候，需要同步ram保持上一个周期的读出内容，使能0
   io.ins_ram_en := req
   io.ins_ram_addr := pc_out
-  io.delay_slot_pc_pf_if := io.pc + 4.U
   // 永远可以写入pc，直接通过控制io.next_pc的值来实现暂停等操作来简化控制模型
   io.pc_wen := 1.B
   io.this_allowin := !reset.asBool() && io.next_allowin
-  io.pc_debug_pf_if := io.pc
+  io.pc_debug_pf_if := Mux(io.id_pf_in.pc_back_4, io.pc - 4.U, io.pc)
 
 }
 
 class InsSufFetchBundle extends WithAllowin {
-  val delay_slot_pc_pf_if: UInt = Input(UInt(32.W)) // 延迟槽pc值
-  val ins_ram_data       : UInt = Input(UInt(32.W))
+  val ins_ram_data: UInt = Input(UInt(32.W))
 
   val if_id_out         : FetchDecodeBundle = Output(new FetchDecodeBundle)
   val pc_debug_pf_if    : UInt              = Input(UInt(32.W))
@@ -129,6 +134,7 @@ class InsSufFetchBundle extends WithAllowin {
   val ins_ram_data_valid: UInt              = Input(UInt(2.W))
   val fetch_state       : RamState.Type     = Input(RamState())
   val is_delay_slot     : Bool              = Input(Bool())
+  val inst_num_request  : UInt              = Input(UInt(2.W))
 }
 
 // 获取同步RAM的数据
@@ -144,11 +150,11 @@ class InsSufFetch extends Module {
 
   io.if_id_out.ins_if_id := if_buffer_reg
   io.if_id_out.ins_valid_if_id := if_buffer_valid_reg
-  io.if_id_out.pc_delay_slot_if_id := io.delay_slot_pc_pf_if
   io.if_id_out.bus_valid := !reset.asBool() && !io.flush &&
     // 由缓冲寄存器读出
     (io.fetch_state === RamState.waiting_for_read)
   io.if_id_out.pc_debug_if_id := io.pc_debug_pf_if
   io.if_id_out.is_delay_slot := io.is_delay_slot
+  io.if_id_out.req_count := io.inst_num_request
   io.this_allowin := !reset.asBool() && io.next_allowin
 }

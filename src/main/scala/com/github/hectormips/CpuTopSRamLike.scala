@@ -73,7 +73,6 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
 
 
   val fetch_state_reg : RamState.Type    = RegInit(RamState.waiting_for_request)
-  val branch_state_reg: BranchState.Type = RegInit(BranchState.no_branch)
 
 
   // 预取
@@ -99,7 +98,6 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   pf_module.io.flush := pipeline_flush_ex
   pf_module.io.ins_ram_data_ok := io.inst_sram_like_io.data_ok
   pf_module.io.fetch_state := fetch_state_reg
-  pf_module.io.branch_state := branch_state_reg
   io.inst_sram_like_io.addr := addr_mapping(pf_module.io.ins_ram_addr)
   io.inst_sram_like_io.req := pf_module.io.ins_ram_en
   io.inst_sram_like_io.wr := 0.B
@@ -107,31 +105,6 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   io.inst_sram_like_io.size := 2.U
   pc_wen := pf_module.io.pc_wen
   pc_next := pf_module.io.next_pc
-  when(!pipeline_flush_ex && !to_epc_en_ex_pf) {
-    when((id_pf_buffer.bus_valid && id_pf_buffer.is_jump) ||
-      (id_pf_bus.bus_valid && id_pf_bus.is_jump)) {
-      when(branch_state_reg === BranchState.no_branch && ((id_pf_buffer.bus_valid && id_pf_buffer.jump_taken) ||
-        (id_pf_bus.bus_valid && id_pf_bus.jump_taken))) {
-        branch_state_reg := BranchState.delay_slot
-      }.elsewhen(branch_state_reg === BranchState.no_branch && ((id_pf_buffer.bus_valid && !id_pf_buffer.jump_taken) ||
-        (id_pf_bus.bus_valid && !id_pf_bus.jump_taken))) {
-        branch_state_reg := BranchState.delay_slot_no_jump
-      }.elsewhen(branch_state_reg === BranchState.delay_slot &&
-        fetch_state_reg === RamState.waiting_for_read && id_allowin) {
-        branch_state_reg := BranchState.branch_target
-      }.elsewhen(branch_state_reg === BranchState.branch_target &&
-        fetch_state_reg === RamState.waiting_for_read && id_allowin) {
-        branch_state_reg := BranchState.no_branch
-        id_pf_buffer.bus_valid := 0.B
-      }
-    }
-    when(branch_state_reg === BranchState.delay_slot_no_jump && fetch_state_reg === RamState.waiting_for_read && id_allowin) {
-      branch_state_reg := BranchState.no_branch
-      id_pf_buffer.bus_valid := 0.B
-    }
-  }.otherwise {
-    branch_state_reg := BranchState.no_branch
-  }
 
 
   when(pf_module.io.ins_ram_en && fetch_state_reg === RamState.waiting_for_request) {
@@ -165,7 +138,6 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   // 取指
   val if_module: InsSufFetch = Module(new InsSufFetch)
   // 由于是伪阶段，不需要寄存器来存储延迟槽指令pc
-  if_module.io.delay_slot_pc_pf_if := pf_module.io.delay_slot_pc_pf_if
   if_module.io.ins_ram_data := io.inst_sram_like_io.rdata
   if_module.io.pc_debug_pf_if := pf_module.io.pc_debug_pf_if
   if_module.io.next_allowin := id_allowin
@@ -173,8 +145,6 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   if_module.io.ins_ram_data_ok := io.inst_sram_like_io.data_ok
   if_module.io.ins_ram_data_valid := io.inst_sram_like_io.inst_valid
   if_module.io.fetch_state := fetch_state_reg
-  if_module.io.is_delay_slot := branch_state_reg === BranchState.delay_slot ||
-    branch_state_reg === BranchState.delay_slot_no_jump
   if_allowin := if_module.io.this_allowin
   if_id_bus := if_module.io.if_id_out
   if_id_bus.bus_valid := if_module.io.if_id_out.bus_valid
@@ -207,56 +177,52 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
 
 
   // 执行
-  val ex_reg: DecodeExecuteBundle = RegEnableWithValid(next = id_ex_bus, enable = ex_allowin && id_ex_bus.bus_valid, init = {
-    val bundle: DecodeExecuteBundle = Wire(new DecodeExecuteBundle)
-    bundle.defaults()
-    bundle
-  }, valid_enable = ex_allowin)
+  val ex_reg: DecodeExecuteBundle = RegEnableWithValid(next = id_ex_bus,
+    enable = ex_allowin && id_ex_bus.bus_valid, init = {
+      val bundle: DecodeExecuteBundle = Wire(new DecodeExecuteBundle)
+      bundle.defaults()
+      bundle
+    }, valid_enable = ex_allowin)
 
-  val ex_module            : InsExecute        = Module(new InsExecute)
-  val ex_divider_state_next: DividerState.Type = Wire(DividerState())
-  val ex_divider_state_reg : DividerState.Type = RegEnable(next = ex_divider_state_next, init = DividerState.waiting,
-    enable = ex_module.io.divider_required)
-  ex_divider_state_next := MuxCase(ex_divider_state_reg, Seq(
-    (ex_divider_state_reg === DividerState.waiting && ex_module.io.divider_required) -> DividerState.inputting,
-    (ex_divider_state_reg === DividerState.inputting && ex_module.io.divider_tready) -> DividerState.handshaking,
-    (ex_divider_state_reg === DividerState.handshaking && !ex_module.io.divider_tready) -> DividerState.calculating,
-    (ex_divider_state_reg === DividerState.calculating && ex_module.io.this_allowin) -> DividerState.waiting,
-    ex_allowin -> DividerState.waiting
-  ))
-  ex_module.io.divider_tvalid := ex_divider_state_next === DividerState.inputting ||
-    ex_divider_state_next === DividerState.handshaking
-  val data_sram_state_reg: RamState.Type = RegInit(init = RamState.waiting_for_request)
+  val ex_module: InsExecute = Module(new InsExecute)
+
+  val data_sram_state_reg : Vec[RamState.Type] = RegInit(init = VecInit(Seq.fill(2)(RamState.waiting_for_request)))
+  val data_sram_buffer_reg: Vec[UInt]          = RegInit(init = VecInit(Seq.fill(2)(0.U(32.W))))
 
   // 直接接入ram的通路
   ex_module.io.id_ex_in := ex_reg
-  ex_module.io.hi_in := hi
-  ex_module.io.lo_in := lo
+  ex_module.io.ex_hilo.hi_in := hi
+  ex_module.io.ex_hilo.lo_in := lo
   ex_module.io.cp0_hazard_bypass_ms_ex := cp0_hazard_bypass_ms_ex
   ex_module.io.cp0_hazard_bypass_wb_ex := cp0_hazard_bypass_wb_ex
-  ex_module.io.cp0_cause_ip := cp0_cause_ip
-  ex_module.io.cp0_status_im := cp0_status_im
+  ex_module.io.cp0_ex_in.cp0_cause_ip := cp0_cause_ip
+  ex_module.io.cp0_ex_in.cp0_status_im := cp0_status_im
   ex_module.io.data_ram_state := data_sram_state_reg
-  ex_module.io.data_ram_addr_ok := io.data_sram_like_io.addr_ok
-  io.data_sram_like_io.req := ex_module.io.mem_en
-  io.data_sram_like_io.wr := ex_module.io.mem_wen =/= 0.U
-  io.data_sram_like_io.addr := addr_mapping(ex_module.io.mem_addr)
-  io.data_sram_like_io.size := ex_module.io.mem_size
+  for (i <- 0 to 1) {
+    io.data_sram_like_io.req(i) := ex_module.io.ex_ram_out(i).mem_en
+    io.data_sram_like_io.wr(i) := ex_module.io.ex_ram_out(i).mem_wen
+    io.data_sram_like_io.addr(i) := addr_mapping(ex_module.io.ex_ram_out(i).mem_addr)
+    io.data_sram_like_io.size(i) := ex_module.io.ex_ram_out(i).mem_size
+    io.data_sram_like_io.wdata(i) := ex_module.io.ex_ram_out(i).mem_wdata
+  }
   // 在flush的时候，当前指令会被取消，对后面的访存指令不要做其他操作
-  when(data_sram_state_reg === RamState.waiting_for_request && ex_module.io.mem_en &&
-    ex_module.io.id_ex_in.bus_valid && !io.data_sram_like_io.addr_ok) {
-    data_sram_state_reg := RamState.requesting
-  }.elsewhen((data_sram_state_reg === RamState.requesting ||
-    (data_sram_state_reg === RamState.waiting_for_request && ex_module.io.mem_en && ex_module.io.id_ex_in.bus_valid)) &&
-    io.data_sram_like_io.addr_ok) {
-    data_sram_state_reg := RamState.waiting_for_response
-  }.elsewhen(data_sram_state_reg === RamState.waiting_for_response && io.data_sram_like_io.data_ok) {
-    data_sram_state_reg := RamState.waiting_for_request
+  for (i <- 0 to 1) {
+    when(data_sram_state_reg(i) === RamState.waiting_for_request && ex_module.io.ex_ram_out(i).mem_en &&
+      ex_module.io.id_ex_in(i).bus_valid && !io.data_sram_like_io.addr_ok) {
+      data_sram_state_reg(i) := RamState.requesting
+    }.elsewhen((data_sram_state_reg(i) === RamState.requesting ||
+      (data_sram_state_reg(i) === RamState.waiting_for_request && ex_module.io.ex_ram_out(i).mem_en &&
+        ex_module.io.id_ex_in(i).bus_valid)) &&
+      io.data_sram_like_io.addr_ok) {
+      data_sram_state_reg(i) := RamState.waiting_for_response
+    }.elsewhen(data_sram_state_reg(i) === RamState.waiting_for_response && io.data_sram_like_io.data_ok) {
+      data_sram_state_reg(i) := RamState.waiting_for_read
+      data_sram_buffer_reg(i) := io.data_sram_like_io.rdata(i)
+    }.elsewhen(data_sram_state_reg(i) === RamState.waiting_for_read && ex_module.io.ready_go && ms_allowin) {
+      data_sram_state_reg(i) := RamState.waiting_for_request
+    }
   }
 
-  //  io.data_sram_wdata := ex_module.io.mem_wdata
-  // sw => wdata := regfile2
-  io.data_sram_like_io.wdata := ex_module.io.mem_wdata
   ex_ms_bus := ex_module.io.ex_ms_out
   ex_allowin := ex_module.io.this_allowin
   bypass_bus.bp_ex_id := ex_module.io.bypass_ex_id
@@ -280,8 +246,7 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
 
   val ms_module: InsMemory = Module(new InsMemory)
   ms_module.io.ex_ms_in := ms_reg
-  ms_module.io.mem_rdata := io.data_sram_like_io.rdata
-  ms_module.io.data_ram_data_ok := io.data_sram_like_io.data_ok
+  ms_module.io.mem_rdata := data_sram_buffer_reg
   ms_module.io.data_ram_state := data_sram_state_reg
   ms_wb_bus := ms_module.io.ms_wb_out
   ms_allowin := ms_module.io.this_allowin

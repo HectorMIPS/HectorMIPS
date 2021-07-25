@@ -36,16 +36,16 @@ object HiloSel extends OneHotEnum {
 }
 
 class FetchDecodeBundle extends WithValid {
-  val ins_if_id          : UInt = UInt(64.W)
-  val pc_delay_slot_if_id: UInt = UInt(32.W) // 延迟槽pc
-  val pc_debug_if_id     : UInt = UInt(32.W) // 转移pc
-  val ins_valid_if_id    : UInt = UInt(2.W)
-  val is_delay_slot      : UInt = UInt(2.W)
+  val ins_if_id       : UInt = UInt(64.W)
+  val pc_debug_if_id  : UInt = UInt(32.W) // 转移pc
+  val ins_valid_if_id : UInt = UInt(2.W)
+  val is_delay_slot   : UInt = UInt(2.W)
+  val req_count       : UInt = UInt(2.W)
+
 
   override def defaults(): Unit = {
     super.defaults()
     ins_if_id := 0.U
-    pc_delay_slot_if_id := 0xbfbffffcL.U
     pc_debug_if_id := 0xbfbffffcL.U
     is_delay_slot := 0.U
   }
@@ -74,43 +74,117 @@ class InsDecodeBundle extends WithAllowin {
 
   val regfile_raddr1: Vec[UInt] = Output(Vec(2, UInt(32.W)))
   val regfile_raddr2: Vec[UInt] = Output(Vec(2, UInt(32.W)))
-  val regfile_read1 : UInt      = Input(UInt(32.W))
-  val regfile_read2 : UInt      = Input(UInt(32.W))
+  val regfile_read1 : Vec[UInt] = Input(Vec(2, UInt(32.W)))
+  val regfile_read2 : Vec[UInt] = Input(Vec(2, UInt(32.W)))
 
   val id_pf_out: DecodePreFetchBundle = Output(new DecodePreFetchBundle)
 
-  val id_ex_out : DecodeExecuteBundle = Output(new DecodeExecuteBundle)
-  val ins_opcode: UInt                = Output(UInt(6.W))
-  val flush     : Bool                = Input(Bool())
+  val id_ex_out : Vec[DecodeExecuteBundle] = Output(Vec(2, new DecodeExecuteBundle))
+  val ins_opcode: UInt                     = Output(UInt(6.W))
+  val flush     : Bool                     = Input(Bool())
 
-
-  val decode_to_fetch_next_pc: Vec[UInt] = Output(Vec(2, UInt(32.W))) // 回馈给取值的pc通路
 }
 
 class InsDecode extends Module {
-  val io      : InsDecodeBundle = IO(new InsDecodeBundle)
-  val ready_go: Bool            = Wire(Bool())
-  val decoder1: Decoder         = Module(new Decoder)
-  val decoder2: Decoder         = Module(new Decoder)
+  val io      : InsDecodeBundle        = IO(new InsDecodeBundle)
+  val decoders: Vec[Decoder#DecoderIO] = VecInit(Seq.fill(2)((new Decoder).io))
   // 给出发射控制信号
-  val issuer  : Issuer          = Module(new Issuer)
+  val issuer  : Issuer                 = Module(new Issuer)
 
-  decoder1.io.in.pc_debug := io.if_id_in.pc_debug_if_id
-  decoder1.io.in.is_delay_slot := io.if_id_in.is_delay_slot(0)
-  decoder1.io.in.bypass_bus := io.bypass_bus
-  decoder1.io.in.regfile_read1 := io.regfile_read1(0)
-  decoder1.io.in.regfile_read2 := io.regfile_read2(0)
-  decoder1.io.in.instruction := io.if_id_in.ins_if_id(31, 0)
+  for (i <- 0 to 1) {
+    decoders(i).in.ins_valid := io.if_id_in.ins_valid_if_id(i)
+    decoders(i).in.pc_debug := io.if_id_in.pc_debug_if_id + (i << 2).U
+    decoders(i).in.is_delay_slot := io.if_id_in.is_delay_slot(i)
+    decoders(i).in.bypass_bus := io.bypass_bus
+    decoders(i).in.regfile_read1 := io.regfile_read1(i)
+    decoders(i).in.regfile_read2 := io.regfile_read2(i)
+    decoders(i).in.instruction := io.if_id_in.ins_if_id(31 + i * 32, 32 * i)
+  }
 
-  decoder2.io.in.pc_debug := io.if_id_in.pc_debug_if_id + 4.U
-  decoder2.io.in.is_delay_slot := io.if_id_in.is_delay_slot(1)
-  decoder2.io.in.bypass_bus := io.bypass_bus
-  decoder2.io.in.regfile_read1 := io.regfile_read1(1)
-  decoder2.io.in.regfile_read2 := io.regfile_read2(1)
-  decoder2.io.in.instruction := io.if_id_in.ins_if_id(63, 32)
+  io.regfile_raddr1 := VecInit(Seq(decoders(1).out_regular.rs, decoders(0).out_regular.rs))
+  io.regfile_raddr2 := VecInit(Seq(decoders(1).out_regular.rt, decoders(0).out_regular.rt))
 
-  io.regfile_raddr1 := VecInit(Seq(decoder2.io.out_regular.rs, decoder1.io.out_regular.rs))
-  io.regfile_raddr2 := VecInit(Seq(decoder2.io.out_regular.rt, decoder1.io.out_regular.rt))
+  issuer.io.in_decoder1 <> decoders(0).out_issue
+  issuer.io.in_decoder2 <> decoders(1).out_issue
+  val issue_count    : UInt = issuer.io.out.issue_count
+  // 当前输入的指令有效数
+  val ins_valid_count: UInt = MuxCase(0.U, Seq(
+    (!io.if_id_in.ins_valid_if_id(0)) -> 0.U,
+    io.if_id_in.ins_valid_if_id(1) -> 2.U,
+    io.if_id_in.ins_valid_if_id(0) -> 1.U,
+  ))
+  val ins1_ready     : Bool = !decoders(0).out_hazard.load_to_regular && !decoders(0).out_hazard.load_to_branch
+  val ins2_ready     : Bool = !decoders(1).out_hazard.load_to_regular && !decoders(1).out_hazard.load_to_branch
+
+  // 当准备被发射的指令没有冲突可以进入下一个阶段的时候准入指令
+  val ready_go           : Bool = MuxCase(0.B, Seq(
+    (issue_count === 1.U) -> ins1_ready,
+    (issue_count === 2.U) -> (ins1_ready && ins2_ready)
+  ))
+  val wait_for_delay_slot: Bool = decoders(1).out_branch.is_jump && decoders(1).out_regular.ins_valid
+
+  io.this_allowin := io.next_allowin && !reset.asBool() && ready_go
+
+  // 如果有分支指令，仅当其在槽1时有效
+  io.id_pf_out.jump_sel_id_pf := decoders(0).out_branch.jump_sel
+  io.id_pf_out.jump_val_id_pf := decoders(0).out_branch.jump_val
+  io.id_pf_out.is_jump := decoders(0).out_branch.is_jump
+  io.id_pf_out.bus_valid := decoders(0).out_regular.ins_valid
+  io.id_pf_out.jump_taken := decoders(0).out_branch.jump_taken
+  // 当第一条指令为分支指令，第二条指令有效并且出现了load-to-branch时需要暂停取指
+  io.id_pf_out.stall_id_pf := decoders(0).out_regular.ins_valid && decoders(0).out_branch.is_jump &&
+    decoders(1).out_regular.ins_valid && decoders(0).out_hazard.load_to_branch
+
+  // 新请求数 = 2 - (当前指令有效数 - 发射指令数)
+  io.id_pf_out.inst_num_request := Mux(wait_for_delay_slot, 2.U, 2.U - (ins_valid_count - issue_count))
+  // 如果当前指令有效数 > 发射数，则需要将pc回退4
+  // 如果请求数为2，实际数目为1，下一个pc的请求的起始地址为当前pc - 4
+  io.id_pf_out.pc_back_4 := (io.if_id_in.req_count === 2.U && !io.if_id_in.ins_valid_if_id(1)) ||
+    ins_valid_count > issue_count || wait_for_delay_slot
+
+
+  // TODO: 如果有写后写冲突，将第一条指令无效化
+  val has_waw_hazard  : Bool = issuer.io.out.waw_hazard
+  val bus_valid_common: Bool = !reset.asBool() && ready_go && !io.flush
+
+  def wawEliminate(index: Int, wen: Bool): Bool = {
+    Mux(has_waw_hazard, index.U =/= 2.U, wen)
+  }
+
+  for (i <- 0 to 1) {
+    io.id_ex_out(i).alu_op_id_ex := decoders(i).out_regular.alu_op
+    io.id_ex_out(i).sa_32_id_ex := decoders(i).out_regular.sa_32
+    io.id_ex_out(i).imm_32_id_ex := decoders(i).out_regular.imm_32
+    io.id_ex_out(i).alu_src1_id_ex := decoders(i).out_regular.alu_src1
+    io.id_ex_out(i).alu_src2_id_ex := decoders(i).out_regular.alu_src2
+    io.id_ex_out(i).mem_en_id_ex := decoders(i).out_regular.mem_en
+    io.id_ex_out(i).mem_wen_id_ex := wawEliminate(i, decoders(i).out_regular.mem_wen)
+    io.id_ex_out(i).regfile_wsrc_sel_id_ex := decoders(i).out_regular.regfile_wsrc_sel
+    io.id_ex_out(i).regfile_waddr_sel_id_ex := decoders(i).out_regular.regfile_waddr_sel
+    io.id_ex_out(i).inst_rs_id_ex := decoders(i).out_regular.rs
+    io.id_ex_out(i).inst_rd_id_ex := decoders(i).out_regular.rd
+    io.id_ex_out(i).inst_rt_id_ex := decoders(i).out_regular.rt
+    io.id_ex_out(i).regfile_we_id_ex := wawEliminate(i, decoders(i).out_regular.regfile_we)
+    io.id_ex_out(i).pc_id_ex_debug := decoders(i).out_regular.pc_debug
+    io.id_ex_out(i).mem_wdata_id_ex := decoders(i).out_regular.mem_wdata
+    io.id_ex_out(i).hi_wen := wawEliminate(i, decoders(i).out_regular.hi_wen)
+    io.id_ex_out(i).lo_wen := wawEliminate(i, decoders(i).out_regular.lo_wen)
+    io.id_ex_out(i).hilo_sel := decoders(i).out_regular.hilo_sel
+    io.id_ex_out(i).mem_data_sel_id_ex := decoders(i).out_regular.mem_data_sel
+    io.id_ex_out(i).mem_rdata_extend_is_signed_id_ex := decoders(i).out_regular.mem_rdata_extend_is_signed
+    io.id_ex_out(i).cp0_wen_id_ex := wawEliminate(i, decoders(i).out_regular.cp0_wen)
+    io.id_ex_out(i).cp0_addr_id_ex := decoders(i).out_regular.cp0_addr
+    io.id_ex_out(i).cp0_sel_id_ex := decoders(i).out_regular.cp0_sel
+    io.id_ex_out(i).regfile_wdata_from_cp0_id_ex := decoders(i).out_regular.regfile_wdata_from_cp0
+    io.id_ex_out(i).overflow_detection_en := decoders(i).out_regular.overflow_detection_en
+    io.id_ex_out(i).ins_eret := decoders(i).out_regular.ins_eret
+    io.id_ex_out(i).src_use_hilo := decoders(i).out_regular.src_use_hilo
+    io.id_ex_out(i).is_delay_slot := decoders(i).out_regular.is_delay_slot
+    io.id_ex_out(i).issue_num := issuer.io.out.issue_count
+    io.id_ex_out(i).exception_flags := decoders(i).out_regular.exception_flags
+    io.id_ex_out(i).bus_valid := decoders(i).out_regular.ins_valid && bus_valid_common
+  }
+
 
 }
 
