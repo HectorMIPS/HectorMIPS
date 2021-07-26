@@ -31,6 +31,8 @@ class CacheConfig(val _wayNum: Int = 2, val WayWidth: Int = 4 * 1024, val DataWi
   //victim
   val victim_fetch_cycles_width = log2Ceil(victim_fetch_cycles)
   val victim_fetch_every_cycle = bankNum / victim_fetch_cycles
+
+//  val dcache_worker =
   def getTag(x: UInt): UInt = x(31, 32 - tagWidth) //(31,12)
 
   def getIndex(x: UInt): UInt = x(31 - tagWidth, 32 - tagWidth - indexWidth) //(11,4)

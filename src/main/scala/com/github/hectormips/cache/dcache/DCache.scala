@@ -8,77 +8,31 @@ import chisel3._
 import chisel3.util._
 import chisel3.stage.{ChiselGeneratorAnnotation, ChiselStage}
 
-class BankData(val config: CacheConfig) extends Bundle {
-  val addr = Wire(UInt(config.indexWidth.W))
-  val read = Wire(Vec(config.wayNum, Vec(config.bankNum,UInt(32.W))))
-  //  val write = Vec(config.bankNum, UInt(32.W))
-  val wEn = Wire(Vec(config.wayNum, Vec(config.bankNum,Bool())))
-}
-class TAGVData(val config: CacheConfig) extends Bundle {
-  val addr = Wire(UInt(config.indexWidth.W))
-  val read = Wire(Vec(config.wayNum, UInt((config.tagWidth).W))) //一次读n个
-  val write = Wire(UInt((config.tagWidth).W)) //一次写1个
-  val wEn = Wire(Vec(config.wayNum, Bool()))
-}
-class DirtyData(val config:CacheConfig) extends Bundle{
-  val addr = UInt(config.indexWidth.W)
-  val read = Vec(config.wayNum, Bool())
-  val write = Bool()
-  val wEn = Vec(config.wayNum, Bool())
-}
 
-//@departed 废弃
-class ByteSelection extends Module{
-  val io = IO(new Bundle{
-      val data = Input(UInt(32.W))
-      val size = Input(UInt(2.W))
-      val offset  = Input(UInt(2.W))
-      val select_data = Output(UInt(32.W))
-  })
-  io.select_data := 0.U
-  when(io.size===0.U){
-    when(io.offset===0.U){
-      io.select_data := Cat(0.U(24.W),io.data(7,0))
-    }.elsewhen(io.offset===1.U) {
-      io.select_data := Cat(0.U(24.W),io.data(15,8))
-    }.elsewhen(io.offset===2.U) {
-      io.select_data := Cat(0.U(24.W),io.data(23,16))
-    }.elsewhen(io.offset===3.U) {
-      io.select_data := Cat(0.U(24.W),io.data(31,24))
-    }
-  }.elsewhen(io.size===1.U){
-    when(io.offset===0.U){
-      io.select_data := Cat(0.U(16.W),io.data(15,0))
-    }.elsewhen(io.offset===1.U) {
-      io.select_data := Cat(0.U(16.W),io.data(23,8))
-    }.elsewhen(io.offset===2.U) {
-      io.select_data := Cat(0.U(16.W),io.data(31,16))
-    }.otherwise{
-      io.select_data := Cat(0.U(16.W),io.data(31,16))
-    }
-  }.elsewhen(io.size===2.U){
-    io.select_data := io.data
-  }.otherwise{
-    io.select_data := io.data
-  }
-}
 
+class QueueItem extends Bundle{
+  val port = UInt(1.W)
+  val addr = UInt(32.W)
+  val wr   = Bool()
+  val size = UInt(2.W)
+  val wdata = UInt(32.W)
+}
 
 
 class DCache(val config:CacheConfig)
   extends Module {
   var io = IO(new Bundle {
-    val valid = Input(Bool())
-    val addr = Input(UInt(32.W))
-    val addr_ok = Output(Bool())
+    val valid = Input(Vec(2,Bool()))
+    val addr = Input(Vec(2,UInt(32.W)))
+    val addr_ok = Output(Vec(2,Bool()))
 
-    val wr   = Input(Bool())
-    val size = Input(UInt(2.W))
-    val data_ok = Output(Bool())
+    val wr   = Input(Vec(2,Bool()))
+    val size = Input(Vec(2,UInt(2.W)))
+    val data_ok = Output(Vec(2,Bool()))
 
-    val rdata = Output(UInt(32.W))
+    val rdata = Output(Vec(2,UInt(32.W)))
 
-    val wdata = Input(UInt(32.W))
+    val wdata = Input(Vec(2,UInt(32.W)))
 
     val axi     = new Bundle{
       val readAddr  =  Decoupled(new AXIAddr(32,4))
@@ -93,8 +47,55 @@ class DCache(val config:CacheConfig)
 
   })
   val sIDLE::sLOOKUP::sCheckVictim::sREPLACE::sREFILL::sWaiting::sVictimReplace::sEviction::Nil =Enum(8)
+
   val state = RegInit(5.U(3.W))
   val debug_counter = RegInit(0.U(10.W))
+  val queue = Module(new Queue(new QueueItem, 2))
+  val port_valid = RegInit(VecInit(Seq.fill(2)(true.B)))
+//  val vec_addr_ok = Wire(Vec(2,Bool()))
+//  val vec_data_ok = Wire(Vec(2,Bool()))
+//  val vec_rdata = Wire(Vec(2,Bool()))
+  io.data_ok(1):= false.B
+  io.data_ok(0):= false.B
+  io.rdata(1) := 0.U
+  io.rdata(0) := 0.U
+  io.addr_ok(0) := port_valid(0)
+  io.addr_ok(1) := port_valid(1)
+  when(queue.io.enq.ready){
+    when(io.valid(0)){
+      queue.io.enq.valid := true.B
+      queue.io.enq.bits.addr := io.addr(0)
+      queue.io.enq.bits.port := 0.U
+      queue.io.enq.bits.wr := io.wr(0)
+      queue.io.enq.bits.size := io.size(0)
+      queue.io.enq.bits.wdata := io.wdata(0)
+      port_valid(0) := false.B
+    }.elsewhen(io.valid(1)){
+      queue.io.enq.bits.addr := io.addr(1)
+      queue.io.enq.bits.port := 1.U
+      queue.io.enq.bits.wr := io.wr(1)
+      queue.io.enq.bits.size := io.size(1)
+      queue.io.enq.bits.wdata := io.wdata(1)
+      queue.io.enq.valid := true.B
+      port_valid(1) := false.B
+    }.otherwise{
+      queue.io.enq.bits := DontCare
+      queue.io.enq.valid := false.B
+    }
+  }.otherwise{
+    queue.io.enq.bits := DontCare
+    queue.io.enq.valid := false.B
+  }
+  queue.io.deq.ready := false.B
+
+  /**
+   *
+   */
+
+
+//  io.addr_ok := Cat(port_valid(1),port_valid(0))
+//  io.data_ok := Cat(vec_data_ok(1),vec_data_ok(0))
+//  io.rdata := Cat(vec_rdata(1),vec_rdata(0))
 
   /**
    * cache的数据
@@ -124,11 +125,21 @@ class DCache(val config:CacheConfig)
   val cache_hit_onehot = Wire(Vec(config.wayNum, Bool())) // 命中的路
   val cache_hit_way = Wire(UInt(config.wayNumWidth.W))
 
-  val addr_r = RegInit(0.U(32.W)) //地址寄存器
-  val size_r = RegInit(2.U(2.W))
-  val wr_r = RegInit(false.B)
-  val wdata_r = RegInit(0.U(32.W))
+//  val addr_r = RegInit(0.U(32.W)) //地址寄存器
+  val addr_r = Wire(UInt(32.W)) //地址寄存器
+  addr_r := queue.io.deq.bits.addr
+//  val size_r = RegInit(2.U(2.W))
+  val size_r = Wire(UInt(2.W))
+  size_r := queue.io.deq.bits.size
 
+  val wr_r = Wire(Bool())
+  wr_r := queue.io.deq.bits.wr
+
+  val wdata_r = Wire(UInt(32.W))
+  wdata_r := queue.io.deq.bits.wdata
+
+  val port_r = Wire(UInt(1.W))
+  port_r := queue.io.deq.bits.port
   val bData = new BankData(config)
   val tagvData = new TAGVData(config)
   val dataMemEn = RegInit(false.B)
@@ -145,7 +156,7 @@ class DCache(val config:CacheConfig)
   val fetch_ready_go = Wire(Bool())
 //  val eviction = Wire(Bool()) //出现驱逐
   is_hitWay := cache_hit_onehot.asUInt().orR() // 判断是否命中cache
-  io.addr_ok := state === sIDLE
+//  io.addr_ok := state === sIDLE
   state := sIDLE
 
   index := config.getIndex(addr_r)
@@ -203,9 +214,9 @@ class DCache(val config:CacheConfig)
   })
 
   for(way <- 0 until  config.wayNum){
-    tagvData.read(way) := tagvMem(way).read(config.getIndex(io.addr))
+    tagvData.read(way) := tagvMem(way).read(config.getIndex(addr_r))
     for(bank <- 0 until config.bankNum){
-      _read_data(way)(bank)  := dataMem(way)(bank).read(config.getIndex(io.addr))
+      _read_data(way)(bank)  := dataMem(way)(bank).read(config.getIndex(addr_r))
     }
   }
 
@@ -290,8 +301,8 @@ class DCache(val config:CacheConfig)
   /**
    * IO初始化
    */
-  io.data_ok := false.B
-  io.rdata := 0.U
+//  io.data_ok :=
+//  io.rdata := 0.U
   wstrb.io.offset := addr_r(1,0)
   wstrb.io.size := size_r
   /**
@@ -329,35 +340,32 @@ class DCache(val config:CacheConfig)
 
 
   io.axi.readAddr.valid :=  false.B
-  victim.io.qaddr := Cat(io.addr(31,config.offsetWidth),0.U(config.offsetWidth.W))
+  victim.io.qaddr := Cat(addr_r(31,config.offsetWidth),0.U(config.offsetWidth.W))
   switch(state){
     is(sIDLE){
-      when(io.valid){
+      when(queue.io.count=/=0.U || ){
         state := sLOOKUP
-//        addrokReg := true.B
-        addr_r := io.addr
-        size_r := io.size
-        wr_r := io.wr
-        wdata_r := io.wdata
       }
     }
     is(sLOOKUP){
       when(is_hitWay){
         lruMem.io.visit := cache_hit_way // lru记录命中
-        when(io.valid) {
-          // 直接进入下一轮
-          state := sLOOKUP
-          addr_r := io.addr
-          size_r := io.size
-          wr_r := io.wr
-          wdata_r := io.wdata
-        }.otherwise {
-          state := sIDLE
-        }
-        io.data_ok := true.B
+        state := sIDLE
+//        when(io.valid) {
+//          // 直接进入下一轮
+//          state := sLOOKUP
+//          addr_r := io.addr
+//          size_r := io.size
+//          wr_r := io.wr
+//          wdata_r := io.wdata
+//        }.otherwise {
+//
+//        }
+        port_valid(port_r) := true.B
+        io.data_ok(port_r) := true.B
+        queue.io.deq.ready := true.B
         when(!wr_r) {
-          // 读
-          io.rdata := bData.read(cache_hit_way)(bankIndex)
+          io.rdata(port_r) := bData.read(cache_hit_way)(bankIndex)
         }
       }.otherwise {
         //没命中,检查victim
@@ -403,10 +411,10 @@ class DCache(val config:CacheConfig)
         }
       when(victimRestoreCounter === (config.bankNum-1).U){
         state := sIDLE
-        io.data_ok := true.B
+        io.data_ok(port_r) := true.B
         when(!wr_r) {
           // 读
-          io.rdata := bData.read(waySelReg)(bankIndex)
+          io.rdata(port_r) := bData.read(waySelReg)(bankIndex)
         }
       }.otherwise{
         state := sVictimReplace
@@ -448,16 +456,18 @@ class DCache(val config:CacheConfig)
         when(io.axi.readData.bits.last){
           state := sWaiting
           when(!wr_r){
-            io.rdata := bData.read(waySelReg)(bankIndex)
-            io.data_ok := true.B
+            io.rdata(port_r) := bData.read(waySelReg)(bankIndex)
+            io.data_ok(port_r) := true.B
           }
         }
       }
     }
     is(sWaiting){
       state := sIDLE
-      io.rdata := bData.read(waySelReg)(bankIndex)
-      io.data_ok := true.B
+      io.rdata(port_r) := bData.read(waySelReg)(bankIndex)
+      io.data_ok(port_r) := true.B
+      port_valid(port_r) := true.B
+      queue.io.deq.ready := true.B
     }
   }
 
