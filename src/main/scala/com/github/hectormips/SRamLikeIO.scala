@@ -18,7 +18,7 @@ class SRamLikeIO(rdata_width: Int = 32) extends Bundle {
 
 class SRamLikeInstIO extends SRamLikeIO(64) {
   // 读指令有效mask
-  val rdata_valid_mask: UInt = Input(UInt(2.W))
+  val rdata_valid_mask: UInt = Input(Bool())
 }
 
 class SRamLikeDataIO extends SRamLikeIO {

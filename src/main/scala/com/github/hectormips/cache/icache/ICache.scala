@@ -142,9 +142,9 @@ class ICache(val config:CacheConfig)
    * IO初始化
    */
 
-  io.instValid := Cat(true.B,bankIndex =/= ((config.bankNum) - 1).U) //==bank-1
+  io.instValid := bankIndex =/= ((config.bankNum) - 1).U //==bank-1
   io.instOK    := false.B
-
+//  printf("%d\n",io.instValid)
   io.inst := 0.U
 
   /**
