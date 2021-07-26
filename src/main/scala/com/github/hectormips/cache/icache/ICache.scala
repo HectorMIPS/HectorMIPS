@@ -38,9 +38,14 @@ class ICache(val config:CacheConfig)
       val readAddr  =  Decoupled(new AXIAddr(32,4))
       val readData  = Flipped(Decoupled(new AXIReadData(32,4)))
     }
+
+    val debug_total_count = Output(UInt(32.W))  // cache总查询次数
+    val debug_hit_count   = Output(UInt(32.W))  // cache命中数
   })
-  val sIDLE::sLOOKUP::sREPLACE::sREFILL::sWaiting::Nil =Enum(5)
+  val sIDLE::sLOOKUP::sREPLACE::sREFILL::Nil =Enum(4)
   val state = RegInit(0.U(3.W))// 初始化阶段
+
+
 
   /**
    * cache的数据
@@ -75,7 +80,7 @@ class ICache(val config:CacheConfig)
 
 
   val addrokReg = RegInit(false.B)
-  io.addr_ok := state === sIDLE
+  io.addr_ok := state === sIDLE || (state === sLOOKUP && is_hitWay)
   state := sIDLE
 
   val index  = Wire(UInt(config.indexWidth.W))
@@ -176,6 +181,21 @@ class ICache(val config:CacheConfig)
   //  AXIReadDataReady := () &&
   io.axi.readData.ready := true.B  //ready最多持续一拍
 
+  /**
+   * debug
+   */
+  val debug_total_count_r = RegInit(0.U(32.W))
+  val debug_hit_count_r = RegInit(0.U(32.W))
+
+  io.debug_total_count := debug_total_count_r
+  io.debug_hit_count := debug_hit_count_r
+
+  when(state===sLOOKUP){
+    debug_total_count_r := debug_total_count_r + 1.U
+    when(is_hitWay){
+      debug_hit_count_r := debug_hit_count_r + 1.U
+    }
+  }
 
   /**
    * Cache状态机
@@ -201,7 +221,6 @@ class ICache(val config:CacheConfig)
         lruMem.io.visit := cache_hit_way // lru记录命中
         when(io.valid) {
           // 直接进入下一轮
-//          io.addr_ok := true.B
           addrReg := io.addr
         }.otherwise {
           state := sIDLE
@@ -212,7 +231,6 @@ class ICache(val config:CacheConfig)
         io.instOK := false.B
         state :=  sREPLACE
         io.axi.readAddr.valid := true.B
-//        readAddrValidReg :=true.B
       }
     }
     is(sREPLACE){
@@ -227,29 +245,30 @@ class ICache(val config:CacheConfig)
     }
     is(sREFILL){
       // 取数据，重写TAGV
-
       state := sREFILL
       when(io.axi.readData.valid && io.axi.readData.bits.id === io.axi.readAddr.bits.id){
         bDataWtBank := bDataWtBank+1.U
-        when(io.axi.readData.bits.last){
-          state := sWaiting
+        when(bDataWtBank === (bankIndex + 2.U)){
+          // 关键字优先
           when(bankIndex === (config.bankNum - 1).U){
             io.inst := Cat(0.U(32.W),bData.read(cache_hit_way)(bankIndex))
           }.otherwise{
             io.inst := Cat(bData.read(cache_hit_way)(bankIndex+1.U),bData.read(cache_hit_way)(bankIndex))
           }
-          //        io.inst(63,32) := bData.read(waySelReg)(bankIndex+1.U)
           io.instOK := true.B
+        }
+        when(io.axi.readData.bits.last){
+          state := sIDLE
         }
       }
     }
-    is(sWaiting){
-      state := sIDLE
-      io.inst := Cat(bData.read(waySelReg)(bankIndex+1.U),bData.read(waySelReg)(bankIndex))
-//      io.inst(31,0) := bData.read(waySelReg)(bankIndex)
-//      io.inst(63,32) := bData.read(waySelReg)(bankIndex+1.U)
-      io.instOK := true.B
-    }
+//    is(sWaiting){
+//      state := sIDLE
+//      io.inst := Cat(bData.read(waySelReg)(bankIndex+1.U),bData.read(waySelReg)(bankIndex))
+////      io.inst(31,0) := bData.read(waySelReg)(bankIndex)
+////      io.inst(63,32) := bData.read(waySelReg)(bankIndex+1.U)
+//      io.instOK := true.B
+//    }
   }
 
 //  when(io.axi.readAddr.fire()){

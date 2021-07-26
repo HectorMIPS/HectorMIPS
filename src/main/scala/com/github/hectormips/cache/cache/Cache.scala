@@ -29,10 +29,10 @@ class Cache(val config:CacheConfig)  extends Module{
     val axi = new AXIIO(3)
   }
   )
-  val dcache = Module(new DCache(new CacheConfig()))
+  val dcache = Module(new DCache(new CacheConfig(WayWidth=8*1024,DataWidthByByte=32)))
 //  val icache = Module(new ICache(new CacheConfig(WayWidth=8*1024,DataWidthByByte=32)))
   // 2路组相连，每页8KB 每行32B
-  val icache = Module(new ICache(new CacheConfig()))
+  val icache = Module(new ICache(new CacheConfig(WayWidth =8*1024,DataWidthByByte=32)))
   val uncached = Module(new Uncache())
 
   //icache 与CPU接口
@@ -45,14 +45,19 @@ class Cache(val config:CacheConfig)  extends Module{
 //  io.icache.rdata_valid_mask := icache.io.instValid
 
   //dcache
-  dcache.io.valid := io.dcache.req
-  dcache.io.addr := io.dcache.addr
-  dcache.io.size := io.dcache.size
-  dcache.io.wr := io.dcache.wr
-  dcache.io.wdata := io.dcache.wdata
-  io.dcache.rdata :=  dcache.io.rdata
-  io.dcache.addr_ok := dcache.io.addr_ok
-  io.dcache.data_ok := dcache.io.data_ok
+  dcache.io.valid(0) := io.dcache.req
+  dcache.io.valid(1) := false.B
+  dcache.io.addr(0) := io.dcache.addr
+  dcache.io.addr(1) := DontCare
+  dcache.io.size(0) := io.dcache.size
+  dcache.io.size(1) := DontCare
+  dcache.io.wr(0) := io.dcache.wr
+  dcache.io.wr(1) := DontCare
+  dcache.io.wdata(0) := io.dcache.wdata
+  dcache.io.wdata(1) := DontCare
+  io.dcache.rdata :=  dcache.io.rdata(0)
+  io.dcache.addr_ok := dcache.io.addr_ok(0)
+  io.dcache.data_ok := dcache.io.data_ok(0)
 
   //uncached
   uncached.io.input <> io.uncached
