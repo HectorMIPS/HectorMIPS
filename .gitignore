@@ -344,3 +344,4 @@ hs_err_pid*
 *.v
 *.f
 !src/main/resources/**
+/chisel-gui/

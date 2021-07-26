@@ -1,6 +1,6 @@
 name: Continuous Integration
 
-on: [push, pull_request]
+on: [push]
 
 jobs:
   test_and_generate:
@@ -41,6 +41,30 @@ jobs:
     runs-on: self-hosted
     env:
       SIM_DIR: /home/hch/sim
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Download mycpu_top
+        uses: actions/download-artifact@v2
+        with:
+          name: mycpu_top
+      - name: copy to default location
+        run: cp mycpu_top.v ${{env.SIM_DIR}}/xsim/srcs/
+      - name: Cleanup
+        run: |
+          cd ${{env.SIM_DIR}}/xsim
+          make clean
+      - name: Run Test
+        run: |
+          cd ${{env.SIM_DIR}}/xsim
+          make
+
+  perf_test:
+    name: perf_test
+    needs: test_and_generate
+    runs-on: self-hosted
+    env:
+      SIM_DIR: /home/hch/perf_sim
     steps:
       - name: Checkout
         uses: actions/checkout@v2

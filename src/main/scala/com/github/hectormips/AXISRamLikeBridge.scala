@@ -9,9 +9,9 @@ class AXISRamLikeBridge extends HasBlackBoxResource {
   class AXISRamLikeBridgeIO extends Bundle {
     val clock            : Bool       = Input(Bool())
     val resetn           : Bool       = Input(Bool())
-    val inst_sram_like_io: SRamLikeIO = Flipped(new SRamLikeIO)
+    val inst_sram_like_io: SRamLikeIO = Flipped(new SRamLikeIO(64))
     val data_sram_like_io: SRamLikeIO = Flipped(new SRamLikeIO)
-    val axi_io           : AXIIO      = new AXIIO
+    val axi_io           : AXIIO      = new AXIIO(2)
   }
 
   val io: AXISRamLikeBridgeIO = IO(new AXISRamLikeBridgeIO)
