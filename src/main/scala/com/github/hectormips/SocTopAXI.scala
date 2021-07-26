@@ -6,9 +6,16 @@ import chisel3.util.experimental.forceName
 
 
 class SocTopSRamLikeBundle extends Bundle {
-  val axi_io   : AXIIO       = new AXIIO
-  val interrupt: UInt        = Input(UInt(6.W))
-  val debug    : DebugBundle = new DebugBundle
+  val axi_io   : AXIIO            = new AXIIO
+  val interrupt: UInt             = Input(UInt(6.W))
+  val debug    : Vec[DebugBundle] = Vec(2, new DebugBundle)
+
+  for (i <- 0 to 1) {
+    forceName(debug(i).debug_wb_pc, "debug_wb_pc_" + i)
+    forceName(debug(i).debug_wb_rf_wen, "debug_wb_rf_wen_" + i)
+    forceName(debug(i).debug_wb_rf_wnum, "debug_wb_rf_wnum_" + i)
+    forceName(debug(i).debug_wb_rf_wdata, "debug_wb_rf_wdata_" + i)
+  }
 }
 
 // 使用axi的Soc顶层
