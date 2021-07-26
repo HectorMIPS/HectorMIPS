@@ -142,27 +142,32 @@ class InsExecuteBundle extends WithAllowin {
 
 
 class InsExecute extends Module {
-  val io                 : InsExecuteBundle = IO(new InsExecuteBundle)
-  val flush              : Bool             = Wire(Bool())
-  val this_allowin       : Bool             = Wire(Bool())
-  val alu                : Vec[AluIO]       = VecInit(Seq.fill(2)(Module(new Alu).io))
+  val io                          : InsExecuteBundle = IO(new InsExecuteBundle)
+  val flush                       : Bool             = Wire(Bool())
+  val this_allowin                : Bool             = Wire(Bool())
+  val alu                         : Vec[AluIO]       = VecInit(Seq.fill(2)(Module(new Alu).io))
   // alu输出的结果仍然按照指令原本的顺序
-  val alu_out            : Vec[AluOut]      = Wire(Vec(2, new AluOut))
-  val ins2_op            : AluOp.Type       = io.id_ex_in(1).alu_op_id_ex
+  val alu_out                     : Vec[AluOut]      = Wire(Vec(2, new AluOut))
+  val ins2_op                     : AluOp.Type       = io.id_ex_in(1).alu_op_id_ex
   // 默认将index=0的送至alu_ex，1的送至alu，如果1有效并且需要使用乘除法器，则反转指令（仅限内部）
-  val order_flipped      : Bool             = io.id_ex_in(1).bus_valid && (ins2_op === AluOp.op_div || ins2_op === AluOp.op_divu ||
+  val order_flipped               : Bool             = io.id_ex_in(1).bus_valid && (ins2_op === AluOp.op_div || ins2_op === AluOp.op_divu ||
     ins2_op === AluOp.op_mult || ins2_op === AluOp.op_multu)
-  val exception_occur    : Vec[Bool]        = Wire(Vec(2, Bool()))
-  val exception_flags    : Vec[UInt]        = Wire(Vec(2, UInt(ExceptionConst.EXCEPTION_FLAG_WIDTH.W)))
-  val eret_occur         : Bool             = io.id_ex_in(0).bus_valid && io.id_ex_in(0).ins_eret
-  val interrupt_occur    : Bool             = !eret_occur &&
+  val exception_occur             : Vec[Bool]        = Wire(Vec(2, Bool()))
+  val exception_flags             : Vec[UInt]        = Wire(Vec(2, UInt(ExceptionConst.EXCEPTION_FLAG_WIDTH.W)))
+  val eret_occur                  : Bool             = io.id_ex_in(0).bus_valid && io.id_ex_in(0).ins_eret
+  val interrupt_occur             : Bool             = !eret_occur &&
     (io.cp0_ex_in.cp0_cause_ip | io.cp0_ex_in.cp0_status_im) =/= 0.U
-  val interrupt_available: Bool             = io.cp0_ex_in.status_ie && !io.cp0_ex_in.status_exl
+  val interrupt_available         : Bool             = io.cp0_ex_in.status_ie && !io.cp0_ex_in.status_exl
   // 当同时写相同的内存地址时会产生waw冲突，结果只采用靠后的一条指令
-  val mem_waddr_hazard   : Bool             = io.id_ex_in(0).bus_valid && io.id_ex_in(1).bus_valid &&
+  val mem_waddr_hazard            : Bool             = io.id_ex_in(0).bus_valid && io.id_ex_in(1).bus_valid &&
     io.id_ex_in(0).mem_wen_id_ex && io.id_ex_in(1).mem_wen_id_ex &&
     alu_out(0).alu_sum(31, 3) === alu_out(1).alu_sum(31, 3)
-  val exception_index    : UInt             = Mux(exception_occur(0) || !io.id_ex_in(1).bus_valid, 0.B, 1.B)
+  val exception_index             : UInt             = MuxCase(0.U, Seq(
+    ((exception_occur(0) || (interrupt_occur && interrupt_available)) && io.id_ex_in(0).bus_valid) -> 0.U,
+    (exception_occur(1) && io.id_ex_in(1).bus_valid) -> 1.U
+  ))
+  val exception_or_interruption_en: Bool             = exception_occur(0) || exception_occur(1) ||
+    (interrupt_occur && interrupt_available)
 
   // 后方流水线是否写cp0
   val ms_cp0_hazard : Bool = (io.cp0_hazard_bypass_ms_ex(0).bus_valid && io.cp0_hazard_bypass_ms_ex(0).cp0_en) ||
@@ -261,9 +266,13 @@ class InsExecute extends Module {
     io.ex_ms_out(i).cp0_sel_ex_ms := io.id_ex_in(i).cp0_sel_id_ex
     io.ex_ms_out(i).regfile_wdata_from_cp0_ex_ms := io.id_ex_in(i).regfile_wdata_from_cp0_id_ex
     io.ex_ms_out(i).mem_req := io.id_ex_in(i).mem_en_id_ex
-    io.ex_ms_out(i).issue_num := io.id_ex_in(i).issue_num
+    // 如果发生例外或者中断并且报在第二条指令上，那么只发射第一条指令
+    io.ex_ms_out(i).issue_num := Mux(exception_or_interruption_en && exception_index === 1.U,
+      1.U, io.id_ex_in(i).issue_num)
     io.ex_ms_out(i).exception_flags := DontCare
-    io.ex_ms_out(i).bus_valid := io.id_ex_in(i).bus_valid
+    // 如果只有第二条指令发生例外，则只无效化第二条指令的输出
+    io.ex_ms_out(i).bus_valid := io.id_ex_in(i).bus_valid && !(exception_index === 1.U && i.U === 1.U) &&
+      !reset.asBool() && !eret_occur
   }
 
   // 送给cp0的输出

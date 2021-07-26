@@ -1,6 +1,7 @@
 package com.github.hectormips.pipeline.issue
 
 import chisel3._
+import chisel3.experimental.ChiselEnum
 import chisel3.util.{Cat, MuxCase, RegEnable, is, switch}
 import com.github.hectormips.pipeline.{AluOp, CommonDivider, CommonMultiplier, DividerState, MultiplierState}
 
@@ -26,6 +27,7 @@ class AluIO extends Bundle {
   val out: AluOut = Output(new AluOut)
 }
 
+
 // 简单alu，不包含乘除法运算功能
 class Alu extends Module {
 
@@ -38,6 +40,7 @@ class Alu extends Module {
   val src_2_e          : UInt = Wire(UInt(33.W))
   val alu_out          : UInt = Wire(UInt(64.W))
   val overflow_occurred: Bool = Wire(Bool())
+  val div_mult_buffer  : UInt = RegInit(init = 0.U(64.W))
   overflow_occurred := 0.B
   alu_out := 0.U
 
@@ -132,27 +135,35 @@ class Alu extends Module {
   }.elsewhen(divider.io.out_valid || multiplier.io.res_valid) {
     calc_done := 1.B
   }
-
+  val mult_out: UInt = Mux(multiplier.io.res_valid, Cat(multiplier.io.mult_res_63_32, multiplier.io.mult_res_31_0),
+    div_mult_buffer)
+  val div_out : UInt = Mux(divider.io.out_valid, Cat(divider.io.remainder, divider.io.quotient),
+    div_mult_buffer)
   switch(io.in.alu_op) {
     is(AluOp.op_mult) {
-      alu_out := Cat(multiplier.io.mult_res_63_32, multiplier.io.mult_res_31_0)
+      alu_out := mult_out
     }
     is(AluOp.op_multu) {
-      alu_out := Cat(multiplier.io.mult_res_63_32, multiplier.io.mult_res_31_0)
+      alu_out := mult_out
     }
     is(AluOp.op_div) {
-      alu_out := Cat(divider.io.remainder, divider.io.quotient)
+      alu_out := div_out
     }
     is(AluOp.op_divu) {
-      alu_out := Cat(divider.io.remainder, divider.io.quotient)
+      alu_out := div_out
     }
+  }
+  when(divider.io.out_valid) {
+    div_mult_buffer := Cat(divider.io.remainder, divider.io.quotient)
+  }.elsewhen(multiplier.io.res_valid) {
+    div_mult_buffer := Cat(multiplier.io.mult_res_63_32, multiplier.io.mult_res_31_0)
   }
 
   io.out.alu_res := alu_out
   io.out.alu_sum := src1 + src2
   io.out.overflow_flag := overflow_occurred
   io.out.out_valid := MuxCase(1.B, Seq(
-    divider_required -> divider_out_valid,
-    multiplier_required -> multiplier.io.res_valid
+    divider_required -> (divider_out_valid || calc_done),
+    multiplier_required -> (multiplier.io.res_valid || calc_done)
   ))
 }
