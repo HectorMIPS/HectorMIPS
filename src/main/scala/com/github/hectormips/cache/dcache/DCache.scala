@@ -52,9 +52,6 @@ class DCache(val config:CacheConfig)
   val debug_counter = RegInit(0.U(10.W))
   val queue = Module(new Queue(new QueueItem, 2))
   val port_valid = RegInit(VecInit(Seq.fill(2)(true.B)))
-//  val vec_addr_ok = Wire(Vec(2,Bool()))
-//  val vec_data_ok = Wire(Vec(2,Bool()))
-//  val vec_rdata = Wire(Vec(2,Bool()))
   io.data_ok(1):= false.B
   io.data_ok(0):= false.B
   io.rdata(1) := 0.U
@@ -343,7 +340,7 @@ class DCache(val config:CacheConfig)
   victim.io.qaddr := Cat(addr_r(31,config.offsetWidth),0.U(config.offsetWidth.W))
   switch(state){
     is(sIDLE){
-      when(queue.io.count=/=0.U || ){
+      when(queue.io.count=/=0.U  ){
         state := sLOOKUP
       }
     }
