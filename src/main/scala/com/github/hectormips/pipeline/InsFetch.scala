@@ -6,6 +6,7 @@ package com.github.hectormips.pipeline
 
 import chisel3._
 import chisel3.experimental.ChiselEnum
+import chisel3.stage.ChiselStage
 import chisel3.util._
 import com.github.hectormips.RamState
 
@@ -24,9 +25,9 @@ class DecodePreFetchBundle extends Bundle {
   val jump_taken      : Bool            = Output(Bool())
   val stall_id_pf     : Bool            = Output(Bool())
   // 请求新获取的指令数
-  val inst_num_request: UInt            = Input(UInt(2.W))
+  val inst_num_request: UInt            = Output(UInt(2.W))
   // 是否需要将pc回退4
-  val pc_back_4       : Bool            = Input(Bool())
+  val pc_back_4       : Bool            = Output(Bool())
 
   def defaults(): Unit = {
     jump_sel_id_pf := InsJumpSel.seq_pc
@@ -52,7 +53,7 @@ object BranchState extends ChiselEnum {
 
 class InsPreFetchBundle extends WithAllowin {
   val pc                           : UInt                 = Input(UInt(32.W))
-  val id_pf_in                     : DecodePreFetchBundle = Input(new DecodePreFetchBundle)
+  val id_pf_in                     : DecodePreFetchBundle = Flipped(new DecodePreFetchBundle)
   val ins_ram_addr                 : UInt                 = Output(UInt(32.W))
   val ins_ram_en                   : Bool                 = Output(Bool())
   val next_pc                      : UInt                 = Output(UInt(32.W))
@@ -64,9 +65,8 @@ class InsPreFetchBundle extends WithAllowin {
   val flush                        : Bool                 = Input(Bool())
   val cp0_pf_epc                   : UInt                 = Input(UInt(32.W))
   val fetch_state                  : RamState.Type        = Input(RamState())
-  val branch_state                 : BranchState.Type     = Input(BranchState())
   val ins_ram_data_ok              : Bool                 = Input(Bool())
-  val inst_num_request             : UInt                 = Input(UInt(2.W))
+  val inst_num_request             : UInt                 = Output(UInt(2.W))
 
   val in_valid: Bool = Input(Bool()) // 传入预取的输入是否有效
 
@@ -98,7 +98,7 @@ class InsPreFetch extends Module {
 
   }
   // 已经执行完成延迟槽指令 跳转至目标处
-  val jump_now_target: Bool = io.id_pf_in.bus_valid && io.branch_state === BranchState.branch_target
+  val jump_now_target: Bool = io.id_pf_in.bus_valid
   val no_jump        : Bool = !io.id_pf_in.bus_valid || (io.id_pf_in.bus_valid && !io.id_pf_in.jump_taken)
   // 直到当前指令可以被decode接收时才发送新的请求
   val ready_go       : Bool = io.next_allowin && (io.fetch_state === RamState.waiting_for_request)
@@ -121,6 +121,7 @@ class InsPreFetch extends Module {
   io.pc_wen := 1.B
   io.this_allowin := !reset.asBool() && io.next_allowin
   io.pc_debug_pf_if := Mux(io.id_pf_in.pc_back_4, io.pc - 4.U, io.pc)
+  io.inst_num_request := io.id_pf_in.inst_num_request
 
 }
 
@@ -133,7 +134,6 @@ class InsSufFetchBundle extends WithAllowin {
   val ins_ram_data_ok   : Bool              = Input(Bool())
   val ins_ram_data_valid: UInt              = Input(UInt(2.W))
   val fetch_state       : RamState.Type     = Input(RamState())
-  val is_delay_slot     : Bool              = Input(Bool())
   val inst_num_request  : UInt              = Input(UInt(2.W))
 }
 
@@ -154,7 +154,11 @@ class InsSufFetch extends Module {
     // 由缓冲寄存器读出
     (io.fetch_state === RamState.waiting_for_read)
   io.if_id_out.pc_debug_if_id := io.pc_debug_pf_if
-  io.if_id_out.is_delay_slot := io.is_delay_slot
   io.if_id_out.req_count := io.inst_num_request
   io.this_allowin := !reset.asBool() && io.next_allowin
+}
+
+object InsFetch extends App {
+  (new ChiselStage).emitVerilog(new InsPreFetch)
+  (new ChiselStage).emitVerilog(new InsSufFetch)
 }

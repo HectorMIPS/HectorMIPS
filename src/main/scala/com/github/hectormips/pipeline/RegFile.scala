@@ -27,7 +27,7 @@ class RegFile(reg_init: Int = 0, read_port_num: Int = 2, write_port_num: Int = 2
   for (i <- 0 until write_port_num) {
     when(io.we(i).asBool()) {
       when(io.waddr(i) > 0.U) {
-        regs(io.waddr(i)) := io.wdata
+        regs(io.waddr(i)) := io.wdata(i)
       }
     }
   }

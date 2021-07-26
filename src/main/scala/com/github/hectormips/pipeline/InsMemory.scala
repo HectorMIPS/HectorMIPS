@@ -2,6 +2,7 @@ package com.github.hectormips.pipeline
 
 import chisel3._
 import chisel3.experimental.ChiselEnum
+import chisel3.stage.ChiselStage
 import chisel3.util._
 import com.github.hectormips.RamState
 
@@ -128,6 +129,7 @@ class InsMemory extends Module {
     io.ms_wb_out(i).cp0_wen_ms_wb := io.ex_ms_in(i).cp0_wen_ex_ms
     io.ms_wb_out(i).cp0_sel_ms_wb := io.ex_ms_in(i).cp0_sel_ex_ms
     io.ms_wb_out(i).regfile_wdata_from_cp0_ms_wb := io.ex_ms_in(i).regfile_wdata_from_cp0_ex_ms
+    io.ms_wb_out(i).exception_flags := DontCare
 
     io.cp0_hazard_bypass_ms_ex(i).bus_valid := bypass_bus_valid
     io.cp0_hazard_bypass_ms_ex(i).cp0_en := io.ex_ms_in(i).regfile_wdata_from_cp0_ex_ms ||
@@ -135,4 +137,8 @@ class InsMemory extends Module {
     io.cp0_hazard_bypass_ms_ex(i).cp0_ip_wen := io.ex_ms_in(i).cp0_addr_ex_ms === CP0Const.CP0_REGADDR_CAUSE &&
       io.ex_ms_in(i).cp0_sel_ex_ms === 0.U && io.ex_ms_in(i).cp0_wen_ex_ms
   }
+}
+
+object InsMemory extends App {
+  (new ChiselStage).emitVerilog(new InsMemory)
 }

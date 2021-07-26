@@ -1,5 +1,6 @@
 package com.github.hectormips.pipeline
 
+import chisel3.stage.ChiselStage
 import chisel3.{Mux, _}
 import chisel3.util._
 
@@ -74,12 +75,12 @@ class InsWriteBack extends Module {
     bus_valid := !reset.asBool() && io.ms_wb_in(i).bus_valid
 
     io.this_allowin := !reset.asBool()
-    io.pc_wb := io.ms_wb_in(i).pc_ms_wb
+    io.pc_wb(i) := io.ms_wb_in(i).pc_ms_wb
 
-    io.cp0_wen := io.ms_wb_in(i).cp0_wen_ms_wb && io.ms_wb_in(i).bus_valid
-    io.cp0_addr := io.ms_wb_in(i).cp0_addr_ms_wb
-    io.cp0_sel := io.ms_wb_in(i).cp0_sel_ms_wb
-    io.cp0_wdata := io.ms_wb_in(i).regfile_wdata_ms_wb
+    io.cp0_wen(i) := io.ms_wb_in(i).cp0_wen_ms_wb && io.ms_wb_in(i).bus_valid
+    io.cp0_addr(i) := io.ms_wb_in(i).cp0_addr_ms_wb
+    io.cp0_sel(i) := io.ms_wb_in(i).cp0_sel_ms_wb
+    io.cp0_wdata(i) := io.ms_wb_in(i).regfile_wdata_ms_wb
 
     io.bypass_wb_id(i).bus_valid := bus_valid && io.ms_wb_in(i).regfile_we_ms_wb
     io.bypass_wb_id(i).data_valid := 1.B
@@ -94,4 +95,8 @@ class InsWriteBack extends Module {
     io.cp0_hazard_bypass_wb_ex(i).cp0_ip_wen := io.ms_wb_in(i).cp0_addr_ms_wb === CP0Const.CP0_REGADDR_CAUSE &&
       io.ms_wb_in(i).cp0_sel_ms_wb === 0.U && io.ms_wb_in(i).cp0_wen_ms_wb
   }
+}
+
+object InsWriteBack extends App {
+  (new ChiselStage).emitVerilog(new InsWriteBack)
 }

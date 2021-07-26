@@ -36,18 +36,18 @@ object HiloSel extends OneHotEnum {
 }
 
 class FetchDecodeBundle extends WithValid {
-  val ins_if_id       : UInt = UInt(64.W)
-  val pc_debug_if_id  : UInt = UInt(32.W) // 转移pc
-  val ins_valid_if_id : UInt = UInt(2.W)
-  val is_delay_slot   : UInt = UInt(2.W)
-  val req_count       : UInt = UInt(2.W)
+  val ins_if_id      : UInt = UInt(64.W)
+  val pc_debug_if_id : UInt = UInt(32.W) // 转移pc
+  val ins_valid_if_id: UInt = UInt(2.W)
+  val req_count      : UInt = UInt(2.W)
 
 
   override def defaults(): Unit = {
     super.defaults()
     ins_if_id := 0.U
     pc_debug_if_id := 0xbfbffffcL.U
-    is_delay_slot := 0.U
+    ins_valid_if_id := 0.U
+    req_count := 0.U
   }
 }
 
@@ -59,8 +59,6 @@ class BypassMsgBundle extends Bundle {
 }
 
 // 当数据没有冲突的时候，一次会有两条指令处于后面的阶段，因此bypass的宽度需要x2
-// TODO: 写后写冲突交由前递发起者解决
-//  即保证在两个前递addr的时候保证index为1的前递为有效前递
 class DecodeBypassBundle extends Bundle {
   val bp_ex_id: Vec[BypassMsgBundle] = Vec(2, new BypassMsgBundle)
   val bp_ms_id: Vec[BypassMsgBundle] = Vec(2, new BypassMsgBundle)
@@ -79,27 +77,28 @@ class InsDecodeBundle extends WithAllowin {
 
   val id_pf_out: DecodePreFetchBundle = Output(new DecodePreFetchBundle)
 
-  val id_ex_out : Vec[DecodeExecuteBundle] = Output(Vec(2, new DecodeExecuteBundle))
-  val ins_opcode: UInt                     = Output(UInt(6.W))
-  val flush     : Bool                     = Input(Bool())
+  val id_ex_out: Vec[DecodeExecuteBundle] = Output(Vec(2, new DecodeExecuteBundle))
+  val flush    : Bool                     = Input(Bool())
 
 }
 
 class InsDecode extends Module {
   val io      : InsDecodeBundle        = IO(new InsDecodeBundle)
-  val decoders: Vec[Decoder#DecoderIO] = VecInit(Seq.fill(2)((new Decoder).io))
+  val decoders: Vec[Decoder#DecoderIO] = VecInit(Seq.fill(2)(Module(new Decoder).io))
   // 给出发射控制信号
   val issuer  : Issuer                 = Module(new Issuer)
 
   for (i <- 0 to 1) {
     decoders(i).in.ins_valid := io.if_id_in.ins_valid_if_id(i)
     decoders(i).in.pc_debug := io.if_id_in.pc_debug_if_id + (i << 2).U
-    decoders(i).in.is_delay_slot := io.if_id_in.is_delay_slot(i)
     decoders(i).in.bypass_bus := io.bypass_bus
     decoders(i).in.regfile_read1 := io.regfile_read1(i)
     decoders(i).in.regfile_read2 := io.regfile_read2(i)
     decoders(i).in.instruction := io.if_id_in.ins_if_id(31 + i * 32, 32 * i)
   }
+
+  decoders(0).in.is_delay_slot := 0.B
+  decoders(1).in.is_delay_slot := decoders(0).out_branch.is_jump
 
   io.regfile_raddr1 := VecInit(Seq(decoders(1).out_regular.rs, decoders(0).out_regular.rs))
   io.regfile_raddr2 := VecInit(Seq(decoders(1).out_regular.rt, decoders(0).out_regular.rt))
@@ -143,7 +142,6 @@ class InsDecode extends Module {
     ins_valid_count > issue_count || wait_for_delay_slot
 
 
-  // TODO: 如果有写后写冲突，将第一条指令无效化
   val has_waw_hazard  : Bool = issuer.io.out.waw_hazard
   val bus_valid_common: Bool = !reset.asBool() && ready_go && !io.flush
 
@@ -189,7 +187,5 @@ class InsDecode extends Module {
 }
 
 object InsDecode extends App {
-  new ChiselStage execute(args, Seq(ChiselGeneratorAnnotation(
-    () =>
-      new InsDecode())))
+  (new ChiselStage).emitVerilog(new InsDecode)
 }

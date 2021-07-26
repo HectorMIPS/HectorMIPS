@@ -17,7 +17,7 @@ class SRamLikeIO(data_width: Int = 32) extends Bundle {
 }
 
 class SRamLikeInstIO extends SRamLikeIO(64) {
-  val inst_valid: UInt = UInt(2.W)
+  val inst_valid: UInt = Input(UInt(2.W))
 }
 
 class SRamLikeDataIO extends SRamLikeIO(32) {

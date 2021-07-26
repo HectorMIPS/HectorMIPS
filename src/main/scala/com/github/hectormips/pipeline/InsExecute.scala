@@ -2,10 +2,11 @@ package com.github.hectormips.pipeline
 
 import chisel3._
 import chisel3.experimental.ChiselEnum
+import chisel3.stage.ChiselStage
 import chisel3.util.Mux1H
 import chisel3.util._
 import com.github.hectormips.RamState
-import com.github.hectormips.pipeline.issue.{Alu, AluEx, AluOut}
+import com.github.hectormips.pipeline.issue.{Alu, AluIO, AluOut}
 
 
 // 通过译码阶段传入的参数
@@ -76,6 +77,7 @@ class DecodeExecuteBundle extends WithVEI {
     overflow_detection_en := 0.B
     ins_eret := 0.B
     is_delay_slot := 0.B
+    src_use_hilo := 0.B
     super.defaults()
   }
 }
@@ -96,9 +98,9 @@ object DividerState extends ChiselEnum {
 
 // 由cp0传给执行阶段的信息
 class CP0ExecuteBundle extends Bundle {
-  val status_exl   : Bool = Bool()
-  val status_ie    : Bool = Bool()
-  val epc          : UInt = UInt(32.W)
+  val status_exl   : Bool = Input(Bool())
+  val status_ie    : Bool = Input(Bool())
+  val epc          : UInt = Input(UInt(32.W))
   val cp0_status_im: UInt = Input(UInt(8.W))
   val cp0_cause_ip : UInt = Input(UInt(8.W))
 }
@@ -135,18 +137,15 @@ class InsExecuteBundle extends WithAllowin {
   val pipeline_flush         : Bool                     = Output(Bool())
   val data_ram_state         : Vec[RamState.Type]       = Input(Vec(2, RamState()))
   // 执行阶段是否*至少*完成了其应该完成的任务
-  val ready_go               : Bool                     = Bool()
+  val ready_go               : Bool                     = Output(Bool())
 }
 
 
 class InsExecute extends Module {
   val io                 : InsExecuteBundle = IO(new InsExecuteBundle)
-  val src1               : UInt             = Wire(UInt(32.W))
-  val src2               : UInt             = Wire(UInt(32.W))
-  val overflow_occurred  : Bool             = Wire(Bool())
   val flush              : Bool             = Wire(Bool())
   val this_allowin       : Bool             = Wire(Bool())
-  val alu                : Vec[Alu#AluIO]   = VecInit(Seq(Module(new AluEx).io, Module(new Alu).io))
+  val alu                : Vec[AluIO]       = VecInit(Seq.fill(2)(Module(new Alu).io))
   // alu输出的结果仍然按照指令原本的顺序
   val alu_out            : Vec[AluOut]      = Wire(Vec(2, new AluOut))
   val ins2_op            : AluOp.Type       = io.id_ex_in(1).alu_op_id_ex
@@ -155,8 +154,9 @@ class InsExecute extends Module {
     ins2_op === AluOp.op_mult || ins2_op === AluOp.op_multu)
   val exception_occur    : Vec[Bool]        = Wire(Vec(2, Bool()))
   val exception_flags    : Vec[UInt]        = Wire(Vec(2, UInt(ExceptionConst.EXCEPTION_FLAG_WIDTH.W)))
-  val interrupt_occur    : Vec[Bool]        = Wire(Vec(2, Bool()))
   val eret_occur         : Bool             = io.id_ex_in(0).bus_valid && io.id_ex_in(0).ins_eret
+  val interrupt_occur    : Bool             = !eret_occur &&
+    (io.cp0_ex_in.cp0_cause_ip | io.cp0_ex_in.cp0_status_im) =/= 0.U
   val interrupt_available: Bool             = io.cp0_ex_in.status_ie && !io.cp0_ex_in.status_exl
   // 当同时写相同的内存地址时会产生waw冲突，结果只采用靠后的一条指令
   val mem_waddr_hazard   : Bool             = io.id_ex_in(0).bus_valid && io.id_ex_in(1).bus_valid &&
@@ -187,8 +187,8 @@ class InsExecute extends Module {
       io.data_ram_state(1) === RamState.waiting_for_response || io.data_ram_state(1) === RamState.waiting_for_read, 1.B)
 
   val in_bus_valid: Bool = io.id_ex_in(0).bus_valid && !reset.asBool() && (!flush || eret_occur)
-  for (i_in <- 0 to 1) {
-    val i_alu: UInt = i_in.U ^ order_flipped
+  for (i_alu <- 0 to 1) {
+    val i_in: UInt = (i_alu.B ^ order_flipped).asUInt()
     alu(i_alu).in.alu_op := io.id_ex_in(i_in).alu_op_id_ex
     alu(i_alu).in.src1 := Mux(io.id_ex_in(i_in).src_use_hilo,
       Mux(io.id_ex_in(i_in).hilo_sel === HiloSel.hi, io.ex_hilo.hi_in, io.ex_hilo.lo_in),
@@ -198,8 +198,9 @@ class InsExecute extends Module {
     alu(i_alu).in.flush := flush
     alu(i_alu).in.lo := io.ex_hilo.lo_in
     alu(i_alu).in.ex_allowin := this_allowin
-    alu_out(i_in) := alu(i_alu).out
   }
+  alu_out(0) := alu(order_flipped).out
+  alu_out(1) := alu(order_flipped ^ 1.B).out
 
   // 判断例外屏蔽
   // 若第一条指令产生例外会屏蔽两条指令
@@ -210,7 +211,19 @@ class InsExecute extends Module {
 
   flush := ((interrupt_occur(exception_index) && interrupt_available) || exception_occur(exception_index) ||
     eret_occur) && ready_go
+  //
+  for (i <- 0 to 1) {
+    exception_flags(i) := io.id_ex_in(i).exception_flags |
+      Mux(alu_out(i).overflow_flag && io.id_ex_in(i).overflow_detection_en, ExceptionConst.EXCEPTION_INT_OVERFLOW, 0.U) |
+      Mux(io.id_ex_in(i).mem_en_id_ex &&
+        ((io.id_ex_in(i).mem_data_sel_id_ex === MemDataSel.word && alu_out(i).alu_sum(1, 0) =/= 0.U) ||
+          io.id_ex_in(i).mem_data_sel_id_ex === MemDataSel.hword && alu_out(i).alu_sum(0) =/= 0.U),
+        // 写使能非零说明是写地址异常
+        Mux(io.id_ex_in(i).mem_wen_id_ex =/= 0.U, ExceptionConst.EXCEPTION_BAD_RAM_ADDR_WRITE,
+          ExceptionConst.EXCEPTION_BAD_RAM_ADDR_READ), 0.U)
+    exception_occur(i) := exception_flags(i) =/= 0.U
 
+  }
   // dram操作
   for (i <- 0 to 1) {
     io.ex_ram_out(i).mem_en := !flush && io.id_ex_in(i).bus_valid && io.next_allowin &&
@@ -249,6 +262,8 @@ class InsExecute extends Module {
     io.ex_ms_out(i).regfile_wdata_from_cp0_ex_ms := io.id_ex_in(i).regfile_wdata_from_cp0_id_ex
     io.ex_ms_out(i).mem_req := io.id_ex_in(i).mem_en_id_ex
     io.ex_ms_out(i).issue_num := io.id_ex_in(i).issue_num
+    io.ex_ms_out(i).exception_flags := DontCare
+    io.ex_ms_out(i).bus_valid := io.id_ex_in(i).bus_valid
   }
 
   // 送给cp0的输出
@@ -283,7 +298,7 @@ class InsExecute extends Module {
     io.bypass_ex_id(i).data_valid := io.id_ex_in(i).bus_valid &&
       // 写寄存器来源为内存或者cp0时，前递的数据尚未准备完成
       (!io.id_ex_in(i).regfile_wsrc_sel_id_ex || io.id_ex_in(i).regfile_wdata_from_cp0_id_ex)
-    io.bypass_ex_id(i).reg_data := alu_out
+    io.bypass_ex_id(i).reg_data := alu_out(i).alu_res
     io.bypass_ex_id(i).reg_addr := MuxCase(0.U, Seq(
       (io.id_ex_in(i).regfile_waddr_sel_id_ex === RegFileWAddrSel.inst_rd) -> io.id_ex_in(i).inst_rd_id_ex,
       (io.id_ex_in(i).regfile_waddr_sel_id_ex === RegFileWAddrSel.inst_rt) -> io.id_ex_in(i).inst_rt_id_ex,
@@ -295,6 +310,7 @@ class InsExecute extends Module {
   io.ex_pf_out.to_exception_service_en_ex_pf := (exception_occur(exception_index) ||
     (interrupt_occur(exception_index) && interrupt_available)) && ready_go
   io.ex_pf_out.to_epc_en_ex_pf := eret_occur && ready_go
+  io.ready_go := ready_go
 
   io.pipeline_flush := flush
   io.ex_hilo.hi_out := alu(0).out.alu_res(63, 32)
@@ -302,4 +318,11 @@ class InsExecute extends Module {
   io.ex_hilo.lo_out := alu(0).out.alu_res(31, 0)
   io.ex_hilo.lo_wen := io.id_ex_in(order_flipped).lo_wen
 
+  this_allowin := io.next_allowin && !reset.asBool() && ready_go
+  io.this_allowin := this_allowin
+
+}
+
+object InsExecute extends App {
+  (new ChiselStage).emitVerilog(new InsExecute)
 }

@@ -24,7 +24,7 @@ class WriteBackCP0Bundle extends Bundle {
 }
 
 class CP0Bundle extends Bundle {
-  val wb_cp0_in : Vec[WriteBackCP0Bundle] = Input(Vec(2, new WriteBackCP0Bundle))
+  val wb_cp0    : Vec[WriteBackCP0Bundle] = Vec(2, new WriteBackCP0Bundle)
   val ex_cp0_in : ExecuteCP0Bundle        = Input(new ExecuteCP0Bundle)
   val cp0_ex_out: CP0ExecuteBundle        = Output(new CP0ExecuteBundle)
   val epc       : UInt                    = Output(UInt(32.W))
@@ -55,11 +55,11 @@ class CP0 extends Module {
   val compare_eq_count: Bool = compare === count
 
   for (i <- 0 to 1) {
-    when(io.wb_cp0_in(i).regaddr === CP0Const.CP0_REGADDR_CAUSE && io.wb_cp0_in(i).regsel === 0.U && io.wb_cp0_in(i).wen) {
+    when(io.wb_cp0(i).regaddr === CP0Const.CP0_REGADDR_CAUSE && io.wb_cp0(i).regsel === 0.U && io.wb_cp0(i).wen) {
       cause := Cat(
         cause(31, 30), // bd, ti
         0.U(20.W),
-        io.wb_cp0_in(i).wdata(9, 8), // ip1..ip0
+        io.wb_cp0(i).wdata(9, 8), // ip1..ip0
         0.U(8.W)
       )
     }
@@ -89,14 +89,14 @@ class CP0 extends Module {
 
 
   for (i <- 0 to 1) {
-    when(io.wb_cp0_in(i).regaddr === CP0Const.CP0_REGADDR_STATUS && io.wb_cp0_in(i).regsel === 0.U && io.wb_cp0_in(i).wen) {
+    when(io.wb_cp0(i).regaddr === CP0Const.CP0_REGADDR_STATUS && io.wb_cp0(i).regsel === 0.U && io.wb_cp0(i).wen) {
       status := Cat(0.U(9.W),
         1.U(1.W), // bev
         0.U(6.W),
-        io.wb_cp0_in(i).wdata(15, 8), // im
+        io.wb_cp0(i).wdata(15, 8), // im
         0.U(6.W),
-        io.wb_cp0_in(i).wdata(1), // exl
-        io.wb_cp0_in(i).wdata(0) // ie
+        io.wb_cp0(i).wdata(1), // exl
+        io.wb_cp0(i).wdata(0) // ie
       )
     }
   }
@@ -122,17 +122,17 @@ class CP0 extends Module {
   }
 
   for (i <- 0 to 1) {
-    when(io.wb_cp0_in(i).regaddr === CP0Const.CP0_REGADDR_COUNT && io.wb_cp0_in(i).regsel === 0.U && io.wb_cp0_in(i).wen) {
-      count := io.wb_cp0_in(i).wdata
+    when(io.wb_cp0(i).regaddr === CP0Const.CP0_REGADDR_COUNT && io.wb_cp0(i).regsel === 0.U && io.wb_cp0(i).wen) {
+      count := io.wb_cp0(i).wdata
     }
 
-    when(io.wb_cp0_in(i).regaddr === CP0Const.CP0_REGADDR_COMPARE && io.wb_cp0_in(i).regsel === 0.U && io.wb_cp0_in(i).wen) {
-      compare := io.wb_cp0_in(i).wdata
+    when(io.wb_cp0(i).regaddr === CP0Const.CP0_REGADDR_COMPARE && io.wb_cp0(i).regsel === 0.U && io.wb_cp0(i).wen) {
+      compare := io.wb_cp0(i).wdata
       cause := Cat(cause(31), 0.B, cause(29, 0))
     }
 
-    when(io.wb_cp0_in(i).regaddr === CP0Const.CP0_REGADDR_EPC && io.wb_cp0_in(i).regsel === 0.U && io.wb_cp0_in(i).wen) {
-      epc := io.wb_cp0_in(i).wdata
+    when(io.wb_cp0(i).regaddr === CP0Const.CP0_REGADDR_EPC && io.wb_cp0(i).regsel === 0.U && io.wb_cp0(i).wen) {
+      epc := io.wb_cp0(i).wdata
     }
   }
   when(io.ex_cp0_in.exception_occur) {
@@ -143,15 +143,15 @@ class CP0 extends Module {
   }
 
   // 没有对count的写行为时产生count++
-  when(!((io.wb_cp0_in(0).regaddr === CP0Const.CP0_REGADDR_COUNT && io.wb_cp0_in(0).regsel === 0.U && io.wb_cp0_in(0).wen) ||
-    (io.wb_cp0_in(1).regaddr === CP0Const.CP0_REGADDR_COUNT && io.wb_cp0_in(1).regsel === 0.U && io.wb_cp0_in(1).wen))) {
+  when(!((io.wb_cp0(0).regaddr === CP0Const.CP0_REGADDR_COUNT && io.wb_cp0(0).regsel === 0.U && io.wb_cp0(0).wen) ||
+    (io.wb_cp0(1).regaddr === CP0Const.CP0_REGADDR_COUNT && io.wb_cp0(1).regsel === 0.U && io.wb_cp0(1).wen))) {
     when(tick) {
-      count := count + 1
+      count := count + 1.U
     }
   }
   // 没有对compare的写行为时才可能产生时钟中断
-  when(!((io.wb_cp0_in(0).regaddr === CP0Const.CP0_REGADDR_COMPARE && io.wb_cp0_in(0).regsel === 0.U && io.wb_cp0_in(0).wen) ||
-    (io.wb_cp0_in(1).regaddr === CP0Const.CP0_REGADDR_COMPARE && io.wb_cp0_in(1).regsel === 0.U && io.wb_cp0_in(1).wen))) {
+  when(!((io.wb_cp0(0).regaddr === CP0Const.CP0_REGADDR_COMPARE && io.wb_cp0(0).regsel === 0.U && io.wb_cp0(0).wen) ||
+    (io.wb_cp0(1).regaddr === CP0Const.CP0_REGADDR_COMPARE && io.wb_cp0(1).regsel === 0.U && io.wb_cp0(1).wen))) {
     when(compare_eq_count) {
       cause := Cat(cause(31), 1.B, cause(29, 0))
     }
@@ -165,14 +165,16 @@ class CP0 extends Module {
 
 
   for (i <- 0 to 1) {
-    io.wb_cp0_in(i).rdata := Mux(io.wb_cp0_in(i).regsel === 0.U, MuxCase(0.U, Seq(
-      (io.wb_cp0_in(i).regaddr === CP0Const.CP0_REGADDR_EPC) -> epc,
-      (io.wb_cp0_in(i).regaddr === CP0Const.CP0_REGADDR_CAUSE) -> Cat(cause(31, 16), cause_15_10, cause(9, 0)),
-      (io.wb_cp0_in(i).regaddr === CP0Const.CP0_REGADDR_STATUS) -> status,
-      (io.wb_cp0_in(i).regaddr === CP0Const.CP0_REGADDR_COMPARE) -> compare,
-      (io.wb_cp0_in(i).regaddr === CP0Const.CP0_REGADDR_COUNT) -> count,
-      (io.wb_cp0_in(i).regaddr === CP0Const.CP0_REGADDR_BADVADDR) -> badvaddr,
+    io.wb_cp0(i).rdata := Mux(io.wb_cp0(i).regsel === 0.U, MuxCase(0.U, Seq(
+      (io.wb_cp0(i).regaddr === CP0Const.CP0_REGADDR_EPC) -> epc,
+      (io.wb_cp0(i).regaddr === CP0Const.CP0_REGADDR_CAUSE) -> Cat(cause(31, 16), cause_15_10, cause(9, 0)),
+      (io.wb_cp0(i).regaddr === CP0Const.CP0_REGADDR_STATUS) -> status,
+      (io.wb_cp0(i).regaddr === CP0Const.CP0_REGADDR_COMPARE) -> compare,
+      (io.wb_cp0(i).regaddr === CP0Const.CP0_REGADDR_COUNT) -> count,
+      (io.wb_cp0(i).regaddr === CP0Const.CP0_REGADDR_BADVADDR) -> badvaddr,
     )), 0.U)
   }
   io.cp0_ex_out.status_exl := status_exl
+  io.cp0_ex_out.cp0_cause_ip := Cat(cause_15_10, cause(9, 8))
+  io.cp0_ex_out.cp0_status_im := status(15, 8)
 }
