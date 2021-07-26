@@ -23,8 +23,8 @@ import chisel3.util.experimental.forceName
 class Cache(val config:CacheConfig)  extends Module{
   val io = IO(new Bundle{
     val icache = Flipped(new SRamLikeInstIO)
-    val dcache = Flipped(new SRamLikeDataIO())
-    val uncached = Flipped(new SRamLikeDataIO())
+    val dcache = Flipped(Vec(2,new SRamLikeDataIO()))
+    val uncached = Flipped(Vec(2,new SRamLikeDataIO()))
 
     val axi = new AXIIO(3)
   }
@@ -45,20 +45,16 @@ class Cache(val config:CacheConfig)  extends Module{
 //  io.icache.rdata_valid_mask := icache.io.instValid
 
   //dcache
-  dcache.io.valid(0) := io.dcache.req
-  dcache.io.valid(1) := false.B
-  dcache.io.addr(0) := io.dcache.addr
-  dcache.io.addr(1) := DontCare
-  dcache.io.size(0) := io.dcache.size
-  dcache.io.size(1) := DontCare
-  dcache.io.wr(0) := io.dcache.wr
-  dcache.io.wr(1) := DontCare
-  dcache.io.wdata(0) := io.dcache.wdata
-  dcache.io.wdata(1) := DontCare
-  io.dcache.rdata :=  dcache.io.rdata(0)
-  io.dcache.addr_ok := dcache.io.addr_ok(0)
-  io.dcache.data_ok := dcache.io.data_ok(0)
-
+  for(i<- 0 to 1) {
+    dcache.io.valid(i) := io.dcache(i).req
+    dcache.io.addr(i) := io.dcache(i).addr
+    dcache.io.size(i) := io.dcache(i).size
+    dcache.io.wr(i) := io.dcache(i).wr
+    dcache.io.wdata(i) := io.dcache(i).wdata
+    io.dcache(i).rdata := dcache.io.rdata(i)
+    io.dcache(i).addr_ok := dcache.io.addr_ok(i)
+    io.dcache(i).data_ok := dcache.io.data_ok(i)
+  }
   //uncached
   uncached.io.input <> io.uncached
 

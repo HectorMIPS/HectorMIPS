@@ -19,12 +19,12 @@ class MemAccessJudge extends Module{
   var io = IO(new Bundle{
       //输入
       val inst = Flipped(new SRamLikeInstIO())
-      val data = Flipped(new SRamLikeDataIO())
+      val data = Vec(2,Flipped(new SRamLikeDataIO()))
 
       //输出
       val cached_inst   = new SRamLikeInstIO()
-      val uncached_data = new SRamLikeDataIO() //单口AXI-IO
-      val cached_data   = new SRamLikeDataIO()
+      val uncached_data = Vec(2,new SRamLikeDataIO()) //单口AXI-IO
+      val cached_data   = Vec(2,new SRamLikeDataIO())
   })
 
   //不管inst，直接和inst cache连在一起
@@ -32,103 +32,112 @@ class MemAccessJudge extends Module{
   io.inst <> io.cached_inst
 
   val sIDLE::sNop::sReqCache::sWaitCache::sReqAXI::sWaitAXI::sWaitInst::Nil = Enum(7)
-  val state = RegInit(0.U(3.W))
-//  val inst_state = RegInit(0.U(3.W))
+  val state = RegInit(VecInit(Seq.fill(2)(0.U(3.W))))
+
+
+  //  val inst_state = RegInit(0.U(3.W))
 //  val data_state = RegInit(0.U(3.W))
 
 
-  val should_cache_data = Wire(Bool())
-  val should_cache_data_r = RegInit(false.B)
-  when(io.data.addr>="h1faf_0000".U && io.data.data_ok <="h1aff_ffff".U){
-    should_cache_data := false.B
-  }.elsewhen(io.data.addr>="h8000_0000".U &&io.data.addr <="hbfff_ffff".U){
-    should_cache_data := false.B
-  }.otherwise{
-    should_cache_data := true.B
+  val should_cache_data = Wire(Vec(2,Bool()))
+
+  val should_cache_data_r = RegInit(VecInit(Seq.fill(2)(false.B)))
+  for(i<- 0 until 2) {
+    when(io.data(i).addr >= "h1faf_0000".U && io.data(i).data_ok <= "h1aff_ffff".U) {
+      should_cache_data(i) := false.B
+    }.elsewhen(io.data(i).addr >= "h8000_0000".U && io.data(i).addr <= "hbfff_ffff".U) {
+      should_cache_data(i) := false.B
+    }.otherwise {
+      should_cache_data(i) := true.B
+    }
   }
 //  should_cache_data := false.B
 
+  for(i <- 0 until 2) {
+    io.data(i).data_ok := false.B
+    io.data(i).addr_ok := state(i) === sIDLE
+    io.uncached_data(i).addr := 0.U
+    io.cached_data(i).size := 2.U
+    io.uncached_data(i).wr := 0.U
+    io.cached_data(i).req := 0.U
+    io.data(i).rdata := 0.U
+    io.cached_data(i).wdata := 0.U
+    io.uncached_data(i).wdata := 0.U
+    io.uncached_data(i).size := 2.U
+    io.uncached_data(i).req := 0.U
+    io.cached_data(i).addr := 0.U
+    io.cached_data(i).wr := 0.U
+  }
+  val wr_r = Reg(Vec(2,Bool()))
+  val size_r =Reg(Vec(2,UInt(3.W)))
+  val addr_r = Reg(Vec(2,UInt(32.W)))
+  val wdata_r  =   RegInit(VecInit(Seq.fill(2)(0.U(32.W))))
 
-  io.data.data_ok := false.B
-  io.data.addr_ok := state === sIDLE
-  io.uncached_data.addr := 0.U
-  io.cached_data.size := 2.U
-  io.uncached_data.wr := 0.U
-  io.cached_data.req :=0.U
-  io.data.rdata := 0.U
-  io.cached_data.wdata := 0.U
-  io.uncached_data.wdata := 0.U
-  io.uncached_data.size := 2.U
-  io.uncached_data.req :=0.U
-  io.cached_data.addr := 0.U
-  io.cached_data.wr := 0.U
-
-  val wr_r = Reg(Bool())
-  val size_r =Reg(UInt(3.W))
-  val addr_r = Reg(UInt(32.W))
-  val wdata_r  = RegInit(0.U(32.W))
-
-  when(should_cache_data_r){
-    io.cached_data.wr := wr_r
-    io.cached_data.size := size_r
-    io.cached_data.addr := addr_r
-    io.cached_data.wdata := wdata_r
-  }.otherwise{
-    io.uncached_data.wr := wr_r
-    io.uncached_data.size := size_r
-    io.uncached_data.addr := addr_r
-    io.uncached_data.wdata := wdata_r
+  for(i <- 0 to 1) {
+    when(should_cache_data_r(i)) {
+      io.cached_data(i).wr := wr_r(i)
+      io.cached_data(i).size := size_r(i)
+      io.cached_data(i).addr := addr_r(i)
+      io.cached_data(i).wdata := wdata_r(i)
+    }.otherwise {
+      io.uncached_data(i).wr := wr_r(i)
+      io.uncached_data(i).size := size_r(i)
+      io.uncached_data(i).addr := addr_r(i)
+      io.uncached_data(i).wdata := wdata_r(i)
+    }
   }
 
 
-  switch(state){
-    is(sIDLE){
-      when(io.data.req){
-        should_cache_data_r := should_cache_data
-        wdata_r := io.data.wdata
-        addr_r := io.data.addr
-        size_r := io.data.size
-        wr_r := io.data.wr
-        state := sNop
-      }
-    }
-    is(sNop){
-      when(should_cache_data_r) {
-        when(io.cached_data.addr_ok) {
-          state := sWaitCache
-          io.cached_data.req :=true.B
-        }
-      }.otherwise{
-        when(io.uncached_data.addr_ok) {
-          state := sWaitAXI
-          io.uncached_data.req :=true.B
+  for(i<- 0 to 1) {
+    switch(state(i)) {
+      is(sIDLE) {
+        when(io.data(i).req) {
+          should_cache_data_r(i) := should_cache_data(i)
+          wdata_r(i) := io.data(i).wdata
+          addr_r(i) := io.data(i).addr
+          size_r(i) := io.data(i).size
+          wr_r(i) := io.data(i).wr
+          state(i) := sNop
         }
       }
-    }
-    is(sWaitCache){
-      when(io.cached_data.data_ok){
-          state := sIDLE
-          when(!wr_r){
-            //读
-            io.data.rdata := io.cached_data.rdata
+      is(sNop) {
+        when(should_cache_data_r(i)) {
+          when(io.cached_data(i).addr_ok) {
+            state(i) := sWaitCache
+            io.cached_data(i).req := true.B
           }
-          io.data.data_ok := true.B
-      }.otherwise{
-        io.cached_data.req :=false.B
-        state := sWaitCache
-      }
-    }
-    is(sWaitAXI){
-      when(io.uncached_data.data_ok){
-        state := sIDLE
-        when(!wr_r){
-          //读
-          io.data.rdata := io.uncached_data.rdata
+        }.otherwise {
+          when(io.uncached_data(i).addr_ok) {
+            state(i) := sWaitAXI
+            io.uncached_data(i).req := true.B
+          }
         }
-        io.data.data_ok := true.B
-      }.otherwise{
-        io.uncached_data.req :=false.B
-        state := sWaitAXI
+      }
+      is(sWaitCache) {
+        when(io.cached_data(i).data_ok) {
+          state(i) := sIDLE
+          when(!wr_r(i)) {
+            //读
+            io.data(i).rdata := io.cached_data(i).rdata
+          }
+          io.data(i).data_ok := true.B
+        }.otherwise {
+          io.cached_data(i).req := false.B
+          state(i) := sWaitCache
+        }
+      }
+      is(sWaitAXI) {
+        when(io.uncached_data(i).data_ok) {
+          state(i) := sIDLE
+          when(!wr_r(i)) {
+            //读
+            io.data(i).rdata := io.uncached_data(i).rdata
+          }
+          io.data(i).data_ok := true.B
+        }.otherwise {
+          io.uncached_data(i).req := false.B
+          state(i) := sWaitAXI
+        }
       }
     }
   }

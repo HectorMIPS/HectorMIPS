@@ -43,7 +43,10 @@ class SocTopAXI extends Module {
     cpu_top.io.inst_sram_like_io.rdata := mem_judge.io.inst.rdata(31,0)
     //    cpu_top.io.inst_sram_like_io <> mem_judge.io.inst
 
-    cpu_top.io.data_sram_like_io <> mem_judge.io.data
+    cpu_top.io.data_sram_like_io <> mem_judge.io.data(0)
+    mem_judge.io.data(1):=DontCare
+
+
 
     mem_judge.io.cached_inst <> cache.io.icache
     mem_judge.io.cached_data <> cache.io.dcache
@@ -70,8 +73,7 @@ class SocTopAXI extends Module {
 //
 //    crossbar.io.out.rid :=  io.axi_io.rid
 //    crossbar.io.out.rdata := io.axi_io.rdata
-//    crossbar.io.out.rresp := io.axi_io.rresp
-//    crossbar.io.out.rlast :=  io.axi_io.rlast
+//    crossbar.io.out.rresp := io.axi_io.rresp//    crossbar.io.out.rlast :=  io.axi_io.rlast
 //    crossbar.io.out.rvalid :=  io.axi_io.rvalid
 //    io.axi_io.rready := crossbar.io.out.rready
 //
