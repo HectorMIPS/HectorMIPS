@@ -36,6 +36,9 @@ class CacheConfig(val _wayNum: Int = 2, val WayWidth: Int = 4 * 1024, val DataWi
   def getTag(x: UInt): UInt = x(31, 32 - tagWidth) //(31,12)
 
   def getIndex(x: UInt): UInt = x(31 - tagWidth, 32 - tagWidth - indexWidth) //(11,4)
+  def getIndexByExpression(b: Bool,x:UInt,y:UInt): UInt ={
+    Mux(b,x(31 - tagWidth, 32 - tagWidth - indexWidth),y(31 - tagWidth, 32 - tagWidth - indexWidth))
+  } //(11,4)
 
   def getOffset(x: UInt): UInt = x(31 - tagWidth - indexWidth, 0)(3, 0)
 

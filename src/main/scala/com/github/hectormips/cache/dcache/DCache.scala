@@ -86,32 +86,23 @@ class DCache(val config:CacheConfig)
   queue.io.deq.ready := false.B
 
   /**
-   *
-   */
-
-
-//  io.addr_ok := Cat(port_valid(1),port_valid(0))
-//  io.data_ok := Cat(vec_data_ok(1),vec_data_ok(0))
-//  io.rdata := Cat(vec_rdata(1),vec_rdata(0))
-
-  /**
    * cache的数据
    */
-  val validMem = RegInit(VecInit(Seq.fill(config.wayNum)(VecInit(Seq.fill(config.lineNum)(false.B)))))
-  val dirtyMem = RegInit(VecInit(Seq.fill(config.wayNum)(VecInit(Seq.fill(config.lineNum)(false.B)))))
-
-//  val dirtyMem = Mem(config.lineNum,Vec(config.wayNum, Bool())) //注意前面的是way
-
   val dataMem = List.fill(config.wayNum) {
     List.fill(config.bankNum) { // 4字节长就有4个
-      SyncReadMem(config.lineNum,Vec(4, UInt(8.W)))
+      Module(new dcache_data_bank(config.lineNum))
     }
   }
   val tagvMem = List.fill(config.wayNum) {
-    SyncReadMem(config.lineNum, UInt((config.tagWidth+1).W))
+    Module(new dcache_tagv(config.tagWidth,config.lineNum))
   }
+  val dirtyMem = List.fill(config.wayNum) {
+    Module(new dcache_dirty(config.lineNum))
+  }
+
 //  val selection = Module(new ByteSelection)
   val wstrb = Module(new Wstrb())
+
 
   val lruMem = Module(new LruMem(config.wayNumWidth,config.indexWidth))// lru
 //  val victim = Module(new Victim(config)) // 写代理
@@ -141,6 +132,8 @@ class DCache(val config:CacheConfig)
   port_r := queue.io.deq.bits.port
   val bData = new BankData(config)
   val tagvData = new TAGVData(config)
+  val dirtyData = new DirtyData(config)
+
   val dataMemEn = RegInit(false.B)
   val bDataWtBank = RegInit(0.U((config.offsetWidth-2).W))
   val AXI_readyReg = RegInit(false.B)
@@ -162,59 +155,60 @@ class DCache(val config:CacheConfig)
   bankIndex := config.getBankIndex(addr_r) //offset去掉尾部2位
 
   tag := config.getTag(addr_r)
-//  /**
-//   * victim
-//   */
-//  //   用于驱逐的计数器
-//  val victimEvictioncounter = RegInit((0.U(config.bankNumWidth.W)))
-//  // 用于接收新数据的计数器
-//  val victimRestoreCounter = RegInit(0.U(config.bankNumWidth.W))
-//  victim.io.qvalid := false.B
-//  victim.io.wvalid := false.B
-//  victim.io.dirty := dirtyMem(waySelReg)(bData.addr)
 
+
+  /**
+   * 初始化 ram
+   */
+  //初始化
+  for(way <- 0 until config.wayNum){
+    tagvMem(way).io.clka := clock
+    tagvMem(way).io.clkb := clock
+    tagvMem(way).io.wea := tagvData.wEn(way)
+    tagvMem(way).io.ena := true.B
+    tagvMem(way).io.dina := 0.U
+    dirtyMem(way).io.clka := clock
+    dirtyMem(way).io.clkb := clock
+    dirtyMem(way).io.wea := false.B
+    dirtyMem(way).io.ena := true.B
+    for(bank <- 0 until config.bankNum){
+      dataMem(way)(bank).io.clka := clock
+      dataMem(way)(bank).io.clkb := clock
+      dataMem(way)(bank).io.wea := Mux(bData.wEn(way)(bank),wstrb.io.mask,"b0000".U)
+      dataMem(way)(bank).io.ena := true.B
+    }
+  }
+
+  for(way <- 0 until config.wayNum){
+    tagvMem(way).io.addrb := 0.U
+    tagvMem(way).io.enb := false.B
+    tagvMem(way).io.web := false.B
+    tagvMem(way).io.dinb := 0.U
+
+    dirtyMem(way).io.addrb := 0.U
+    dirtyMem(way).io.enb := false.B
+    dirtyMem(way).io.web := false.B
+    dirtyMem(way).io.dinb := 0.U
+    for(bank <- 0 until config.bankNum){
+      dataMem(way)(bank).io.addrb := 0.U
+      dataMem(way)(bank).io.enb := false.B
+      dataMem(way)(bank).io.web := false.B
+      dataMem(way)(bank).io.dinb := 0.U
+    }
+  }
   /**
    * dataMem
    */
-  //  val writeData
-//  val temp_victim_odata_vec = Wire(Vec(4,UInt(8.W)))
-//  when(state===sVictimReplace){
-//    temp_victim_odata_vec(0) := victim.io.qdata(7,0)
-//    temp_victim_odata_vec(1) := victim.io.qdata(15,8)
-//    temp_victim_odata_vec(2) := victim.io.qdata(23,16)
-//    temp_victim_odata_vec(3) := victim.io.qdata(31,24)
-//  }.otherwise{
-//    temp_victim_odata_vec := DontCare
-//  }
-  val _bdata_vec = Wire(Vec(config.bankNum,Vec(4,UInt(8.W))))
-  for(bank <- 0 until config.bankNum){
-    _bdata_vec(bank)(0) := io.axi.readData.bits.data(7,0)
-    _bdata_vec(bank)(1) := io.axi.readData.bits.data(15,8)
-    _bdata_vec(bank)(2) := io.axi.readData.bits.data(23,16)
-    _bdata_vec(bank)(3) := io.axi.readData.bits.data(31,24)
-  }
-  val _wdata_vec = Wire(Vec(4,UInt(8.W))) // 外部写数据
-  _wdata_vec(0) := wdata_r(7,0)
-  _wdata_vec(1) := wdata_r(15,8)
-  _wdata_vec(2) := wdata_r(23,16)
-  _wdata_vec(3) := wdata_r(31,24)
-  val _wstrb_vec = Wire(Vec(4,Bool()))
-  _wstrb_vec(0) := wstrb.io.mask(0)
-  _wstrb_vec(1) := wstrb.io.mask(1)
-  _wstrb_vec(2) := wstrb.io.mask(2)
-  _wstrb_vec(3) := wstrb.io.mask(3)
-  val _read_data = Wire(Vec(config.wayNum,Vec(config.bankNum,Vec(4,UInt(8.W)))))
-  _read_data.indices.foreach(way => {
-    _read_data(way).indices.foreach(bank =>{
-        bData.read(way)(bank) := Cat(_read_data(way)(bank)(3), _read_data(way)(bank)(2), _read_data(way)(bank)(1),
-          _read_data(way)(bank)(0))
-    })
-  })
 
   for(way <- 0 until  config.wayNum){
-    tagvData.read(way) := tagvMem(way).read(config.getIndex(addr_r))
+    tagvMem(way).io.addra := config.getIndexByExpression(state===sIDLE,queue.io.deq.bits.addr,addr_r)
+    tagvData.read(way).tag := tagvMem(way).io.douta(config.tagWidth-1,0)
+    tagvData.read(way).valid := tagvMem(way).io.douta(config.tagWidth)
+    dirtyMem(way).io.addra := config.getIndexByExpression(state===sIDLE,queue.io.deq.bits.addr,addr_r)
+    dirtyData.read(way) := dirtyMem(way).io.douta
     for(bank <- 0 until config.bankNum){
-      _read_data(way)(bank)  := dataMem(way)(bank).read(config.getIndex(addr_r))
+      dataMem(way)(bank).io.addra := config.getIndexByExpression(state===sIDLE,queue.io.deq.bits.addr,addr_r)
+      bData.read(way)(bank)  := dataMem(way)(bank).io.douta
     }
   }
 
@@ -223,23 +217,25 @@ class DCache(val config:CacheConfig)
       val m = dataMem(way)(bank)
       when(bData.wEn(way)(bank)) {
         when(state === sREFILL) {
+          dirtyMem(way).io.wea := true.B
           when(wr_r){
-            dirtyMem(way)(bData.addr) := true.B //Write miss 的 目标
+            dirtyMem(way).io.dina := true.B
           }.otherwise {
-            dirtyMem(way)(bData.addr) := false.B //read miss
+            dirtyMem(way).io.dina := false.B
           }
           when(bank.U === bDataWtBank){
             when(wr_r) {
-              m.write(bData.addr, _wdata_vec, _wstrb_vec)
+              m.io.dina  := wdata_r
             }.otherwise {
-              m.write(bData.addr, _bdata_vec(bank))
+              m.io.dina  :=  io.axi.readData.bits.data
             }
           }
         }.elsewhen(state===sLOOKUP&& is_hitWay && cache_hit_way === way.U && wr_r){
           // write hit
-          dirtyMem(way)(bData.addr) := true.B //旧数据
+          dirtyMem(way).io.wea := true.B
+          dirtyMem(way).io.dina := true.B //旧数据
           when(bank.U === bankIndex){
-            m.write(bData.addr, _wdata_vec,_wstrb_vec)
+            m.io.dina := wdata_r
           }
         }
       }
@@ -249,8 +245,7 @@ class DCache(val config:CacheConfig)
   for(way <- 0 until config.wayNum){
     val m = tagvMem(way)
     when(tagvData.wEn(way)){//写使能
-      m.write(tagvData.addr,tagvData.write)
-      validMem(way)(tagvData.addr) := true.B
+      m.io.dina := Cat(true.B,tag)
     }
   }
   for(way<- 0 until config.wayNum){
@@ -273,7 +268,7 @@ class DCache(val config:CacheConfig)
   cache_hit_way := OHToUInt(cache_hit_onehot)
   // 判断是否命中cache
   cache_hit_onehot.indices.foreach(i=>{
-    cache_hit_onehot(i) :=  tagvData.read(i) === tag && validMem(i)(index)
+    cache_hit_onehot(i) :=  tagvData.read(i).tag === tag && tagvData.read(i).valid
   })
 
   /**
@@ -314,7 +309,7 @@ class DCache(val config:CacheConfig)
    * 驱逐
    */
   val evictionCounter = RegInit(0.U(config.bankNumWidth.W))
-  invalidateQueue.io.addr := Cat(tagvData.read(waySelReg),index,0.U(config.offsetWidth.W))
+  invalidateQueue.io.addr := Cat(tagvData.read(waySelReg).tag,index,0.U(config.offsetWidth.W))
   invalidateQueue.io.wdata := bData.read(waySelReg)(evictionCounter)
   invalidateQueue.io.req := false.B
   /**
@@ -363,7 +358,7 @@ class DCache(val config:CacheConfig)
       //在此阶段完成驱逐
       bDataWtBank := bankIndex
       when(io.axi.readAddr.ready) {
-        when(dirtyMem(waySelReg)(bData.addr)===true.B){
+        when(dirtyData.read(waySelReg)===true.B){
           state := sEvictionWaiting
           invalidateQueue.io.req := true.B
         }.otherwise{
