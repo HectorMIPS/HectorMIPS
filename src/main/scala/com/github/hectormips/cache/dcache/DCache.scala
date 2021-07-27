@@ -46,9 +46,9 @@ class DCache(val config:CacheConfig)
     val debug_hit_count   = Output(UInt(32.W))  // cache命中数
 
   })
-  val sIDLE::sLOOKUP::sCheckVictim::sREPLACE::sREFILL::sWaiting::sVictimReplace::sEviction::Nil =Enum(8)
+  val sIDLE::sLOOKUP::sREPLACE::sREFILL::sWaiting::sEviction::sEvictionWaiting::Nil =Enum(7)
 
-  val state = RegInit(5.U(3.W))
+  val state = RegInit(0.U(3.W))
   val debug_counter = RegInit(0.U(10.W))
   val queue = Module(new Queue(new QueueItem, 2))
   val port_valid = RegInit(VecInit(Seq.fill(2)(true.B)))
@@ -235,7 +235,7 @@ class DCache(val config:CacheConfig)
               m.write(bData.addr, _bdata_vec(bank))
             }
           }
-        }.elsewhen(state===sLOOKUP && cache_hit_way === way.U && wr_r){
+        }.elsewhen(state===sLOOKUP&& is_hitWay && cache_hit_way === way.U && wr_r){
           // write hit
           dirtyMem(way)(bData.addr) := true.B //旧数据
           when(bank.U === bankIndex){
@@ -263,8 +263,8 @@ class DCache(val config:CacheConfig)
     }
   }
   for(way<- 0 until config.wayNum){
-    tagvData.wEn(way) := (state === sREFILL && waySelReg===way.U) ||
-      (state === sVictimReplace  && waySelReg===way.U)
+    tagvData.wEn(way) := (state === sREFILL && waySelReg===way.U)
+//      (state === sVictimReplace  && waySelReg===way.U)
   }
 
   tagvData.write := Cat(true.B,tag)
@@ -279,8 +279,7 @@ class DCache(val config:CacheConfig)
   /**
    * IO初始化
    */
-//  io.data_ok :=
-//  io.rdata := 0.U
+
   wstrb.io.offset := addr_r(1,0)
   wstrb.io.size := size_r
   /**
@@ -308,10 +307,16 @@ class DCache(val config:CacheConfig)
       debug_hit_count_r := debug_hit_count_r + 1.U
     }
   }
-  when(state === sVictimReplace){
-    debug_hit_count_r := debug_hit_count_r + 1.U
-  }
-
+//  when(state === sVictimReplace){
+//    debug_hit_count_r := debug_hit_count_r + 1.U
+//  }
+  /**
+   * 驱逐
+   */
+  val evictionCounter = RegInit(0.U(config.bankNumWidth.W))
+  invalidateQueue.io.addr := Cat(tagvData.read(waySelReg),index,0.U(config.offsetWidth.W))
+  invalidateQueue.io.wdata := bData.read(waySelReg)(evictionCounter)
+  invalidateQueue.io.req := false.B
   /**
    * Cache状态机
    */
@@ -347,7 +352,7 @@ class DCache(val config:CacheConfig)
         }
       }.otherwise {
         //没命中,检查victim
-        state := sCheckVictim
+//        state := sCheckVictim
 //        victim.io.qvalid := true.B
         io.axi.readAddr.valid := true.B
         state := sREPLACE
@@ -358,10 +363,30 @@ class DCache(val config:CacheConfig)
       //在此阶段完成驱逐
       bDataWtBank := bankIndex
       when(io.axi.readAddr.ready) {
+        when(dirtyMem(waySelReg)(bData.addr)===true.B){
+          state := sEvictionWaiting
+          invalidateQueue.io.req := true.B
+        }.otherwise{
           state := sREFILL
+        }
       }.otherwise{
         state := sREPLACE
         io.axi.readAddr.valid := true.B
+      }
+    }
+    is(sEvictionWaiting){
+      when(invalidateQueue.io.data_start){
+        state := sEviction
+        evictionCounter := 0.U
+      }.otherwise{
+        state := sEvictionWaiting
+      }
+    }
+    is(sEviction){
+      evictionCounter := evictionCounter + 1.U
+      state := sEviction
+      when(evictionCounter===(config.bankNum -  1).U){
+        state := sREFILL
       }
     }
     is(sREFILL){
