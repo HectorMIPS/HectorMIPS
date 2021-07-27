@@ -36,8 +36,10 @@ class Uncache extends Module{
   val exe_port_r =Reg(Bool())
 
 
-  io.input(0).addr_ok := !do_req
-  io.input(1).addr_ok := !do_req
+  val polling = RegInit(false.B)
+  polling := ~polling
+  io.input(0).addr_ok := !do_req && polling
+  io.input(1).addr_ok := !do_req && !polling
 
   when( (io.input(0).req || io.input(1).req)  && !do_req){
     when(io.input(0).req){
