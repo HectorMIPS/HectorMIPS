@@ -47,9 +47,9 @@ class DCache(val config:CacheConfig)
 
   })
   val sIDLE::sLOOKUP::sREPLACE::sREFILL::sWaiting::sEviction::sEvictionWaiting::Nil =Enum(7)
-
   val state = RegInit(0.U(3.W))
-  val debug_counter = RegInit(0.U(10.W))
+  val w_state = RegInit(0.U(3.W))
+//  val debug_counter = RegInit(0.U(10.W))
   val queue = Module(new Queue(new QueueItem, 2))
   val port_valid = RegInit(VecInit(Seq.fill(2)(true.B)))
   io.data_ok(1):= false.B
@@ -58,10 +58,10 @@ class DCache(val config:CacheConfig)
   io.rdata(0) := 0.U
   val polling = RegInit(false.B)
   polling := ~polling
-  io.addr_ok(0) := port_valid(0) && polling
-  io.addr_ok(1) := port_valid(1) && !polling
+  io.addr_ok(0) := port_valid(0) && polling && storeBuffer.io.cpu_ok
+  io.addr_ok(1) := port_valid(1) && !polling && storeBuffer.io.cpu_ok
   when(queue.io.enq.ready){
-    when(io.valid(0) && io.addr_ok(0)){
+    when(io.valid(0) && io.addr_ok(0) && !io.wr(0)){
       queue.io.enq.valid := true.B
       queue.io.enq.bits.addr := io.addr(0)
       queue.io.enq.bits.port := 0.U
@@ -69,7 +69,7 @@ class DCache(val config:CacheConfig)
       queue.io.enq.bits.size := io.size(0)
       queue.io.enq.bits.wdata := io.wdata(0)
       port_valid(0) := false.B
-    }.elsewhen(io.valid(1) && io.addr_ok(1)){
+    }.elsewhen(io.valid(1) && io.addr_ok(1) && !io.wr(1)){
       queue.io.enq.bits.addr := io.addr(1)
       queue.io.enq.bits.port := 1.U
       queue.io.enq.bits.wr := io.wr(1)
@@ -86,6 +86,23 @@ class DCache(val config:CacheConfig)
     queue.io.enq.valid := false.B
   }
   queue.io.deq.ready := false.B
+
+
+  when(io.wr(0) && io.addr_ok(0) && io.valid(0)){
+    storeBuffer.io.cpu_req  := true.B
+    storeBuffer.io.cpu_size := io.size
+    storeBuffer.io.cpu_addr := io.addr
+    storeBuffer.io.cpu_wdata := io.wdata
+    io.data_ok(0) := true.B
+  }
+  when(io.wr(1) && io.addr_ok(1) && io.valid(1)){
+    storeBuffer.io.cpu_req  := true.B
+    storeBuffer.io.cpu_size := io.size
+    storeBuffer.io.cpu_addr := io.addr
+    storeBuffer.io.cpu_wdata := io.wdata
+    io.data_ok(1) := true.B
+  }
+
 
   /**
    * cache的数据
@@ -107,6 +124,7 @@ class DCache(val config:CacheConfig)
 
 
   val lruMem = Module(new LruMem(config.wayNumWidth,config.indexWidth))// lru
+  val storeBuffer = Module(new StoreBuffer(7))
 //  val victim = Module(new Victim(config)) // 写代理
   val invalidateQueue = Module(new InvalidateQueue(new CacheConfig()))
 
@@ -198,6 +216,7 @@ class DCache(val config:CacheConfig)
       dataMem(way)(bank).io.dinb := 0.U
     }
   }
+
   /**
    * dataMem
    */
@@ -286,6 +305,13 @@ class DCache(val config:CacheConfig)
   lruMem.io.visit := 0.U
   lruMem.io.visitValid := is_hitWay
 
+  /**
+   * store buffer配置
+   */
+  storeBuffer.io.cache_query_addr := addr_r
+  val storeBuffer_reverse_mask = UInt(32.W)
+  storeBuffer_reverse_mask := ~storeBuffer.io.cache_query_mask
+
 
   /**
    * debug
@@ -345,7 +371,8 @@ class DCache(val config:CacheConfig)
         io.data_ok(port_r) := true.B
         queue.io.deq.ready := true.B
         when(!wr_r) {
-          io.rdata(port_r) := bData.read(cache_hit_way)(bankIndex)
+          io.rdata(port_r) := (bData.read(cache_hit_way)(bankIndex)& storeBuffer_reverse_mask)|
+            (storeBuffer.io.cache_query_data & storeBuffer.io.cache_query_mask)
         }
       }.otherwise {
         //没命中,检查victim
@@ -394,7 +421,8 @@ class DCache(val config:CacheConfig)
         when(io.axi.readData.bits.last){
           state := sWaiting
           when(!wr_r){
-            io.rdata(port_r) := bData.read(waySelReg)(bankIndex)
+            io.rdata(port_r) := (bData.read(waySelReg)(bankIndex) & storeBuffer_reverse_mask)|
+              (storeBuffer.io.cache_query_data & storeBuffer.io.cache_query_mask)
             io.data_ok(port_r) := true.B
           }
         }
@@ -402,7 +430,8 @@ class DCache(val config:CacheConfig)
     }
     is(sWaiting){
       state := sIDLE
-      io.rdata(port_r) := bData.read(waySelReg)(bankIndex)
+      io.rdata(port_r) := (bData.read(waySelReg)(bankIndex)& storeBuffer_reverse_mask)|
+        (storeBuffer.io.cache_query_data & storeBuffer.io.cache_query_mask)
       io.data_ok(port_r) := true.B
       port_valid(port_r) := true.B
       queue.io.deq.ready := true.B

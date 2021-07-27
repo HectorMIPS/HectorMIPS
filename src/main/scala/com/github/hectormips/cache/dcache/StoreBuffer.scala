@@ -30,7 +30,7 @@ class StoreBuffer(length:Int) extends Module{
   val hit_queue_onehot = Wire(Vec(length,Bool()))
   val is_hit_queue = hit_queue_onehot.asUInt() =/= 0.U
   val hit_queue_index = Wire(UInt(log2Ceil(length).W))
-  val buffer = new Buffer
+  val buffer = new Buffer(length+1)
   val wstrb = new Wstrb
   wstrb.io.size := buffer.data(hit_queue_index).size
   wstrb.io.offset := buffer.data(hit_queue_index).addr(1,0)
@@ -73,7 +73,7 @@ class StoreBuffer(length:Int) extends Module{
   when(state === sWork && !buffer.empty() && io.cache_write_ready){
     io.cache_write_valid := true.B
   }
-  when(io.cache_write_valid && io.cache_write_ready){
+  when(state === sWork && io.cache_write_valid && io.cache_write_ready){
     io.cache_write_size := buffer.deq_data().size
     io.cache_write_addr := buffer.deq_data().addr
     io.cache_write_wdata := buffer.deq_data().wdata
@@ -92,10 +92,10 @@ class bufferItem extends Bundle{
   val wdata = UInt(32.W)
   val size  = UInt(3.W)
 }
-class Buffer extends  Bundle{
-  val data    = Mem(7,new bufferItem)
-  val enq_ptr = RegInit(0.U(3.W))
-  val deq_ptr  = RegInit(0.U(3.W))
+class Buffer(length:Int) extends  Bundle{
+  val data    = Mem(length+1,new bufferItem)
+  val enq_ptr = RegInit(0.U(log2Ceil(length+1).W))
+  val deq_ptr  = RegInit(0.U(log2Ceil(length+1).W))
   def empty():Bool={
     enq_ptr === deq_ptr
   }
