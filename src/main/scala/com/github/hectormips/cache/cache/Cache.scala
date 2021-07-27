@@ -29,7 +29,7 @@ class Cache(val config:CacheConfig)  extends Module{
     val axi = new AXIIO(3)
   }
   )
-  val dcache = Module(new DCache(new CacheConfig(WayWidth=8*1024,DataWidthByByte=32)))
+  val dcache = Module(new DCache(new CacheConfig(WayWidth=2*1024,DataWidthByByte=16)))
 //  val icache = Module(new ICache(new CacheConfig(WayWidth=8*1024,DataWidthByByte=32)))
   // 2路组相连，每页8KB 每行32B
   val icache = Module(new ICache(new CacheConfig(WayWidth =8*1024,DataWidthByByte=32)))
