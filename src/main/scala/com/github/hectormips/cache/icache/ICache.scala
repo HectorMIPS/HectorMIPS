@@ -32,7 +32,7 @@ class ICache(val config:CacheConfig)
     val inst   = Output(UInt(64.W))
     val instOK = Output(Bool())
 
-    val instValid =Output(Bool())
+    val instValid =Output(UInt())
 
     val axi     = new Bundle{
       val readAddr  =  Decoupled(new AXIAddr(32,4))
@@ -142,9 +142,9 @@ class ICache(val config:CacheConfig)
    * IO初始化
    */
 
-  io.instValid := Cat(bankIndex =/= ((config.bankNum) - 1).U,true.B)
+  io.instValid := Cat(bankIndex =/= ((config.bankNum) - 1).U,true.B) //==bank-1
   io.instOK    := false.B
-
+//  printf("%d\n",io.instValid)
   io.inst := 0.U
 
   /**

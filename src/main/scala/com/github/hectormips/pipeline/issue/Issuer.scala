@@ -57,8 +57,7 @@ class Issuer extends Module {
   has_waw_hazard := has_waw_regfile_hazard || has_waw_hilo_hazard || has_waw_hilo_hazard
   // 有冲突或者只有一条指令的时候只发射一条
   // 当一条指令为eret的时候也只发射一条
-  io.out.issue_count := Mux(!has_raw_hazard ||
-    io.in_decoder2.is_valid ||
+  io.out.issue_count := Mux(has_raw_hazard || has_device_hazard ||
     io.in_decoder1.is_eret || io.in_decoder2.is_eret || is_decoder2_jump, 1.U, 2.U)
   io.out.waw_hazard := Mux(io.in_decoder2.is_valid, !has_waw_hazard, 0.B)
 
