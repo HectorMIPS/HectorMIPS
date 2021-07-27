@@ -56,8 +56,8 @@ class DCache(val config:CacheConfig)
   io.data_ok(0):= false.B
   io.rdata(1) := 0.U
   io.rdata(0) := 0.U
-  io.addr_ok(0) := port_valid(0)
-  io.addr_ok(1) := port_valid(1)
+  io.addr_ok(0) := port_valid(0) && !io.valid(1)
+  io.addr_ok(1) := port_valid(1) && !io.valid(0)
   when(queue.io.enq.ready){
     when(io.valid(0) && io.addr_ok(0)){
       queue.io.enq.valid := true.B
@@ -67,7 +67,7 @@ class DCache(val config:CacheConfig)
       queue.io.enq.bits.size := io.size(0)
       queue.io.enq.bits.wdata := io.wdata(0)
       port_valid(0) := false.B
-    }.elsewhen(io.valid(1) && io.addr_ok(1)){
+    }.elsewhen(!io.valid(0) && io.valid(1) && io.addr_ok(1)){
       queue.io.enq.bits.addr := io.addr(1)
       queue.io.enq.bits.port := 1.U
       queue.io.enq.bits.wr := io.wr(1)
