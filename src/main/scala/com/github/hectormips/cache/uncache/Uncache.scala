@@ -42,11 +42,11 @@ class Uncache extends Module{
   io.input(1).addr_ok := !do_req && !polling
 
   when( (io.input(0).req || io.input(1).req)  && !do_req){
-    when(io.input(0).req){
+    when(io.input(0).req && io.input(0).addr_ok){
       do_req := true.B
       exe_port := 0.U
       exe_port_r := 0.U
-    }.elsewhen(io.input(1).req){
+    }.elsewhen(io.input(1).req && io.input(1).addr_ok){
       do_req := true.B
       exe_port := 1.U
       exe_port_r := 1.U
