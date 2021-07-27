@@ -187,7 +187,7 @@ class Decoder extends Module {
   ins_jr := opcode === "b000000".U && rt === "b00000".U && rd === "b00000".U && sa === 0.U && func === 0x08.U
   ins_slt := opcode === "b000000".U && sa === "b00000".U && func === "b101010".U
   ins_sltu := opcode === "b000000".U && sa === "b00000".U && func === "b101011".U
-  ins_sll := opcode === "b000000".U && rs === "b00000".U && func === "b000000".U
+  ins_sll := opcode === "b000000".U && rs === "b00000".U && func === "b000000".U && rd =/= 0.U
   ins_srl := opcode === "b000000".U && rs === "b00000".U && func === "b000010".U
   ins_sra := opcode === "b000000".U && rs === "b00000".U && func === "b000011".U
   ins_lui := opcode === "b001111".U && rs === "b00000".U

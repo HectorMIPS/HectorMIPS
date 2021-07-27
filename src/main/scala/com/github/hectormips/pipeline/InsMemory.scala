@@ -68,15 +68,12 @@ class InsMemoryBundle extends WithAllowin {
 class InsMemory extends Module {
   val io: InsMemoryBundle = IO(new InsMemoryBundle)
 
-  val bus_valid: Bool = Wire(Bool())
-
 
   // 如果有需要请求数据ram的指令则需要等待其访问完毕两条指令才能继续向下行进
   val ready_go: Bool = Mux(io.ex_ms_in(0).mem_req && io.ex_ms_in(0).bus_valid,
     io.data_ram_state(0) === RamState.waiting_for_read, 1.B) &&
     Mux(io.ex_ms_in(1).mem_req && io.ex_ms_in(1).bus_valid,
       io.data_ram_state(1) === RamState.waiting_for_read, 1.B)
-  bus_valid := io.ex_ms_in(0).bus_valid && !reset.asBool() && ready_go
   io.this_allowin := io.next_allowin && !reset.asBool() && ready_go
 
   for (i <- 0 to 1) {
@@ -110,14 +107,14 @@ class InsMemory extends Module {
     io.ms_wb_out(i).regfile_wdata_ms_wb := Mux(io.ex_ms_in(i).regfile_wsrc_sel_ex_ms, mem_rdata_out, io.ex_ms_in(i).alu_val_ex_ms)
 
 
-    io.ms_wb_out(i).bus_valid := bus_valid
+    io.ms_wb_out(i).bus_valid := io.ex_ms_in(i).bus_valid && !reset.asBool() && ready_go
     io.ms_wb_out(i).pc_ms_wb := io.ex_ms_in(i).pc_ex_ms_debug
 
     val bypass_bus_valid: Bool = io.ex_ms_in(i).bus_valid && Mux(io.ex_ms_in(i).regfile_wsrc_sel_ex_ms,
       io.data_ram_state(i) === RamState.waiting_for_read, 1.B)
 
     io.bypass_ms_id(i).bus_valid := bypass_bus_valid
-    io.bypass_ms_id(i).data_valid := bus_valid && io.ex_ms_in(i).regfile_we_ex_ms &&
+    io.bypass_ms_id(i).data_valid := io.ex_ms_in(i).bus_valid && !reset.asBool() && ready_go && io.ex_ms_in(i).regfile_we_ex_ms &&
       Mux(io.ex_ms_in(i).regfile_wsrc_sel_ex_ms, io.data_ram_state(i) === RamState.waiting_for_read, 1.B)
     io.bypass_ms_id(i).reg_data := Mux(io.ex_ms_in(i).regfile_wsrc_sel_ex_ms, mem_rdata_out, io.ex_ms_in(i).alu_val_ex_ms)
     io.bypass_ms_id(i).reg_addr := MuxCase(0.U, Seq(

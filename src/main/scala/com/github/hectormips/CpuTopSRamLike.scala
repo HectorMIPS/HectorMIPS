@@ -83,10 +83,9 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
     id_pf_bundle
   })
   pf_module.io.in_valid := 1.U // 目前始终允许
-  when(id_pf_bus.bus_valid && id_pf_bus.jump_taken && !pipeline_flush_ex) {
+  when(id_pf_bus.bus_valid && !pipeline_flush_ex) {
     id_pf_buffer := id_pf_bus
-  }
-  when(pipeline_flush_ex) {
+  }.elsewhen(pipeline_flush_ex || (pf_module.io.ins_ram_en && io.inst_sram_like_io.addr_ok)) {
     id_pf_buffer.bus_valid := 0.B
   }
   pf_module.io.id_pf_in := id_pf_buffer

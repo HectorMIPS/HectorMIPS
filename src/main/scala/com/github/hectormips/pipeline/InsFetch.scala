@@ -27,7 +27,7 @@ class DecodePreFetchBundle extends Bundle {
   // 请求新获取的指令数
   val inst_num_request: UInt            = Output(UInt(2.W))
   // 是否需要将pc回退4
-  val pc_back_4       : Bool            = Output(Bool())
+  val pc_force_step_4 : Bool            = Output(Bool())
 
   def defaults(): Unit = {
     jump_sel_id_pf := InsJumpSel.seq_pc
@@ -37,7 +37,7 @@ class DecodePreFetchBundle extends Bundle {
     jump_taken := 0.B
     stall_id_pf := 0.B
     inst_num_request := 2.U
-    pc_back_4 := 0.B
+    pc_force_step_4 := 1.B
   }
 }
 
@@ -48,7 +48,7 @@ class ExecutePrefetchBundle extends Bundle {
 
 
 object BranchState extends ChiselEnum {
-  val no_branch, delay_slot, branch_target, delay_slot_no_jump = Value
+  val no_branch, waiting_for_delay_slot = Value
 }
 
 class InsPreFetchBundle extends WithAllowin {
@@ -76,8 +76,8 @@ class InsPreFetchBundle extends WithAllowin {
 class InsPreFetch extends Module {
   val io      : InsPreFetchBundle = IO(new InsPreFetchBundle())
   val pc_jump : UInt              = Wire(UInt(32.W))
-  val seq_pc_4: UInt              = Mux(io.id_pf_in.pc_back_4, io.pc, io.pc + 4.U)
-  val seq_pc_8: UInt              = Mux(io.id_pf_in.pc_back_4, io.pc + 4.U, io.pc + 8.U)
+  val seq_pc_4: UInt              = io.pc + 4.U
+  val seq_pc_8: UInt              = Mux(io.id_pf_in.pc_force_step_4, seq_pc_4, io.pc + 8.U)
   val req     : Bool              = !io.id_pf_in.stall_id_pf && io.next_allowin &&
     (io.fetch_state === RamState.waiting_for_request || io.fetch_state === RamState.requesting)
   pc_jump := seq_pc_4
@@ -98,7 +98,7 @@ class InsPreFetch extends Module {
 
   }
   // 已经执行完成延迟槽指令 跳转至目标处
-  val jump_now_target: Bool = io.id_pf_in.bus_valid
+  val jump_now_target: Bool = io.id_pf_in.bus_valid && io.id_pf_in.jump_taken
   val no_jump        : Bool = !io.id_pf_in.bus_valid || (io.id_pf_in.bus_valid && !io.id_pf_in.jump_taken)
   // 直到当前指令可以被decode接收时才发送新的请求
   val ready_go       : Bool = io.next_allowin && (io.fetch_state === RamState.waiting_for_request)
@@ -120,7 +120,7 @@ class InsPreFetch extends Module {
   // 永远可以写入pc，直接通过控制io.next_pc的值来实现暂停等操作来简化控制模型
   io.pc_wen := 1.B
   io.this_allowin := !reset.asBool() && io.next_allowin
-  io.pc_debug_pf_if := Mux(io.id_pf_in.pc_back_4, io.pc - 4.U, io.pc)
+  io.pc_debug_pf_if := pc_out
   io.inst_num_request := io.id_pf_in.inst_num_request
 
 }
@@ -146,6 +146,8 @@ class InsSufFetch extends Module {
   when(io.ins_ram_data_ok) {
     if_buffer_reg := io.ins_ram_data
     if_buffer_valid_reg := io.ins_ram_data_valid
+  }.elsewhen(io.next_allowin) {
+    if_buffer_valid_reg := 0.U
   }
 
   io.if_id_out.ins_if_id := if_buffer_reg

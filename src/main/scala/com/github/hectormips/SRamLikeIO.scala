@@ -13,7 +13,7 @@ class SRamLikeIO(data_width: Int = 32) extends Bundle {
   // slave -> master
   val addr_ok: Bool = Input(Bool())
   val data_ok: Bool = Input(Bool())
-  val rdata  : UInt = Input(UInt(32.W))
+  val rdata  : UInt = Input(UInt(data_width.W))
 }
 
 class SRamLikeInstIO extends SRamLikeIO(64) {

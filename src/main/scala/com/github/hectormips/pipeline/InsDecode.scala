@@ -70,8 +70,8 @@ class InsDecodeBundle extends WithAllowin {
   val bypass_bus: DecodeBypassBundle = Input(new DecodeBypassBundle)
   val if_id_in  : FetchDecodeBundle  = Input(new FetchDecodeBundle)
 
-  val regfile_raddr1: Vec[UInt] = Output(Vec(2, UInt(32.W)))
-  val regfile_raddr2: Vec[UInt] = Output(Vec(2, UInt(32.W)))
+  val regfile_raddr1: Vec[UInt] = Output(Vec(2, UInt(5.W)))
+  val regfile_raddr2: Vec[UInt] = Output(Vec(2, UInt(5.W)))
   val regfile_read1 : Vec[UInt] = Input(Vec(2, UInt(32.W)))
   val regfile_read2 : Vec[UInt] = Input(Vec(2, UInt(32.W)))
 
@@ -83,25 +83,38 @@ class InsDecodeBundle extends WithAllowin {
 }
 
 class InsDecode extends Module {
-  val io      : InsDecodeBundle        = IO(new InsDecodeBundle)
-  val decoders: Vec[Decoder#DecoderIO] = VecInit(Seq.fill(2)(Module(new Decoder).io))
+  val io               : InsDecodeBundle        = IO(new InsDecodeBundle)
+  val decoders         : Vec[Decoder#DecoderIO] = VecInit(Seq.fill(2)(Module(new Decoder).io))
   // 给出发射控制信号
-  val issuer  : Issuer                 = Module(new Issuer)
+  val issuer           : Issuer                 = Module(new Issuer)
+  val branch_ins_buffer: UInt                   = RegInit(0.U(32.W))
+  val branch_state     : BranchState.Type       = RegInit(BranchState.no_branch)
 
+  decoders(0).in.ins_valid := Mux(branch_state === BranchState.waiting_for_delay_slot,
+    1.B, io.if_id_in.ins_valid_if_id(0)) && io.if_id_in.bus_valid
+  decoders(1).in.ins_valid := Mux(branch_state === BranchState.waiting_for_delay_slot,
+    io.if_id_in.ins_valid_if_id(0), io.if_id_in.ins_valid_if_id(1)) && io.if_id_in.bus_valid
+
+  decoders(0).in.pc_debug := Mux(branch_state === BranchState.waiting_for_delay_slot,
+    io.if_id_in.pc_debug_if_id - 4.U, io.if_id_in.pc_debug_if_id)
+  decoders(1).in.pc_debug := Mux(branch_state === BranchState.waiting_for_delay_slot,
+    io.if_id_in.pc_debug_if_id, io.if_id_in.pc_debug_if_id + 4.U)
+
+  decoders(0).in.instruction := Mux(branch_state === BranchState.waiting_for_delay_slot,
+    branch_ins_buffer, io.if_id_in.ins_if_id(31, 0))
+  decoders(1).in.instruction := Mux(branch_state === BranchState.waiting_for_delay_slot,
+    io.if_id_in.ins_if_id(31, 0), io.if_id_in.ins_if_id(63, 32))
   for (i <- 0 to 1) {
-    decoders(i).in.ins_valid := io.if_id_in.ins_valid_if_id(i)
-    decoders(i).in.pc_debug := io.if_id_in.pc_debug_if_id + (i << 2).U
     decoders(i).in.bypass_bus := io.bypass_bus
     decoders(i).in.regfile_read1 := io.regfile_read1(i)
     decoders(i).in.regfile_read2 := io.regfile_read2(i)
-    decoders(i).in.instruction := io.if_id_in.ins_if_id(31 + i * 32, 32 * i)
   }
 
   decoders(0).in.is_delay_slot := 0.B
   decoders(1).in.is_delay_slot := decoders(0).out_branch.is_jump
 
-  io.regfile_raddr1 := VecInit(Seq(decoders(1).out_regular.rs, decoders(0).out_regular.rs))
-  io.regfile_raddr2 := VecInit(Seq(decoders(1).out_regular.rt, decoders(0).out_regular.rt))
+  io.regfile_raddr1 := VecInit(Seq(decoders(0).out_regular.rs, decoders(1).out_regular.rs))
+  io.regfile_raddr2 := VecInit(Seq(decoders(0).out_regular.rt, decoders(1).out_regular.rt))
 
   issuer.io.in_decoder1 <> decoders(0).out_issue
   issuer.io.in_decoder2 <> decoders(1).out_issue
@@ -120,7 +133,22 @@ class InsDecode extends Module {
     (issue_count === 1.U) -> ins1_ready,
     (issue_count === 2.U) -> (ins1_ready && ins2_ready)
   ))
-  val wait_for_delay_slot: Bool = decoders(1).out_branch.is_jump && decoders(1).out_regular.ins_valid
+  // 当两条指令非分支指令+延迟槽指令时，将分支指令装入缓存，等待延迟槽指令
+  val wait_for_delay_slot: Bool = (decoders(1).out_branch.is_jump && decoders(1).out_regular.ins_valid &&
+    io.if_id_in.bus_valid) || (decoders(0).out_branch.is_jump && decoders(0).out_regular.ins_valid &&
+    !decoders(1).out_regular.ins_valid && io.if_id_in.bus_valid)
+  when(wait_for_delay_slot && !io.flush && io.next_allowin && ready_go) {
+    branch_ins_buffer := Mux(decoders(0).out_branch.is_jump,
+      io.if_id_in.ins_if_id(31, 0), io.if_id_in.ins_if_id(63, 32))
+    branch_state := BranchState.waiting_for_delay_slot
+  }.elsewhen(io.flush) {
+    branch_state := BranchState.no_branch
+  }
+  when(branch_state === BranchState.waiting_for_delay_slot &&
+    decoders(0).out_regular.ins_valid && decoders(0).out_branch.is_jump &&
+    decoders(1).out_regular.ins_valid && ready_go && io.next_allowin && io.if_id_in.bus_valid) {
+    branch_state := BranchState.no_branch
+  }
 
   io.this_allowin := io.next_allowin && !reset.asBool() && ready_go
 
@@ -128,25 +156,25 @@ class InsDecode extends Module {
   io.id_pf_out.jump_sel_id_pf := decoders(0).out_branch.jump_sel
   io.id_pf_out.jump_val_id_pf := decoders(0).out_branch.jump_val
   io.id_pf_out.is_jump := decoders(0).out_branch.is_jump
-  io.id_pf_out.bus_valid := decoders(0).out_regular.ins_valid
+  io.id_pf_out.bus_valid := decoders(0).out_regular.ins_valid && io.if_id_in.bus_valid
   io.id_pf_out.jump_taken := decoders(0).out_branch.jump_taken
   // 当第一条指令为分支指令，第二条指令有效并且出现了load-to-branch时需要暂停取指
   io.id_pf_out.stall_id_pf := decoders(0).out_regular.ins_valid && decoders(0).out_branch.is_jump &&
     decoders(1).out_regular.ins_valid && decoders(0).out_hazard.load_to_branch
 
   // 新请求数 = 2 - (当前指令有效数 - 发射指令数)
-  io.id_pf_out.inst_num_request := Mux(wait_for_delay_slot, 2.U, 2.U - (ins_valid_count - issue_count))
-  // 如果当前指令有效数 > 发射数，则需要将pc回退4
-  // 如果请求数为2，实际数目为1，下一个pc的请求的起始地址为当前pc - 4
-  io.id_pf_out.pc_back_4 := (io.if_id_in.req_count === 2.U && !io.if_id_in.ins_valid_if_id(1)) ||
-    ins_valid_count > issue_count || wait_for_delay_slot
+  io.id_pf_out.inst_num_request := 2.U
+  // 如果当前指令有效数 > 发射数，则pc强制前进4
+  // 如果请求数为2，实际数目为1，下一个pc的请求的起始地址为当前pc + 4
+  io.id_pf_out.pc_force_step_4 := (io.if_id_in.req_count === 2.U && !io.if_id_in.ins_valid_if_id(1)) ||
+    ins_valid_count > issue_count || (wait_for_delay_slot && decoders(0).out_branch.is_jump)
 
 
   val has_waw_hazard  : Bool = issuer.io.out.waw_hazard
   val bus_valid_common: Bool = !reset.asBool() && ready_go && !io.flush
 
   def wawEliminate(index: Int, wen: Bool): Bool = {
-    Mux(has_waw_hazard, index.U =/= 2.U, wen)
+    wen && Mux(has_waw_hazard, index.U =/= 2.U, 1.B)
   }
 
   for (i <- 0 to 1) {
@@ -182,6 +210,11 @@ class InsDecode extends Module {
     io.id_ex_out(i).exception_flags := decoders(i).out_regular.exception_flags
     io.id_ex_out(i).bus_valid := decoders(i).out_regular.ins_valid && bus_valid_common
   }
+  // 当第一条指令为跳转指令的时候，只有两条指令同时有效时才能发射
+  io.id_ex_out(0).bus_valid := bus_valid_common && decoders(0).out_regular.ins_valid &&
+    Mux(decoders(0).out_branch.is_jump,
+      decoders(1).out_regular.ins_valid,
+      1.B)
 
 
 }

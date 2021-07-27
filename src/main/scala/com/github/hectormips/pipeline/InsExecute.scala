@@ -272,7 +272,7 @@ class InsExecute extends Module {
     io.ex_ms_out(i).exception_flags := DontCare
     // 如果只有第二条指令发生例外，则只无效化第二条指令的输出
     io.ex_ms_out(i).bus_valid := io.id_ex_in(i).bus_valid && !(exception_index === 1.U && i.U === 1.U) &&
-      !reset.asBool() && !eret_occur
+      !reset.asBool() && !eret_occur && ready_go
   }
 
   // 送给cp0的输出
