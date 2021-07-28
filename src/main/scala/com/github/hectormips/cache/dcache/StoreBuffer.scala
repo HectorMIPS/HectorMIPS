@@ -13,6 +13,7 @@ class StoreBuffer(length:Int) extends Module{
     val cpu_size = Input(UInt(3.W))
     val cpu_addr = Input(UInt(32.W))
     val cpu_wdata = Input(UInt(32.W))
+//    val cpu_port  = Input(UInt(1.W))
     val cpu_ok   = Output(Bool())
     // 与cache交互
     // 向端口插入数据
@@ -20,6 +21,7 @@ class StoreBuffer(length:Int) extends Module{
     val cache_write_valid  = Output(Bool())
     val cache_write_size = Output(UInt(3.W))
     val cache_write_addr = Output(UInt(32.W))
+//    val cache_write_port = Input(UInt(1.W))
     val cache_write_wdata = Output(UInt(32.W))
     val cache_response   = Input(Bool())
     // cache的请求
@@ -61,6 +63,8 @@ class StoreBuffer(length:Int) extends Module{
     buffer.enq_data().size := io.cpu_size
     buffer.enq_data().addr := io.cpu_addr
     buffer.enq_data().wdata := io.cpu_wdata
+//    buffer.enq_data().port := io.cpu_port
+
     buffer.enq()
   }
 
@@ -77,6 +81,7 @@ class StoreBuffer(length:Int) extends Module{
     io.cache_write_size := buffer.deq_data().size
     io.cache_write_addr := buffer.deq_data().addr
     io.cache_write_wdata := buffer.deq_data().wdata
+//    io.cache_write_port := buffer.deq_data().port
     state := sWait
   }
   when(io.cache_response){
@@ -91,6 +96,7 @@ class bufferItem extends Bundle{
   val addr  = UInt(32.W)
   val wdata = UInt(32.W)
   val size  = UInt(3.W)
+//  val port  = UInt(1.W)
 }
 class Buffer(length:Int) extends  Bundle{
   val data    = Mem(length+1,new bufferItem)
