@@ -6,6 +6,7 @@ import chisel3.stage.ChiselStage
 import chisel3.util.Mux1H
 import chisel3.util._
 import com.github.hectormips.RamState
+import com.github.hectormips.pipeline.cp0.{ExcCodeConst, ExceptionConst, ExecuteCP0Bundle}
 import com.github.hectormips.pipeline.issue.{Alu, AluIO, AluOut}
 
 
@@ -156,7 +157,7 @@ class InsExecute extends Module {
   val exception_flags             : Vec[UInt]        = Wire(Vec(2, UInt(ExceptionConst.EXCEPTION_FLAG_WIDTH.W)))
   val eret_occur                  : Bool             = io.id_ex_in(0).bus_valid && io.id_ex_in(0).ins_eret
   val interrupt_occur             : Bool             = !eret_occur &&
-    (io.cp0_ex_in.cp0_cause_ip | io.cp0_ex_in.cp0_status_im) =/= 0.U
+    (io.cp0_ex_in.cp0_cause_ip & io.cp0_ex_in.cp0_status_im) =/= 0.U
   val interrupt_available         : Bool             = io.cp0_ex_in.status_ie && !io.cp0_ex_in.status_exl
   val exception_index             : UInt             = MuxCase(0.U, Seq(
     ((exception_occur(0) || (interrupt_occur && interrupt_available)) && io.id_ex_in(0).bus_valid) -> 0.U,
@@ -181,9 +182,9 @@ class InsExecute extends Module {
     (io.cp0_hazard_bypass_wb_ex(1).bus_valid && io.cp0_hazard_bypass_wb_ex(1).cp0_ip_wen)
 
   val ready_go: Bool = !ms_cp0_ip0_wen && !wb_cp0_ip0_wen &&
-    Mux(io.id_ex_in(0).bus_valid, alu(0).out.out_valid, 1.B) &&
-    Mux(io.id_ex_in(1).bus_valid, alu(1).out.out_valid, 1.B) &&
-    Mux(exception_occur(exception_index) || (interrupt_occur(exception_index) && interrupt_available(exception_index)),
+    Mux(io.id_ex_in(0).bus_valid && !exceptionShielded(0), alu(0.U ^ order_flipped).out.out_valid, 1.B) &&
+    Mux(io.id_ex_in(1).bus_valid && !exceptionShielded(1), alu(1.U ^ order_flipped).out.out_valid, 1.B) &&
+    Mux(exception_occur(exception_index) || (interrupt_occur && interrupt_available),
       !ms_cp0_hazard && !wb_cp0_hazard, 1.B) &&
     // 由于可能存在同时两条访存指令，可能当一个指令返回了addr_ok和data_ok后另一条指令还没返回addr_ok
     Mux(io.id_ex_in(0).bus_valid && io.id_ex_in(0).mem_en_id_ex && !exception_on_inst0,
@@ -199,7 +200,7 @@ class InsExecute extends Module {
       Mux(io.id_ex_in(i_in).hilo_sel === HiloSel.hi, io.ex_hilo.hi_in, io.ex_hilo.lo_in),
       io.id_ex_in(i_in).alu_src1_id_ex)
     alu(i_alu).in.src2 := io.id_ex_in(i_in).alu_src2_id_ex
-    alu(i_alu).in.en := io.id_ex_in(i_in).bus_valid
+    alu(i_alu).in.en := io.id_ex_in(i_in).bus_valid && !exceptionShielded(i_in)
     alu(i_alu).in.flush := flush
     alu(i_alu).in.lo := io.ex_hilo.lo_in
     alu(i_alu).in.ex_allowin := this_allowin
@@ -210,14 +211,19 @@ class InsExecute extends Module {
   // 判断例外屏蔽
   // 若第一条指令产生例外会屏蔽两条指令
   // 否则只会屏蔽第二条指令
-  def exceptionShielded(index: Int): Bool = {
-    io.id_ex_in(index).bus_valid && Mux(exception_occur(0), 1.B, exception_occur(1) && index.U === 1.U)
+  def exceptionShielded(index: UInt): Bool = {
+    io.id_ex_in(index).bus_valid && Mux(exception_occur(0), 1.B, exception_occur(1) && index === 1.U)
   }
+
+  def exceptionShielded(index: Int): Bool = {
+    exceptionShielded(index.U)
+  }
+
 
   // 如果第一条指令发生例外，清空ex阶段的所有指令
   // 如果第二条指令发生例外，仅将第一条无效化
-  flush := ((interrupt_occur(exception_index) && interrupt_available) || exception_occur(exception_index) ||
-    eret_occur) && ready_go
+  flush := ((interrupt_occur && interrupt_available) || exception_occur(exception_index) ||
+    eret_occur) && ready_go && io.id_ex_in(exception_index).bus_valid
   for (i <- 0 to 1) {
     exception_flags(i) := io.id_ex_in(i).exception_flags |
       Mux(alu_out(i).overflow_flag && io.id_ex_in(i).overflow_detection_en, ExceptionConst.EXCEPTION_INT_OVERFLOW, 0.U) |
@@ -277,7 +283,7 @@ class InsExecute extends Module {
 
   // 送给cp0的输出
   io.ex_cp0_out.is_delay_slot := io.id_ex_in(exception_index).is_delay_slot
-  io.ex_cp0_out.exception_occur := (exception_occur(exception_index) || interrupt_occur(exception_index)) &&
+  io.ex_cp0_out.exception_occur := (exception_occur(exception_index) || (interrupt_occur && interrupt_available)) &&
     io.id_ex_in(exception_index).bus_valid && ready_go
   // 如果是软中断导致的例外，将pc指向下一条指令
   // 如果是硬中断导致的例外，pc指向最后一条没有生效的指令
@@ -291,7 +297,7 @@ class InsExecute extends Module {
   ))
   io.ex_cp0_out.eret_occur := eret_occur && ready_go
   io.ex_cp0_out.exc_code := MuxCase(0.U, Seq(
-    (interrupt_occur(exception_index) && interrupt_available) -> ExcCodeConst.INT,
+    (interrupt_occur && interrupt_available) -> ExcCodeConst.INT,
     exception_flags(exception_index)(0) -> ExcCodeConst.ADEL,
     exception_flags(exception_index)(1) -> ExcCodeConst.RI,
     exception_flags(exception_index)(2) -> ExcCodeConst.OV,
@@ -317,8 +323,9 @@ class InsExecute extends Module {
   // 给hilo的输出
 
   io.ex_pf_out.to_exception_service_en_ex_pf := (exception_occur(exception_index) ||
-    (interrupt_occur(exception_index) && interrupt_available)) && ready_go
-  io.ex_pf_out.to_epc_en_ex_pf := eret_occur && ready_go
+    (interrupt_occur && interrupt_available)) &&
+    io.id_ex_in(exception_index).bus_valid && ready_go
+  io.ex_pf_out.to_epc_en_ex_pf := eret_occur && io.id_ex_in(0).bus_valid && ready_go
   io.ready_go := ready_go
 
 
@@ -328,9 +335,11 @@ class InsExecute extends Module {
     io.id_ex_in(order_flipped).alu_op_id_ex === AluOp.op_divu
   io.pipeline_flush := flush
   io.ex_hilo.hi_out := Mux(hilo_from_alu, alu(0).out.alu_res(63, 32), alu(0).in.src1)
-  io.ex_hilo.hi_wen := io.id_ex_in(order_flipped).hi_wen && alu(0).out.out_valid && io.id_ex_in(order_flipped).bus_valid
+  io.ex_hilo.hi_wen := io.id_ex_in(order_flipped).hi_wen && alu(0).out.out_valid &&
+    io.id_ex_in(order_flipped).bus_valid && !exceptionShielded(order_flipped.asUInt())
   io.ex_hilo.lo_out := Mux(hilo_from_alu, alu(0).out.alu_res(31, 0), alu(0).in.src1)
-  io.ex_hilo.lo_wen := io.id_ex_in(order_flipped).lo_wen && alu(0).out.out_valid && io.id_ex_in(order_flipped).bus_valid
+  io.ex_hilo.lo_wen := io.id_ex_in(order_flipped).lo_wen && alu(0).out.out_valid &&
+    io.id_ex_in(order_flipped).bus_valid && !exceptionShielded(order_flipped.asUInt())
 
   this_allowin := io.next_allowin && !reset.asBool() && ready_go
   io.this_allowin := this_allowin

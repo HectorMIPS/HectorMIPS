@@ -5,6 +5,7 @@ import chisel3.stage.ChiselStage
 import chisel3.util._
 import chisel3.util.experimental.forceName
 import com.github.hectormips.pipeline._
+import com.github.hectormips.pipeline.cp0.{CP0, ExecuteCP0Bundle}
 import com.github.hectormips.utils.{RegAutoFlip, RegDualAutoFlip}
 
 class CpuTopSRamLikeBundle extends Bundle {

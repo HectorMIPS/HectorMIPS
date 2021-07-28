@@ -2,7 +2,8 @@ package com.github.hectormips.pipeline.issue
 
 import chisel3.{Bundle, _}
 import chisel3.util._
-import com.github.hectormips.pipeline.{AluOp, AluSrc1Sel, AluSrc2Sel, BypassMsgBundle, DecodeBypassBundle, ExceptionConst, HiloSel, InsJumpSel, MemDataSel, RegFileWAddrSel}
+import com.github.hectormips.pipeline.cp0.ExceptionConst
+import com.github.hectormips.pipeline.{AluOp, AluSrc1Sel, AluSrc2Sel, BypassMsgBundle, DecodeBypassBundle, HiloSel, InsJumpSel, MemDataSel, RegFileWAddrSel}
 
 class DecoderIn extends Bundle {
   val instruction  : UInt               = UInt(32.W)

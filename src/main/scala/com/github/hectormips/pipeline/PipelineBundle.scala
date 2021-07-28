@@ -1,6 +1,7 @@
 package com.github.hectormips.pipeline
 
 import chisel3._
+import com.github.hectormips.pipeline.cp0.ExceptionConst
 
 trait WithAllowin extends Bundle {
   val this_allowin: Bool = Output(Bool())

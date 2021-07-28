@@ -9,6 +9,7 @@ import chisel3.experimental.ChiselEnum
 import chisel3.stage.ChiselStage
 import chisel3.util._
 import com.github.hectormips.RamState
+import com.github.hectormips.pipeline.cp0.ExceptionConst
 
 object InsJumpSel extends OneHotEnum {
   val seq_pc            : Type = Value(1.U)
@@ -83,8 +84,11 @@ class InsPreFetch extends Module {
   val pc_jump          : UInt              = Wire(UInt(32.W))
   val seq_pc_4         : UInt              = io.pc + 4.U
   val seq_pc_8         : UInt              = Mux(io.id_pf_in.pc_force_step_4, seq_pc_4, io.pc + 8.U)
-  val id_or_ex_in_valid: Bool              = io.id_pf_in.bus_valid || io.to_exception_service_en_ex_pf || io.to_epc_en_ex_pf
-  val req              : Bool              = !io.id_pf_in.stall_id_pf && io.next_allowin && id_or_ex_in_valid &&
+  val exception_or_eret: Bool              = io.to_exception_service_en_ex_pf || io.to_epc_en_ex_pf
+  val seq_epc_8        : UInt              = io.cp0_pf_epc
+  val seq_exception_8  : UInt              = ExceptionConst.EXCEPTION_PROGRAM_ADDR + 4.U
+  val feed_back_valid  : Bool              = io.id_pf_in.bus_valid || exception_or_eret
+  val req              : Bool              = !io.id_pf_in.stall_id_pf && io.next_allowin && feed_back_valid &&
     (io.fetch_state === RamState.waiting_for_request || io.fetch_state === RamState.requesting)
   pc_jump := seq_pc_4
 
@@ -109,8 +113,8 @@ class InsPreFetch extends Module {
   // 直到当前指令可以被decode接收时才发送新的请求
   val ready_go       : Bool = io.next_allowin && (io.fetch_state === RamState.waiting_for_request)
   val pc_out         : UInt = MuxCase(seq_pc_8, Seq(
-    io.to_epc_en_ex_pf -> (io.cp0_pf_epc - 4.U),
-    io.to_exception_service_en_ex_pf -> ExceptionConst.EXCEPTION_PROGRAM_ADDR,
+    io.to_epc_en_ex_pf -> seq_epc_8,
+    io.to_exception_service_en_ex_pf -> seq_exception_8,
     // 仅当当前指令已经准备完毕并且可以被接收时才读下一条指令，否则值一直是当前的指令的pc
     (io.id_pf_in.stall_id_pf || !io.next_allowin || io.fetch_state =/= RamState.waiting_for_request) -> io.pc,
     // 根据decode阶段的回馈来发送新的指令请求
@@ -127,7 +131,7 @@ class InsPreFetch extends Module {
   io.pc_wen := req
   io.this_allowin := !reset.asBool() && io.next_allowin
   io.pc_debug_pf_if := pc_out
-  io.inst_num_request := io.id_pf_in.inst_num_request
+  io.inst_num_request := Mux(io.id_pf_in.bus_valid, 2.U, io.id_pf_in.inst_num_request)
 
 }
 

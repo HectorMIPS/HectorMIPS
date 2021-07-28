@@ -3,6 +3,7 @@ package com.github.hectormips.pipeline
 import chisel3.stage.ChiselStage
 import chisel3.{Mux, _}
 import chisel3.util._
+import com.github.hectormips.pipeline.cp0.CP0Const
 
 class MemoryWriteBackBundle extends WithVEI {
   val regfile_waddr_sel_ms_wb     : RegFileWAddrSel.Type = RegFileWAddrSel()

@@ -1,7 +1,6 @@
-package com.github.hectormips.pipeline
+package com.github.hectormips.pipeline.cp0
 
 import chisel3._
-import chisel3.experimental.ChiselEnum
 
 object CP0Const {
   val CP0_REGADDR_BADVADDR: UInt = 8.U

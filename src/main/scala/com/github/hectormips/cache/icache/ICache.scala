@@ -221,6 +221,7 @@ class ICache(val config:CacheConfig)
         lruMem.io.visit := cache_hit_way // lru记录命中
         when(io.valid) {
           // 直接进入下一轮
+          state := sLOOKUP
           addrReg := io.addr
         }.otherwise {
           state := sIDLE

@@ -1,9 +1,8 @@
-package com.github.hectormips.pipeline
+package com.github.hectormips.pipeline.cp0
 
-import Chisel.{BitPat, Cat, Counter, Mux1H, MuxCase, RegEnable, UIntToOH}
+import Chisel.{Cat, MuxCase}
 import chisel3._
-import chisel3.experimental.ChiselEnum
-import com.github.hectormips.pipeline.CP0Const
+import com.github.hectormips.pipeline.CP0ExecuteBundle
 
 
 class ExecuteCP0Bundle extends Bundle {

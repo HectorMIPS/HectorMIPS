@@ -5,6 +5,7 @@ import chisel3.experimental.ChiselEnum
 import chisel3.stage.ChiselStage
 import chisel3.util._
 import com.github.hectormips.RamState
+import com.github.hectormips.pipeline.cp0.CP0Const
 
 object MemorySrc extends ChiselEnum {
   val alu_val : Type = Value(1.U)
