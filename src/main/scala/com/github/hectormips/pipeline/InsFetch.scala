@@ -44,6 +44,11 @@ class DecodePreFetchBundle extends Bundle {
 class ExecutePrefetchBundle extends Bundle {
   val to_exception_service_en_ex_pf: Bool = Bool()
   val to_epc_en_ex_pf              : Bool = Bool()
+
+  def defaults(): Unit = {
+    to_exception_service_en_ex_pf := 0.B
+    to_epc_en_ex_pf := 0.B
+  }
 }
 
 
@@ -74,11 +79,12 @@ class InsPreFetchBundle extends WithAllowin {
 
 // 预取阶段，向同步RAM发起请求
 class InsPreFetch extends Module {
-  val io      : InsPreFetchBundle = IO(new InsPreFetchBundle())
-  val pc_jump : UInt              = Wire(UInt(32.W))
-  val seq_pc_4: UInt              = io.pc + 4.U
-  val seq_pc_8: UInt              = Mux(io.id_pf_in.pc_force_step_4, seq_pc_4, io.pc + 8.U)
-  val req     : Bool              = !io.id_pf_in.stall_id_pf && io.next_allowin &&
+  val io               : InsPreFetchBundle = IO(new InsPreFetchBundle())
+  val pc_jump          : UInt              = Wire(UInt(32.W))
+  val seq_pc_4         : UInt              = io.pc + 4.U
+  val seq_pc_8         : UInt              = Mux(io.id_pf_in.pc_force_step_4, seq_pc_4, io.pc + 8.U)
+  val id_or_ex_in_valid: Bool              = io.id_pf_in.bus_valid || io.to_exception_service_en_ex_pf || io.to_epc_en_ex_pf
+  val req              : Bool              = !io.id_pf_in.stall_id_pf && io.next_allowin && id_or_ex_in_valid &&
     (io.fetch_state === RamState.waiting_for_request || io.fetch_state === RamState.requesting)
   pc_jump := seq_pc_4
 
@@ -102,13 +108,13 @@ class InsPreFetch extends Module {
   val no_jump        : Bool = !io.id_pf_in.bus_valid || (io.id_pf_in.bus_valid && !io.id_pf_in.jump_taken)
   // 直到当前指令可以被decode接收时才发送新的请求
   val ready_go       : Bool = io.next_allowin && (io.fetch_state === RamState.waiting_for_request)
-  val pc_out         : UInt = MuxCase(seq_pc_4, Seq(
+  val pc_out         : UInt = MuxCase(seq_pc_8, Seq(
     io.to_epc_en_ex_pf -> (io.cp0_pf_epc - 4.U),
     io.to_exception_service_en_ex_pf -> ExceptionConst.EXCEPTION_PROGRAM_ADDR,
     // 仅当当前指令已经准备完毕并且可以被接收时才读下一条指令，否则值一直是当前的指令的pc
     (io.id_pf_in.stall_id_pf || !io.next_allowin || io.fetch_state =/= RamState.waiting_for_request) -> io.pc,
     // 根据decode阶段的回馈来发送新的指令请求
-    (ready_go && io.id_pf_in.bus_valid && no_jump) -> Mux(io.id_pf_in.inst_num_request === 2.U, seq_pc_8, seq_pc_4),
+    (ready_go && io.id_pf_in.bus_valid && no_jump) -> seq_pc_8,
     // 否则跳转至目标处
     (ready_go && jump_now_target) -> pc_jump
   ))
@@ -118,7 +124,7 @@ class InsPreFetch extends Module {
   io.ins_ram_en := req
   io.ins_ram_addr := pc_out
   // 永远可以写入pc，直接通过控制io.next_pc的值来实现暂停等操作来简化控制模型
-  io.pc_wen := 1.B
+  io.pc_wen := req
   io.this_allowin := !reset.asBool() && io.next_allowin
   io.pc_debug_pf_if := pc_out
   io.inst_num_request := io.id_pf_in.inst_num_request
@@ -126,7 +132,7 @@ class InsPreFetch extends Module {
 }
 
 class InsSufFetchBundle extends WithAllowin {
-  val ins_ram_data: UInt = Input(UInt(32.W))
+  val ins_ram_data: UInt = Input(UInt(64.W))
 
   val if_id_out         : FetchDecodeBundle = Output(new FetchDecodeBundle)
   val pc_debug_pf_if    : UInt              = Input(UInt(32.W))

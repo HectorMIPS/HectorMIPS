@@ -62,6 +62,7 @@ class InsMemoryBundle extends WithAllowin {
 
   val bypass_ms_id           : Vec[BypassMsgBundle] = Output(Vec(2, new BypassMsgBundle))
   val cp0_hazard_bypass_ms_ex: Vec[CP0HazardBypass] = Output(Vec(2, new CP0HazardBypass))
+  val ram_access_done        : Bool                 = Output(Bool())
 }
 
 
@@ -76,6 +77,7 @@ class InsMemory extends Module {
       io.data_ram_state(1) === RamState.waiting_for_read, 1.B)
   io.this_allowin := io.next_allowin && !reset.asBool() && ready_go
 
+  io.ram_access_done := io.ex_ms_in(0).bus_valid && ready_go
   for (i <- 0 to 1) {
     io.ms_wb_out(i).regfile_waddr_sel_ms_wb := io.ex_ms_in(i).regfile_waddr_sel_ex_ms
     io.ms_wb_out(i).inst_rd_ms_wb := io.ex_ms_in(i).inst_rd_ex_ms

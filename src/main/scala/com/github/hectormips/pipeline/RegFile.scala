@@ -24,10 +24,16 @@ class RegFile(reg_init: Int = 0, read_port_num: Int = 2, write_port_num: Int = 2
     VecInit(Seq.fill(32)(5.U(32.W)))
   )
   regs(0) := reg_init.S.asUInt()
-  for (i <- 0 until write_port_num) {
-    when(io.we(i).asBool()) {
-      when(io.waddr(i) > 0.U) {
-        regs(io.waddr(i)) := io.wdata(i)
+  when(io.we(0).asBool() && io.we(1).asBool() && io.waddr(0) === io.waddr(1)) {
+    when(io.waddr(0) > 0.U) {
+      regs(io.waddr(1)) := io.wdata(1)
+    }
+  }.otherwise {
+    for (i <- 0 until write_port_num) {
+      when(io.we(i).asBool()) {
+        when(io.waddr(i) > 0.U) {
+          regs(io.waddr(i)) := io.wdata(i)
+        }
       }
     }
   }

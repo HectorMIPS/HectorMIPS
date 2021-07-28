@@ -35,10 +35,10 @@ class SocTopAXI extends Module {
     io.axi_io.force_name()
     cpu_top.io.interrupt := io.interrupt
 
-    io.debug.debug_wb_pc := Cat(cpu_top.io.debug(1).debug_wb_pc, cpu_top.io.debug(0).debug_wb_pc)
-    io.debug.debug_wb_rf_wnum := Cat(cpu_top.io.debug(1).debug_wb_rf_wnum, cpu_top.io.debug(0).debug_wb_rf_wnum)
-    io.debug.debug_wb_rf_wen := Cat(cpu_top.io.debug(1).debug_wb_rf_wen, cpu_top.io.debug(0).debug_wb_rf_wen)
-    io.debug.debug_wb_rf_wdata := Cat(cpu_top.io.debug(1).debug_wb_rf_wdata, cpu_top.io.debug(0).debug_wb_rf_wdata)
+    io.debug.debug_wb_pc := Cat(cpu_top.io.debug.debug_wb_pc, cpu_top.io.debug.debug_wb_pc)
+    io.debug.debug_wb_rf_wnum := Cat(cpu_top.io.debug.debug_wb_rf_wnum, cpu_top.io.debug.debug_wb_rf_wnum)
+    io.debug.debug_wb_rf_wen := Cat(cpu_top.io.debug.debug_wb_rf_wen, cpu_top.io.debug.debug_wb_rf_wen)
+    io.debug.debug_wb_rf_wdata := Cat(cpu_top.io.debug.debug_wb_rf_wdata, cpu_top.io.debug.debug_wb_rf_wdata)
 
     // TODO: 以后高32位要加上
     mem_judge.io.inst.req := cpu_top.io.inst_sram_like_io.req

@@ -105,13 +105,11 @@ class Alu extends Module {
   multiplier.io.is_signed := io.in.alu_op === AluOp.op_mult
   multiplier.io.flush := io.in.flush
 
-  val ex_divider_state_next: DividerState.Type = Wire(DividerState())
-  val ex_divider_state_reg : DividerState.Type = RegEnable(next = ex_divider_state_next, init = DividerState.waiting,
-    enable = divider_required)
-  val divider_tvalid       : Bool              = Wire(Bool())
-  val divider_tready       : Bool              = Wire(Bool())
-  val divider_out_valid    : Bool              = Wire(Bool())
-  val divider              : CommonDivider     = Module(new CommonDivider)
+  val ex_divider_state_reg: DividerState.Type = RegInit(DividerState.waiting)
+  val divider_tvalid      : Bool              = Wire(Bool())
+  val divider_tready      : Bool              = Wire(Bool())
+  val divider_out_valid   : Bool              = Wire(Bool())
+  val divider             : CommonDivider     = Module(new CommonDivider)
   divider.io.divisor := src2
   divider.io.dividend := src1
   divider.io.is_signed := io.in.alu_op === AluOp.op_div
@@ -120,19 +118,22 @@ class Alu extends Module {
   divider_out_valid := divider.io.out_valid
 
 
-  ex_divider_state_next := MuxCase(ex_divider_state_reg, Seq(
-    (ex_divider_state_reg === DividerState.waiting && divider_required) -> DividerState.inputting,
-    (ex_divider_state_reg === DividerState.inputting && divider_tready) -> DividerState.handshaking,
-    (ex_divider_state_reg === DividerState.handshaking && divider_tready) -> DividerState.calculating,
-    (ex_divider_state_reg === DividerState.calculating && io.in.ex_allowin) -> DividerState.waiting,
-    io.in.en -> DividerState.waiting
-  ))
-  divider_tvalid := ex_divider_state_next === DividerState.inputting ||
-    ex_divider_state_next === DividerState.handshaking
+  when(divider_required && io.in.en && !calc_done) {
+    when(ex_divider_state_reg === DividerState.waiting) {
+      ex_divider_state_reg := DividerState.inputting
+    }.elsewhen(ex_divider_state_reg === DividerState.inputting && divider_tready) {
+      ex_divider_state_reg := DividerState.calculating
+    }.elsewhen(ex_divider_state_reg === DividerState.calculating && divider.io.out_valid) {
+      ex_divider_state_reg := DividerState.waiting
+    }
+  }
+  divider_tvalid := ((ex_divider_state_reg === DividerState.waiting && divider_required && !calc_done) ||
+    ex_divider_state_reg === DividerState.inputting) && !io.in.ex_allowin
 
   when(io.in.ex_allowin || io.in.flush) {
     calc_done := 0.B
-  }.elsewhen(divider.io.out_valid || multiplier.io.res_valid) {
+  }.elsewhen((ex_divider_state_reg === DividerState.calculating && divider.io.out_valid) ||
+    multiplier.io.res_valid) {
     calc_done := 1.B
   }
   val mult_out: UInt = Mux(multiplier.io.res_valid, Cat(multiplier.io.mult_res_63_32, multiplier.io.mult_res_31_0),
@@ -163,7 +164,7 @@ class Alu extends Module {
   io.out.alu_sum := src1 + src2
   io.out.overflow_flag := overflow_occurred
   io.out.out_valid := MuxCase(1.B, Seq(
-    divider_required -> (divider_out_valid || calc_done),
+    divider_required -> ((ex_divider_state_reg === DividerState.calculating && divider_out_valid) || calc_done),
     multiplier_required -> (multiplier.io.res_valid || calc_done)
   ))
 }

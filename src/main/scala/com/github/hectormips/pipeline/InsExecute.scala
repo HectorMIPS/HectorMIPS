@@ -158,16 +158,16 @@ class InsExecute extends Module {
   val interrupt_occur             : Bool             = !eret_occur &&
     (io.cp0_ex_in.cp0_cause_ip | io.cp0_ex_in.cp0_status_im) =/= 0.U
   val interrupt_available         : Bool             = io.cp0_ex_in.status_ie && !io.cp0_ex_in.status_exl
-  // 当同时写相同的内存地址时会产生waw冲突，结果只采用靠后的一条指令
-  val mem_waddr_hazard            : Bool             = io.id_ex_in(0).bus_valid && io.id_ex_in(1).bus_valid &&
-    io.id_ex_in(0).mem_wen_id_ex && io.id_ex_in(1).mem_wen_id_ex &&
-    alu_out(0).alu_sum(31, 3) === alu_out(1).alu_sum(31, 3)
   val exception_index             : UInt             = MuxCase(0.U, Seq(
     ((exception_occur(0) || (interrupt_occur && interrupt_available)) && io.id_ex_in(0).bus_valid) -> 0.U,
     (exception_occur(1) && io.id_ex_in(1).bus_valid) -> 1.U
   ))
   val exception_or_interruption_en: Bool             = exception_occur(0) || exception_occur(1) ||
     (interrupt_occur && interrupt_available)
+  val exception_on_inst0          : Bool             = (interrupt_occur && interrupt_available) ||
+    (exception_occur(0) && exception_index === 0.U)
+  val exception_on_inst1          : Bool             = (interrupt_occur && interrupt_available) ||
+    (exception_occur(1) && exception_index === 1.U)
 
   // 后方流水线是否写cp0
   val ms_cp0_hazard : Bool = (io.cp0_hazard_bypass_ms_ex(0).bus_valid && io.cp0_hazard_bypass_ms_ex(0).cp0_en) ||
@@ -186,9 +186,9 @@ class InsExecute extends Module {
     Mux(exception_occur(exception_index) || (interrupt_occur(exception_index) && interrupt_available(exception_index)),
       !ms_cp0_hazard && !wb_cp0_hazard, 1.B) &&
     // 由于可能存在同时两条访存指令，可能当一个指令返回了addr_ok和data_ok后另一条指令还没返回addr_ok
-    Mux(io.id_ex_in(0).bus_valid && io.id_ex_in(0).mem_en_id_ex,
+    Mux(io.id_ex_in(0).bus_valid && io.id_ex_in(0).mem_en_id_ex && !exception_on_inst0,
       io.data_ram_state(0) === RamState.waiting_for_response || io.data_ram_state(0) === RamState.waiting_for_read, 1.B) &&
-    Mux(io.id_ex_in(1).bus_valid && io.id_ex_in(1).mem_en_id_ex,
+    Mux(io.id_ex_in(1).bus_valid && io.id_ex_in(1).mem_en_id_ex && !exception_on_inst0 && !exception_on_inst1,
       io.data_ram_state(1) === RamState.waiting_for_response || io.data_ram_state(1) === RamState.waiting_for_read, 1.B)
 
   val in_bus_valid: Bool = io.id_ex_in(0).bus_valid && !reset.asBool() && (!flush || eret_occur)
@@ -214,9 +214,10 @@ class InsExecute extends Module {
     io.id_ex_in(index).bus_valid && Mux(exception_occur(0), 1.B, exception_occur(1) && index.U === 1.U)
   }
 
+  // 如果第一条指令发生例外，清空ex阶段的所有指令
+  // 如果第二条指令发生例外，仅将第一条无效化
   flush := ((interrupt_occur(exception_index) && interrupt_available) || exception_occur(exception_index) ||
     eret_occur) && ready_go
-  //
   for (i <- 0 to 1) {
     exception_flags(i) := io.id_ex_in(i).exception_flags |
       Mux(alu_out(i).overflow_flag && io.id_ex_in(i).overflow_detection_en, ExceptionConst.EXCEPTION_INT_OVERFLOW, 0.U) |
@@ -231,10 +232,9 @@ class InsExecute extends Module {
   }
   // dram操作
   for (i <- 0 to 1) {
-    io.ex_ram_out(i).mem_en := !flush && io.id_ex_in(i).bus_valid && io.next_allowin &&
-      // 如果waw冲突，前一条指令被屏蔽
-      io.id_ex_in(i).mem_en_id_ex && !(i.U === 0.U && mem_waddr_hazard) &&
-      !exceptionShielded(i)
+    io.ex_ram_out(i).mem_en := io.id_ex_in(i).bus_valid && io.next_allowin &&
+      io.id_ex_in(i).mem_en_id_ex && !exceptionShielded(i) &&
+      (io.data_ram_state(i) === RamState.waiting_for_request || io.data_ram_state(i) === RamState.requesting)
     io.ex_ram_out(i).mem_addr := alu_out(i).alu_sum
     io.ex_ram_out(i).mem_size := MuxCase(0.U, Seq(
       (io.id_ex_in(i).mem_data_sel_id_ex === MemDataSel.word) -> 2.U,
@@ -271,8 +271,8 @@ class InsExecute extends Module {
       1.U, io.id_ex_in(i).issue_num)
     io.ex_ms_out(i).exception_flags := DontCare
     // 如果只有第二条指令发生例外，则只无效化第二条指令的输出
-    io.ex_ms_out(i).bus_valid := io.id_ex_in(i).bus_valid && !(exception_index === 1.U && i.U === 1.U) &&
-      !reset.asBool() && !eret_occur && ready_go
+    io.ex_ms_out(i).bus_valid := io.id_ex_in(i).bus_valid && !(exception_on_inst1 && i.U === 1.U) &&
+      !exception_on_inst0 && !reset.asBool() && !eret_occur && ready_go
   }
 
   // 送给cp0的输出
@@ -303,7 +303,7 @@ class InsExecute extends Module {
 
   // 给译码的前递
   for (i <- 0 to 1) {
-    io.bypass_ex_id(i).bus_valid := io.id_ex_in(i).bus_valid && !flush && io.id_ex_in(i).regfile_we_id_ex
+    io.bypass_ex_id(i).bus_valid := io.id_ex_in(i).bus_valid && io.id_ex_in(i).regfile_we_id_ex
     io.bypass_ex_id(i).data_valid := io.id_ex_in(i).bus_valid &&
       // 写寄存器来源为内存或者cp0时，前递的数据尚未准备完成
       (!io.id_ex_in(i).regfile_wsrc_sel_id_ex || io.id_ex_in(i).regfile_wdata_from_cp0_id_ex)
@@ -321,11 +321,16 @@ class InsExecute extends Module {
   io.ex_pf_out.to_epc_en_ex_pf := eret_occur && ready_go
   io.ready_go := ready_go
 
+
+  val hilo_from_alu: Bool = io.id_ex_in(order_flipped).alu_op_id_ex === AluOp.op_mult ||
+    io.id_ex_in(order_flipped).alu_op_id_ex === AluOp.op_multu ||
+    io.id_ex_in(order_flipped).alu_op_id_ex === AluOp.op_div ||
+    io.id_ex_in(order_flipped).alu_op_id_ex === AluOp.op_divu
   io.pipeline_flush := flush
-  io.ex_hilo.hi_out := alu(0).out.alu_res(63, 32)
-  io.ex_hilo.hi_wen := io.id_ex_in(order_flipped).hi_wen
-  io.ex_hilo.lo_out := alu(0).out.alu_res(31, 0)
-  io.ex_hilo.lo_wen := io.id_ex_in(order_flipped).lo_wen
+  io.ex_hilo.hi_out := Mux(hilo_from_alu, alu(0).out.alu_res(63, 32), alu(0).in.src1)
+  io.ex_hilo.hi_wen := io.id_ex_in(order_flipped).hi_wen && alu(0).out.out_valid && io.id_ex_in(order_flipped).bus_valid
+  io.ex_hilo.lo_out := Mux(hilo_from_alu, alu(0).out.alu_res(31, 0), alu(0).in.src1)
+  io.ex_hilo.lo_wen := io.id_ex_in(order_flipped).lo_wen && alu(0).out.out_valid && io.id_ex_in(order_flipped).bus_valid
 
   this_allowin := io.next_allowin && !reset.asBool() && ready_go
   io.this_allowin := this_allowin

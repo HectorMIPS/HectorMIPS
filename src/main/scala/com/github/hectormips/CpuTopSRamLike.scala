@@ -12,7 +12,7 @@ class CpuTopSRamLikeBundle extends Bundle {
   val inst_sram_like_io: SRamLikeInstIO      = new SRamLikeInstIO
   val data_sram_like_io: Vec[SRamLikeDataIO] = Vec(2, new SRamLikeDataIO)
 
-  val debug: Vec[DebugBundle] = Vec(2, new DebugBundle)
+  val debug: DebugBundle = new DebugBundle
   forceName(interrupt, "ext_int")
 
 }
@@ -76,23 +76,34 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
 
 
   // 预取
-  val pf_module   : InsPreFetch          = Module(new InsPreFetch)
-  val id_pf_buffer: DecodePreFetchBundle = RegInit(init = {
+  val pf_module   : InsPreFetch           = Module(new InsPreFetch)
+  val id_pf_buffer: DecodePreFetchBundle  = RegInit(init = {
     val id_pf_bundle: DecodePreFetchBundle = Wire(new DecodePreFetchBundle)
     id_pf_bundle.defaults()
     id_pf_bundle
   })
+  val ex_pf_buffer: ExecutePrefetchBundle = RegInit(init = {
+    val ex_pf_bundle: ExecutePrefetchBundle = Wire(new ExecutePrefetchBundle)
+    ex_pf_bundle.defaults()
+    ex_pf_bundle
+  })
   pf_module.io.in_valid := 1.U // 目前始终允许
-  when(id_pf_bus.bus_valid && !pipeline_flush_ex) {
-    id_pf_buffer := id_pf_bus
-  }.elsewhen(pipeline_flush_ex || (pf_module.io.ins_ram_en && io.inst_sram_like_io.addr_ok)) {
+  when(pipeline_flush_ex || (pf_module.io.ins_ram_en && io.inst_sram_like_io.addr_ok)) {
     id_pf_buffer.bus_valid := 0.B
+  }.elsewhen(id_pf_bus.bus_valid && !pipeline_flush_ex) {
+    id_pf_buffer := id_pf_bus
+  }
+  when(to_epc_en_ex_pf || to_exception_service_en_ex_pf) {
+    ex_pf_buffer.to_epc_en_ex_pf := to_epc_en_ex_pf
+    ex_pf_buffer.to_exception_service_en_ex_pf := to_exception_service_en_ex_pf
+  }.elsewhen(pf_module.io.ins_ram_en && io.inst_sram_like_io.addr_ok) {
+    ex_pf_buffer.defaults()
   }
   pf_module.io.id_pf_in := id_pf_buffer
   pf_module.io.pc := pc
   pf_module.io.next_allowin := if_allowin
-  pf_module.io.to_exception_service_en_ex_pf := to_exception_service_en_ex_pf
-  pf_module.io.to_epc_en_ex_pf := to_epc_en_ex_pf
+  pf_module.io.to_exception_service_en_ex_pf := ex_pf_buffer.to_exception_service_en_ex_pf
+  pf_module.io.to_epc_en_ex_pf := ex_pf_buffer.to_epc_en_ex_pf
   pf_module.io.cp0_pf_epc := epc_cp0_pf
   pf_module.io.flush := pipeline_flush_ex
   pf_module.io.ins_ram_data_ok := io.inst_sram_like_io.data_ok
@@ -204,6 +215,7 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
     io.data_sram_like_io(i).size := ex_module.io.ex_ram_out(i).mem_size
     io.data_sram_like_io(i).wdata := ex_module.io.ex_ram_out(i).mem_wdata
   }
+  val ms_ready_go: Bool = Wire(Bool())
   // 在flush的时候，当前指令会被取消，对后面的访存指令不要做其他操作
   for (i <- 0 to 1) {
     when(data_sram_state_reg(i) === RamState.waiting_for_request && ex_module.io.ex_ram_out(i).mem_en &&
@@ -217,7 +229,7 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
     }.elsewhen(data_sram_state_reg(i) === RamState.waiting_for_response && io.data_sram_like_io(i).data_ok) {
       data_sram_state_reg(i) := RamState.waiting_for_read
       data_sram_buffer_reg(i) := io.data_sram_like_io(i).rdata
-    }.elsewhen(data_sram_state_reg(i) === RamState.waiting_for_read && ex_module.io.ready_go && ms_allowin) {
+    }.elsewhen(data_sram_state_reg(i) === RamState.waiting_for_read && ms_ready_go) {
       data_sram_state_reg(i) := RamState.waiting_for_request
     }
   }
@@ -251,7 +263,7 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   ms_allowin := ms_module.io.this_allowin
   cp0_hazard_bypass_ms_ex := ms_module.io.cp0_hazard_bypass_ms_ex
   bypass_bus.bp_ms_id := ms_module.io.bypass_ms_id
-
+  ms_ready_go := ms_module.io.ram_access_done
   // 写回
   val wb_reg: Vec[MemoryWriteBackBundle] = RegDualAutoFlip(next = ms_wb_bus, init = {
     val bundle = Wire(new MemoryWriteBackBundle)
@@ -284,12 +296,11 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   }
   cp0_hazard_bypass_wb_ex := wb_module.io.cp0_hazard_bypass_wb_ex
 
-  for (i <- 0 to 1) {
-    io.debug(i).debug_wb_pc := wb_module.io.pc_wb(i)
-    io.debug(i).debug_wb_rf_wnum := wb_module.io.regfile_waddr(i)
-    io.debug(i).debug_wb_rf_wen := VecInit(Seq.fill(4)(wb_module.io.regfile_wen(i))).asUInt()
-    io.debug(i).debug_wb_rf_wdata := wb_module.io.regfile_wdata(i)
-  }
+  io.debug.debug_wb_pc := Cat(wb_module.io.pc_wb(1), wb_module.io.pc_wb(0))
+  io.debug.debug_wb_rf_wnum := Cat(wb_module.io.regfile_waddr(1), wb_module.io.regfile_waddr(0))
+  io.debug.debug_wb_rf_wen := Cat(VecInit(Seq.fill(4)(wb_module.io.regfile_wen(1))).asUInt(),
+    VecInit(Seq.fill(4)(wb_module.io.regfile_wen(0))).asUInt())
+  io.debug.debug_wb_rf_wdata := Cat(wb_module.io.regfile_wdata(1), wb_module.io.regfile_wdata(0))
 
   id_module.io.next_allowin := ex_allowin
   ex_module.io.next_allowin := ms_allowin

@@ -1,6 +1,7 @@
 package com.github.hectormips.pipeline.issue
 
 import chisel3._
+import com.github.hectormips.pipeline.HiloSel
 
 
 class IssuerOut extends Bundle {
@@ -33,15 +34,19 @@ class Issuer extends Module {
   // 是否存在器件冲突
   val has_device_hazard: Bool    = Wire(Bool())
 
-  // TODO: 当前始终从0号槽开始发射指令
   io.out.first_index := 0.B
   val has_raw_regfile_hazard: Bool = io.in_decoder1.rf_wen && io.in_decoder1.rf_wnum =/= 0.U &&
-    (io.in_decoder2.op1_rf_num === io.in_decoder1.rf_wnum ||
-      io.in_decoder2.op2_rf_num === io.in_decoder1.rf_wnum)
-  val has_raw_cp0_hazard    : Bool = io.in_decoder1.cp0_wen && io.in_decoder2.op2_from_cp0 &&
-    io.in_decoder1.cp0_addr === io.in_decoder2.cp0_addr
+    ((io.in_decoder2.op1_rf_num === io.in_decoder1.rf_wnum ||
+      io.in_decoder2.op2_rf_num === io.in_decoder1.rf_wnum) ||
+      // 访存指令特殊处理
+      (io.in_decoder2.ram_wen && io.in_decoder2.ram_wsrc_regfile === io.in_decoder1.rf_wnum))
+  // 只要写cp0寄存器，那么就只能发射一条
+  // 目的是为了防止软中断导致的异常
+  val has_raw_cp0_hazard    : Bool = io.in_decoder1.cp0_wen
   val has_raw_hilo_hazard   : Bool = io.in_decoder1.hilo_wen && io.in_decoder2.op2_from_hilo &&
-    io.in_decoder1.hilo_sel === io.in_decoder2.hilo_sel
+    (io.in_decoder1.hilo_sel === io.in_decoder2.hilo_sel ||
+      (io.in_decoder1.hilo_sel === HiloSel.both && io.in_decoder2.hilo_sel =/= HiloSel.nop))
+
 
   val has_waw_regfile_hazard: Bool = io.in_decoder1.rf_wen && io.in_decoder2.rf_wen &&
     io.in_decoder1.rf_wnum =/= 0.U && io.in_decoder1.rf_wnum === io.in_decoder2.rf_wnum
@@ -49,7 +54,10 @@ class Issuer extends Module {
   val has_waw_cp0_hazard : Bool = io.in_decoder1.cp0_wen && io.in_decoder2.cp0_wen &&
     io.in_decoder1.cp0_addr === io.in_decoder2.cp0_addr
   val has_waw_hilo_hazard: Bool = io.in_decoder1.hilo_wen && io.in_decoder2.hilo_wen &&
-    io.in_decoder1.hilo_sel === io.in_decoder2.hilo_sel
+    (io.in_decoder1.hilo_sel === io.in_decoder2.hilo_sel)
+  val has_waw_ram_hazard : Bool = io.in_decoder1.ram_wen && io.in_decoder1.is_valid &&
+    io.in_decoder2.ram_wen && io.in_decoder2.is_valid &&
+    io.in_decoder1.src_sum(31, 2) === io.in_decoder2.src_sum(31, 2)
 
   has_raw_hazard := has_raw_regfile_hazard || has_raw_cp0_hazard || has_raw_hilo_hazard
   is_decoder2_jump := io.in_decoder2.is_valid && io.in_decoder2.is_jump
@@ -57,9 +65,10 @@ class Issuer extends Module {
   has_waw_hazard := has_waw_regfile_hazard || has_waw_hilo_hazard || has_waw_hilo_hazard
   // 有冲突或者只有一条指令的时候只发射一条
   // 当一条指令为eret的时候也只发射一条
-  io.out.issue_count := Mux(has_raw_hazard || has_device_hazard ||
-    io.in_decoder1.is_eret || io.in_decoder2.is_eret || is_decoder2_jump, 1.U, 2.U)
-  io.out.waw_hazard := Mux(io.in_decoder2.is_valid, !has_waw_hazard, 0.B)
+  // 存在内存写后写冲突时，由于不一定是对齐访存，因此同样需要禁止发射
+  io.out.issue_count := Mux(has_raw_hazard || has_device_hazard || has_waw_ram_hazard ||
+    io.in_decoder1.is_eret || io.in_decoder2.is_eret || is_decoder2_jump || !io.in_decoder2.is_valid, 1.U, 2.U)
+  io.out.waw_hazard := Mux(io.in_decoder2.is_valid, has_waw_hazard, 0.B)
 
 
 }

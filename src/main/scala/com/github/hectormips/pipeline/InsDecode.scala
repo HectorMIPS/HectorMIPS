@@ -31,8 +31,9 @@ object AluSrc2Sel extends OneHotEnum {
 }
 
 object HiloSel extends OneHotEnum {
-  val hi: Type = Value(1.U)
-  val lo: Type = Value(2.U)
+  val hi  : Type = Value(1.U)
+  val lo  : Type = Value(2.U)
+  val both: Type = Value(3.U)
 }
 
 class FetchDecodeBundle extends WithValid {
@@ -157,7 +158,7 @@ class InsDecode extends Module {
   io.id_pf_out.jump_val_id_pf := decoders(0).out_branch.jump_val
   io.id_pf_out.is_jump := decoders(0).out_branch.is_jump
   io.id_pf_out.bus_valid := decoders(0).out_regular.ins_valid && io.if_id_in.bus_valid
-  io.id_pf_out.jump_taken := decoders(0).out_branch.jump_taken
+  io.id_pf_out.jump_taken := decoders(0).out_branch.jump_taken && !wait_for_delay_slot
   // 当第一条指令为分支指令，第二条指令有效并且出现了load-to-branch时需要暂停取指
   io.id_pf_out.stall_id_pf := decoders(0).out_regular.ins_valid && decoders(0).out_branch.is_jump &&
     decoders(1).out_regular.ins_valid && decoders(0).out_hazard.load_to_branch
@@ -167,14 +168,18 @@ class InsDecode extends Module {
   // 如果当前指令有效数 > 发射数，则pc强制前进4
   // 如果请求数为2，实际数目为1，下一个pc的请求的起始地址为当前pc + 4
   io.id_pf_out.pc_force_step_4 := (io.if_id_in.req_count === 2.U && !io.if_id_in.ins_valid_if_id(1)) ||
-    ins_valid_count > issue_count || (wait_for_delay_slot && decoders(0).out_branch.is_jump)
+    (!wait_for_delay_slot && ins_valid_count > issue_count) ||
+    (wait_for_delay_slot && decoders(0).out_branch.is_jump) ||
+    (branch_state === BranchState.waiting_for_delay_slot && decoders(0).out_branch.is_jump &&
+      !decoders(0).out_branch.jump_taken)
 
 
   val has_waw_hazard  : Bool = issuer.io.out.waw_hazard
   val bus_valid_common: Bool = !reset.asBool() && ready_go && !io.flush
 
   def wawEliminate(index: Int, wen: Bool): Bool = {
-    wen && Mux(has_waw_hazard, index.U =/= 2.U, 1.B)
+    // 如果同时有raw和waw冲突，则首先解决raw冲突
+    wen && Mux(issuer.io.out.issue_count === 2.U, Mux(has_waw_hazard, index.U === 1.U, 1.B), 1.B)
   }
 
   for (i <- 0 to 1) {
@@ -184,13 +189,13 @@ class InsDecode extends Module {
     io.id_ex_out(i).alu_src1_id_ex := decoders(i).out_regular.alu_src1
     io.id_ex_out(i).alu_src2_id_ex := decoders(i).out_regular.alu_src2
     io.id_ex_out(i).mem_en_id_ex := decoders(i).out_regular.mem_en
-    io.id_ex_out(i).mem_wen_id_ex := wawEliminate(i, decoders(i).out_regular.mem_wen)
+    io.id_ex_out(i).mem_wen_id_ex := decoders(i).out_regular.mem_wen
     io.id_ex_out(i).regfile_wsrc_sel_id_ex := decoders(i).out_regular.regfile_wsrc_sel
     io.id_ex_out(i).regfile_waddr_sel_id_ex := decoders(i).out_regular.regfile_waddr_sel
     io.id_ex_out(i).inst_rs_id_ex := decoders(i).out_regular.rs
     io.id_ex_out(i).inst_rd_id_ex := decoders(i).out_regular.rd
     io.id_ex_out(i).inst_rt_id_ex := decoders(i).out_regular.rt
-    io.id_ex_out(i).regfile_we_id_ex := wawEliminate(i, decoders(i).out_regular.regfile_we)
+    io.id_ex_out(i).regfile_we_id_ex := decoders(i).out_regular.regfile_we
     io.id_ex_out(i).pc_id_ex_debug := decoders(i).out_regular.pc_debug
     io.id_ex_out(i).mem_wdata_id_ex := decoders(i).out_regular.mem_wdata
     io.id_ex_out(i).hi_wen := wawEliminate(i, decoders(i).out_regular.hi_wen)
@@ -208,13 +213,14 @@ class InsDecode extends Module {
     io.id_ex_out(i).is_delay_slot := decoders(i).out_regular.is_delay_slot
     io.id_ex_out(i).issue_num := issuer.io.out.issue_count
     io.id_ex_out(i).exception_flags := decoders(i).out_regular.exception_flags
-    io.id_ex_out(i).bus_valid := decoders(i).out_regular.ins_valid && bus_valid_common
   }
   // 当第一条指令为跳转指令的时候，只有两条指令同时有效时才能发射
   io.id_ex_out(0).bus_valid := bus_valid_common && decoders(0).out_regular.ins_valid &&
     Mux(decoders(0).out_branch.is_jump,
       decoders(1).out_regular.ins_valid,
       1.B)
+  io.id_ex_out(1).bus_valid := bus_valid_common && decoders(1).out_regular.ins_valid &&
+    issuer.io.out.issue_count === 2.U
 
 
 }

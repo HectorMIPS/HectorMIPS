@@ -71,13 +71,16 @@ class DecoderIssueOut extends Bundle {
   val cp0_addr    : UInt = UInt(8.W)
   val op2_from_cp0: Bool = Bool()
 
-  val hilo_sel     : HiloSel.Type = HiloSel()
-  val hilo_wen     : Bool         = Bool()
-  val op2_from_hilo: Bool         = Bool()
-  val is_jump      : Bool         = Bool()
-  val div_or_mult  : Bool         = Bool()
-  val is_valid     : Bool         = Bool()
-  val is_eret      : Bool         = Bool()
+  val hilo_sel        : HiloSel.Type = HiloSel()
+  val hilo_wen        : Bool         = Bool()
+  val op2_from_hilo   : Bool         = Bool()
+  val is_jump         : Bool         = Bool()
+  val div_or_mult     : Bool         = Bool()
+  val is_valid        : Bool         = Bool()
+  val is_eret         : Bool         = Bool()
+  val ram_wen         : Bool         = Bool()
+  val ram_wsrc_regfile: UInt         = UInt(5.W)
+  val src_sum     : UInt         = UInt(32.W)
 }
 
 class Decoder extends Module {
@@ -414,7 +417,7 @@ class Decoder extends Module {
   io.out_regular.alu_op := MuxCase(AluOp.nop, Seq(
     (ins_addu | ins_add | ins_addiu | ins_addi | ins_lw | ins_lb |
       ins_lbu | ins_lh | ins_lhu | ins_sw | ins_sh | ins_sb |
-      ins_jal | ins_bltzal | ins_bgezal | ins_jalr | ins_mtc0) -> AluOp.op_add,
+      ins_jal | ins_bltzal | ins_bgezal | ins_jalr | ins_mtc0 | ins_mflo | ins_mfhi) -> AluOp.op_add,
     (ins_subu | ins_sub) -> AluOp.op_sub,
     (ins_slt | ins_slti) -> AluOp.op_slt,
     (ins_sltu | ins_sltiu) -> AluOp.op_sltu,
@@ -456,9 +459,12 @@ class Decoder extends Module {
   io.out_regular.imm_32 := imm_signed.asUInt()
 
 
+  val ram_wen: Bool = ins_sw | ins_sh | ins_sb
   io.out_regular.mem_en := ins_lw | ins_lb |
     ins_lbu | ins_lh | ins_lhu | ins_sw | ins_sh | ins_sb
-  io.out_regular.mem_wen := ins_sw | ins_sh | ins_sb
+  io.out_regular.mem_wen := ram_wen
+  io.out_issue.ram_wen := ram_wen
+  io.out_issue.ram_wsrc_regfile := rt
   io.out_regular.regfile_wsrc_sel := ins_lw | ins_lb |
     ins_lbu | ins_lh | ins_lhu
   io.out_regular.mem_data_sel := MuxCase(MemDataSel.word, Seq(
@@ -470,7 +476,8 @@ class Decoder extends Module {
 
   val hilo_sel: HiloSel.Type = MuxCase(HiloSel.nop, Seq(
     (ins_mthi | ins_mfhi) -> HiloSel.hi,
-    (ins_mtlo | ins_mflo | ins_mul) -> HiloSel.lo
+    (ins_mtlo | ins_mflo | ins_mul) -> HiloSel.lo,
+    (ins_div | ins_divu | ins_mult | ins_multu | ins_mul) -> HiloSel.both
   ))
   val hilo_wen: Bool         = ins_multu | ins_mult | ins_div | ins_divu | ins_mthi | ins_mtlo | ins_mul
   io.out_regular.hi_wen := ins_multu | ins_mult | ins_div | ins_divu | ins_mthi
@@ -566,7 +573,7 @@ class Decoder extends Module {
   io.out_regular.ins_valid := io.in.ins_valid
 
   io.out_issue.op1_rf_num := Mux(src1_sel === AluSrc1Sel.regfile_read1, rs, 0.U)
-  io.out_issue.op2_rf_num := Mux(src2_sel === AluSrc2Sel.regfile_read2, rs, 0.U)
+  io.out_issue.op2_rf_num := Mux(src2_sel === AluSrc2Sel.regfile_read2, rt, 0.U)
   io.out_issue.rf_wen := rf_wen
   io.out_issue.rf_wnum := MuxCase(0.U, Seq(
     (rf_wdst_sel === RegFileWAddrSel.inst_rt) -> rt,
@@ -585,4 +592,5 @@ class Decoder extends Module {
   io.out_issue.div_or_mult := ins_div | ins_divu | ins_multu | ins_mult | ins_mul
   io.out_issue.is_valid := io.in.ins_valid
   io.out_issue.is_eret := ins_eret && io.in.ins_valid
+  io.out_issue.src_sum := alu_src1 + alu_src2
 }
