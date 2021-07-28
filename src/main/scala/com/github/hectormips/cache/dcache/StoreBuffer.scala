@@ -17,7 +17,7 @@ class StoreBuffer(length:Int) extends Module{
     val cpu_ok   = Output(Bool())
     // 与cache交互
     // 向端口插入数据
-    val cache_write_ready = Input(Bool())
+//    val cache_write_ready = Input(Bool())
     val cache_write_valid  = Output(Bool())
     val cache_write_size = Output(UInt(3.W))
     val cache_write_addr = Output(UInt(32.W))
@@ -33,7 +33,7 @@ class StoreBuffer(length:Int) extends Module{
   val is_hit_queue = hit_queue_onehot.asUInt() =/= 0.U
   val hit_queue_index = Wire(UInt(log2Ceil(length).W))
   val buffer = new Buffer(length+1)
-  val wstrb = new Wstrb
+  val wstrb = Module(new Wstrb)
   wstrb.io.size := buffer.data(hit_queue_index).size
   wstrb.io.offset := buffer.data(hit_queue_index).addr(1,0)
 
@@ -63,7 +63,8 @@ class StoreBuffer(length:Int) extends Module{
     buffer.enq_data().size := io.cpu_size
     buffer.enq_data().addr := io.cpu_addr
     buffer.enq_data().wdata := io.cpu_wdata
-//    buffer.enq_data().port := io.cpu_port
+    buffer.enq_data().valid := true.B
+    //    buffer.enq_data().port := io.cpu_port
 
     buffer.enq()
   }
@@ -72,21 +73,23 @@ class StoreBuffer(length:Int) extends Module{
    * 处理向cache写入的数据
    */
   val sWork::sWait::Nil = Enum(2)
-  val state = RegInit(0.U(1.W))
+//  val state = RegInit(0.U(1.W))
 
-  when(state === sWork && !buffer.empty() && io.cache_write_ready){
+
+  when(!buffer.empty()){
     io.cache_write_valid := true.B
-  }
-  when(state === sWork && io.cache_write_valid && io.cache_write_ready){
     io.cache_write_size := buffer.deq_data().size
     io.cache_write_addr := buffer.deq_data().addr
     io.cache_write_wdata := buffer.deq_data().wdata
-//    io.cache_write_port := buffer.deq_data().port
-    state := sWait
+  }.otherwise{
+    io.cache_write_valid := false.B
+    io.cache_write_size := 0.U
+    io.cache_write_addr := 0.U
+    io.cache_write_wdata := 0.U
   }
   when(io.cache_response){
-    state := sWork
     buffer.deq()
+    buffer.deq_data().valid := false.B
   }
 
 
@@ -121,6 +124,6 @@ class Buffer(length:Int) extends  Bundle{
     data(enq_ptr)
   }
   def deq_data():bufferItem={
-    data(enq_ptr)
+    data(deq_ptr)
   }
 }

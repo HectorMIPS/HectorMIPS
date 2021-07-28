@@ -6,10 +6,10 @@ import chisel3._
 import chisel3.util._
 
 class BankData(val config: CacheConfig) extends Bundle {
-  val addr = Wire(UInt(config.indexWidth.W))
-  val read = Wire(Vec(config.wayNum, Vec(config.bankNum,UInt(32.W))))
+//  val addr = Wire(Vec(2,UInt(config.indexWidth.W)))
+  val read = Wire(Vec(2,Vec(config.wayNum, Vec(config.bankNum,UInt(32.W)))))
   //  val write = Vec(config.bankNum, UInt(32.W))
-  val wEn = Wire(Vec(config.wayNum, Vec(config.bankNum,Bool())))
+  val wEn = Wire(Vec(2,Vec(config.wayNum, Vec(config.bankNum,Bool()))))
 }
 
 class tagv(tagWidth:Int) extends Bundle{
@@ -17,13 +17,13 @@ class tagv(tagWidth:Int) extends Bundle{
   val valid = Bool()
 }
 class TAGVData(val config: CacheConfig) extends Bundle {
-  val addr = Wire(UInt(config.indexWidth.W))
-  val read = Wire(Vec(config.wayNum, new tagv(config.tagWidth))) //一次读n个
-  val write = Wire(UInt((config.tagWidth+1).W)) //一次写1个
-  val wEn = Wire(Vec(config.wayNum, Bool()))
+//  val addr = Wire(Vec(2,UInt(config.indexWidth.W)))
+  val read = Wire(Vec(2,Vec(config.wayNum, new tagv(config.tagWidth)))) //一次读n个)
+  val write = Wire(Vec(2,UInt((config.tagWidth+1).W))) //一次写1个
+  val wEn = Wire(Vec(2,Vec(config.wayNum, Bool())))
 }
 class DirtyData(val config:CacheConfig) extends Bundle{
-  val read = Wire(Vec(config.wayNum, Bool()))
+  val read = Wire(Vec(2,Vec(config.wayNum, Bool())))
 }
 
 //@departed 废弃
