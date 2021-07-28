@@ -222,6 +222,7 @@ class ICache(val config:CacheConfig)
         when(io.valid) {
           // 直接进入下一轮
           addrReg := io.addr
+          state := sLOOKUP
         }.otherwise {
           state := sIDLE
         }

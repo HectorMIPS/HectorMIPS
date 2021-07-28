@@ -134,7 +134,7 @@ class DCache(val config:CacheConfig)
   }
 
 //  val selection = Module(new ByteSelection)
-  val wstrb = Module(new Wstrb())
+//  val wstrb = Module(new Wstrb())
 
 
   val lruMem = Module(new LruMem(config.wayNumWidth,config.indexWidth))// lru
@@ -150,12 +150,13 @@ class DCache(val config:CacheConfig)
 
 //  val addr_r = RegInit(0.U(32.W)) //地址寄存器
   val addr_r = Wire(Vec(2,UInt(32.W)))//地址寄存器
-  addr_r(0) := queue.io.deq.bits.addr
+  addr_r(0) := Mux(queue.io.count===0.U,0.U,queue.io.deq.bits.addr)
   addr_r(1) := storeBuffer.io.cache_write_addr
 //  val size_r = RegInit(2.U(2.W))
   val size_r = Wire(Vec(2,UInt(2.W)))
   size_r(0) := queue.io.deq.bits.size
-  size_r(1) := storeBuffer.io.cache_write_size
+  size_r(1) := 0.U
+//  size_r(1) := storeBuffer.io.cache_write_size
 
 //  val wr_r = Wire(Vec(2,Bool()))
 //  wr_r(0) := queue.io.deq.bits.wr
@@ -215,7 +216,7 @@ class DCache(val config:CacheConfig)
       dataMem(way)(bank).io.clka := clock
       dataMem(way)(bank).io.clkb := clock
       dataMem(way)(bank).io.wea := Mux(bData.wEn(0)(way)(bank),"b1111".U,"b0000".U)
-      dataMem(way)(bank).io.web := Mux(bData.wEn(1)(way)(bank),Mux(bank.U === bankIndex(1),wstrb.io.mask,"h1111".U),"b0000".U)
+      dataMem(way)(bank).io.web := Mux(bData.wEn(1)(way)(bank),Mux(bank.U === bankIndex(1),storeBuffer.io.cache_write_wstrb,"h1111".U),"b0000".U)
       dataMem(way)(bank).io.ena := true.B
       dataMem(way)(bank).io.enb := true.B
     }
@@ -314,8 +315,9 @@ class DCache(val config:CacheConfig)
       bData.wEn(0)(way)(bank) := state(0)===sREFILL && waySelReg(0) === way.U && bDataWtBank(0) ===bank.U && !clock.asBool()
         //          (state===sREPLACE && victim.io.find && waySelReg === way.U) ||// 如果victim buffer里找到了
 //        (state === sVictimReplace && waySelReg === way.U && bankIndex ===bank.U)||  //读/写命中victim
-      bData.wEn(1)(way)(bank) := (state(1) === sLOOKUP  && cache_hit_way(1) === way.U && bankIndex(1) ===bank.U)|| // 写命中
-        (is_hitWay(1) && state(1) === sREFILL && waySelReg(1) === way.U && bDataWtBank(1) ===bank.U)
+      bData.wEn(1)(way)(bank) := (state(1) === sLOOKUP  && is_hitWay(1) && cache_hit_way(1) === way.U && bankIndex(1) ===bank.U)|| // 写命中
+        (state(1) === sREFILL && waySelReg(1) === way.U && bDataWtBank(1) ===bank.U) ||
+        (state(1) === sREFILL && waySelReg(1) === way.U && bank.U === bankIndex(1))
     }
   }
   for(way<- 0 until config.wayNum){
@@ -342,8 +344,8 @@ class DCache(val config:CacheConfig)
   /**
    * wstrb初始化
    */
-  wstrb.io.offset := addr_r(1)(1,0)
-  wstrb.io.size := size_r(1)
+//  wstrb.io.offset := addr_r(1)(1,0)
+//  wstrb.io.size := size_r(1)
 
   /**
    * LRU 配置
@@ -365,8 +367,8 @@ class DCache(val config:CacheConfig)
 
   io.axi.readAddr.bits.id := 1.U// 未填
   val worker_id = Wire(Vec(2,UInt(4.W)))
-  worker_id(0) := 3.U
-  worker_id(1) := 4.U
+  worker_id(0) := 1.U
+  worker_id(1) := 3.U
   //  io.axi.readAddr.bits.len := 6.U
   io.axi.readAddr.bits.len := (config.bankNum - 1).U
   io.axi.readAddr.bits.size := 2.U // 4B
@@ -460,6 +462,8 @@ class DCache(val config:CacheConfig)
             queue.io.deq.ready := true.B
             io.rdata(port_r) := ( bData.read(0)(cache_hit_way(0))(bankIndex(0)) & storeBuffer_reverse_mask ) |
               (storeBuffer.io.cache_query_data & storeBuffer.io.cache_query_mask)
+          }.elsewhen(worker.U===1.U){
+            storeBuffer.io.cache_response := true.B
           }
         }.otherwise {
           //没命中,检查victim
@@ -480,6 +484,8 @@ class DCache(val config:CacheConfig)
         //在此阶段完成驱逐
         bDataWtBank(worker) := bankIndex(worker)
         when(io.axi.readAddr.ready) {
+          io.axi.readAddr.bits.id := worker_id(worker)
+          io.axi.readAddr.bits.addr := addr_r(worker)
           when(dirtyData.read(worker)(waySelReg(worker)) === true.B) {
             state(worker) := sEvictionWaiting
             invalidateQueue.io.req(worker) := true.B
@@ -528,6 +534,7 @@ class DCache(val config:CacheConfig)
       }
       is(sWaiting) {
         state(worker) := sIDLE
+
         io.rdata(port_r) := (bData.read(worker)(waySelReg(worker))(bankIndex(worker)) & storeBuffer_reverse_mask) |
           (storeBuffer.io.cache_query_data & storeBuffer.io.cache_query_mask)
         io.data_ok(port_r) := true.B
