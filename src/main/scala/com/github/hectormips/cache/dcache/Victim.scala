@@ -55,7 +55,7 @@ class Victim(val config:CacheConfig) extends Module {
   val waddr_r  = RegInit(0.U(32.W))
   val hit_victim_onehot = Wire(Vec(config.victimDepth,Bool()))
   val hit_victim = Wire(UInt(log2Ceil(config.victimDepth).W))
-  val hit_victim_r = Reg(UInt(log2Ceil(config.victimDepth).W))
+  val hit_victim_r = RegInit(0.U(log2Ceil(config.victimDepth).W))
   val is_hit_victim = Wire(Bool())
 //  io.full := fstate =/= fsIDLE // 队列已满
   /**
