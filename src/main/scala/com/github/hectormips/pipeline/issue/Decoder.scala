@@ -80,8 +80,9 @@ class DecoderIssueOut extends Bundle {
   val is_valid        : Bool         = Bool()
   val is_eret         : Bool         = Bool()
   val ram_wen         : Bool         = Bool()
+  val ram_en          : Bool         = Bool()
   val ram_wsrc_regfile: UInt         = UInt(5.W)
-  val src_sum     : UInt         = UInt(32.W)
+  val src_sum         : UInt         = UInt(32.W)
 }
 
 class Decoder extends Module {
@@ -461,10 +462,12 @@ class Decoder extends Module {
 
 
   val ram_wen: Bool = ins_sw | ins_sh | ins_sb
-  io.out_regular.mem_en := ins_lw | ins_lb |
+  val ram_en : Bool = ins_lw | ins_lb |
     ins_lbu | ins_lh | ins_lhu | ins_sw | ins_sh | ins_sb
+  io.out_regular.mem_en := ram_en
   io.out_regular.mem_wen := ram_wen
   io.out_issue.ram_wen := ram_wen
+  io.out_issue.ram_en := ram_en
   io.out_issue.ram_wsrc_regfile := rt
   io.out_regular.regfile_wsrc_sel := ins_lw | ins_lb |
     ins_lbu | ins_lh | ins_lhu
