@@ -297,11 +297,16 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   }
   cp0_hazard_bypass_wb_ex := wb_module.io.cp0_hazard_bypass_wb_ex
 
-  io.debug.debug_wb_pc := Cat(wb_module.io.pc_wb(1), wb_module.io.pc_wb(0))
-  io.debug.debug_wb_rf_wnum := Cat(wb_module.io.regfile_waddr(1), wb_module.io.regfile_waddr(0))
-  io.debug.debug_wb_rf_wen := Cat(VecInit(Seq.fill(4)(wb_module.io.regfile_wen(1))).asUInt(),
-    VecInit(Seq.fill(4)(wb_module.io.regfile_wen(0))).asUInt())
-  io.debug.debug_wb_rf_wdata := Cat(wb_module.io.regfile_wdata(1), wb_module.io.regfile_wdata(0))
+  //  io.debug.debug_wb_pc := Cat(wb_module.io.pc_wb(1), wb_module.io.pc_wb(0))
+  //  io.debug.debug_wb_rf_wnum := Cat(wb_module.io.regfile_waddr(1), wb_module.io.regfile_waddr(0))
+  //  io.debug.debug_wb_rf_wen := Cat(VecInit(Seq.fill(4)(wb_module.io.regfile_wen(1))).asUInt(),
+  //    VecInit(Seq.fill(4)(wb_module.io.regfile_wen(0))).asUInt())
+  //  io.debug.debug_wb_rf_wdata := Cat(wb_module.io.regfile_wdata(1), wb_module.io.regfile_wdata(0))
+
+  io.debug.debug_wb_pc := wb_module.io.pc_wb(0)
+  io.debug.debug_wb_rf_wnum := wb_module.io.regfile_waddr(0)
+  io.debug.debug_wb_rf_wen := VecInit(Seq.fill(4)(wb_module.io.regfile_wen(0))).asUInt()
+  io.debug.debug_wb_rf_wdata := wb_module.io.regfile_wdata(0)
 
   id_module.io.next_allowin := ex_allowin
   ex_module.io.next_allowin := ms_allowin

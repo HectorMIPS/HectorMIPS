@@ -419,8 +419,8 @@ class DCache(val config:CacheConfig)
     switch(state(worker)) {
       is(sIDLE) {
         when(worker.U === 0.U && queue.io.count =/= 0.U) {
-          when(addr_r(1) === addr_r(0)){
-            when(state(1)===sIDLE || state(1)===sREFILL && io.axi.readData.bits.last){
+          when(addr_r(1)(31,2) === addr_r(0)(31,2)){
+            when(state(1)===sIDLE) {
               state(worker) := sLOOKUP
             }.otherwise{
               state(worker) := sIDLE

@@ -82,7 +82,6 @@ class DecoderIssueOut extends Bundle {
   val ram_wen         : Bool         = Bool()
   val ram_en          : Bool         = Bool()
   val ram_wsrc_regfile: UInt         = UInt(5.W)
-  val src_sum         : UInt         = UInt(32.W)
 }
 
 class Decoder extends Module {
@@ -596,5 +595,4 @@ class Decoder extends Module {
   io.out_issue.div_or_mult := ins_div | ins_divu | ins_multu | ins_mult | ins_mul
   io.out_issue.is_valid := io.in.ins_valid
   io.out_issue.is_eret := ins_eret && io.in.ins_valid
-  io.out_issue.src_sum := alu_src1 + alu_src2
 }
