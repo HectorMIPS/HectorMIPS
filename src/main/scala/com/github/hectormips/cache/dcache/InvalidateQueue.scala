@@ -38,7 +38,7 @@ class InvalidateQueue(config:CacheConfig) extends Module {
   val mem = RegInit(VecInit(Seq.fill(config.bankNum)(0.U(32.W))))
   val counter = RegInit(VecInit(Seq.fill(2)(0.U(log2Ceil(config.bankNum).W))))
 
-  val addr_r = Reg(Vec(2,UInt(32.W)))
+  val addr_r = RegInit(VecInit(Seq.fill(2)(0.U(32.W))))
   val worker_id = Wire(Vec(2,UInt(4.W)))
   worker_id(0) := 1.U
   worker_id(1) := 3.U

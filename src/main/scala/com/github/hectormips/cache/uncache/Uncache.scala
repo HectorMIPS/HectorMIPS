@@ -25,15 +25,15 @@ class Uncache extends Module{
   val wstrb = Module(new Wstrb())
   val do_req =  RegInit(false.B)
 //  val do_req_or = RegInit(false.B)
-  val do_wr_r = Reg(Bool())
-  val do_size_r = Reg(UInt(2.W))
-  val do_addr_r = Reg(UInt(32.W))
-  val do_wdata_r = Reg(UInt(32.W))
+  val do_wr_r = RegInit(false.B)
+  val do_size_r = RegInit(0.U(2.W))
+  val do_addr_r = RegInit(0.U(32.W))
+  val do_wdata_r = RegInit(0.U(32.W))
   
   val data_back = Wire(Bool())
 
   val exe_port = Wire(Bool())
-  val exe_port_r =Reg(Bool())
+  val exe_port_r =RegInit(false.B)
 
 
   val polling = RegInit(false.B)
