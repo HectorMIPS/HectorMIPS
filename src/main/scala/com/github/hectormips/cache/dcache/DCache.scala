@@ -506,6 +506,7 @@ class DCache(val config:CacheConfig)
           evictionCounter(worker) := 0.U
         }.otherwise {
           state(worker) := sEvictionWaiting
+          invalidateQueue.io.req(worker) := true.B
         }
       }
       is(sEviction) {
