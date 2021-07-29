@@ -86,7 +86,8 @@ class ICache(val config:CacheConfig)
   val index  = Wire(UInt(config.indexWidth.W))
   val bankIndex = Wire(UInt((config.offsetWidth-2).W))
   val tag  = Wire(UInt(config.tagWidth.W))
-  val waySelReg = Reg(UInt(config.wayNumWidth.W))
+  val waySelReg = RegInit(0.U(config.wayNumWidth.W))
+
   index := config.getIndex(addrReg)
 
   bankIndex := config.getBankIndex(addrReg)

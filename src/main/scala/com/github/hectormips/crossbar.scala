@@ -3,18 +3,18 @@ package com.github.hectormips
 import chisel3._
 import chisel3.util.experimental.forceName
 
-class axi_crossbar_2x1 extends BlackBox{
-  val io = IO(new Bundle{
-    val aclk    = Input(Clock())
+class axi_crossbar_2x1 extends BlackBox {
+  val io = IO(new Bundle {
+    val aclk = Input(Clock())
     val aresetn = Input(Bool())
     //64 bit 输入
-    val in      = Flipped(new AXIIO(3))
-    val s_arqos   = Input(UInt(8.W))
-    val s_awqos  = Input(UInt(3.W))
-    val m_arqos   = Output(UInt(3.W))
-    val m_awqos  = Output(UInt(1.W))
+    val in = Flipped(new AXIIO(3))
+    val s_arqos = Input(UInt(12.W))
+    val s_awqos = Input(UInt(12.W))
+    val m_arqos = Output(UInt(4.W))
+    val m_awqos = Output(UInt(4.W))
     //32 bit 输出
-    val out     = new AXIIO(1)
+    val out = new AXIIO(1)
   })
   forceName(io.in.arid, "s_axi_arid")
   forceName(io.in.araddr, "s_axi_araddr")
@@ -52,8 +52,8 @@ class axi_crossbar_2x1 extends BlackBox{
   forceName(io.in.bresp, "s_axi_bresp")
   forceName(io.in.bvalid, "s_axi_bvalid")
   forceName(io.in.bready, "s_axi_bready")
-  forceName(io.s_arqos,"s_axi_arqos")
-  forceName(io.s_awqos,"s_axi_awqos")
+  forceName(io.s_arqos, "s_axi_arqos")
+  forceName(io.s_awqos, "s_axi_awqos")
 
 
   forceName(io.out.arid, "m_axi_arid")
@@ -93,6 +93,6 @@ class axi_crossbar_2x1 extends BlackBox{
   forceName(io.out.bresp, "m_axi_bresp")
   forceName(io.out.bvalid, "m_axi_bvalid")
 
-  forceName(io.m_arqos,"m_axi_arqos") // 这两个端口不用
-  forceName(io.m_awqos,"m_axi_awqos")// 这两个端口不用
+  forceName(io.m_arqos, "m_axi_arqos") // 这两个端口不用
+  forceName(io.m_awqos, "m_axi_awqos") // 这两个端口不用
 }

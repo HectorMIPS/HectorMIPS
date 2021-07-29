@@ -47,8 +47,10 @@ class StoreBuffer(length:Int) extends Module{
   /**
    * 处理cache请求
    */
+  val cache_query_addr_r = RegInit(0.U(32.W))
+  cache_query_addr_r := io.cache_query_addr
   for(i <- 0 to length){ //0~7都可以填充 但是最多只能放7个
-    cache_hit_queue_onehot(i) := buffer.data(i).valid &&  buffer.data(i).addr(31,2) === io.cache_query_addr(31,2)
+    cache_hit_queue_onehot(i) := buffer.data(i).valid &&  buffer.data(i).addr(31,2) === cache_query_addr_r(31,2)
     cpu_hit_queue_onehot(i) := buffer.data(i).valid &&  buffer.data(i).addr(31,2) === io.cpu_addr(31,2)
   }
   cache_hit_queue_index := OHToUInt(cache_hit_queue_onehot)
@@ -66,6 +68,7 @@ class StoreBuffer(length:Int) extends Module{
   /**
    * 处理输入的请求
    */
+
   io.cpu_ok := !buffer.full()
   when(io.cpu_req && io.cpu_ok){
     when(cpu_is_hit_queue){
