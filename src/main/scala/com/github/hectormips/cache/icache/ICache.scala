@@ -223,6 +223,7 @@ class ICache(val config:CacheConfig)
           // 直接进入下一轮
           state := sLOOKUP
           addrReg := io.addr
+          state := sLOOKUP
         }.otherwise {
           state := sIDLE
         }

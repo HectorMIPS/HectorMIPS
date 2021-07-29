@@ -13,13 +13,15 @@ class StoreBuffer(length:Int) extends Module{
     val cpu_size = Input(UInt(3.W))
     val cpu_addr = Input(UInt(32.W))
     val cpu_wdata = Input(UInt(32.W))
+//    val cpu_port  = Input(UInt(1.W))
     val cpu_ok   = Output(Bool())
     // 与cache交互
     // 向端口插入数据
-    val cache_write_ready = Input(Bool())
+//    val cache_write_ready = Input(Bool())
     val cache_write_valid  = Output(Bool())
-    val cache_write_size = Output(UInt(3.W))
+    val cache_write_wstrb = Output(UInt(4.W))
     val cache_write_addr = Output(UInt(32.W))
+//    val cache_write_port = Input(UInt(1.W))
     val cache_write_wdata = Output(UInt(32.W))
     val cache_response   = Input(Bool())
     // cache的请求
@@ -27,27 +29,35 @@ class StoreBuffer(length:Int) extends Module{
     val cache_query_data = Output(UInt(32.W)) //这里返回的是移位后的数据
     val cache_query_mask = Output(UInt(32.W)) //如果没找到，mask为0
   })
-  val hit_queue_onehot = Wire(Vec(length,Bool()))
-  val is_hit_queue = hit_queue_onehot.asUInt() =/= 0.U
-  val hit_queue_index = Wire(UInt(log2Ceil(length).W))
-  val buffer = new Buffer
-  val wstrb = new Wstrb
-  wstrb.io.size := buffer.data(hit_queue_index).size
-  wstrb.io.offset := buffer.data(hit_queue_index).addr(1,0)
-
+  val cache_hit_queue_onehot = Wire(Vec(length+1,Bool()))
+  val cache_is_hit_queue = Wire(Bool())
+  val cache_hit_queue_index = Wire(UInt(log2Ceil(length+1).W))
+  cache_is_hit_queue := cache_hit_queue_onehot.asUInt() =/= 0.U
+  val cpu_hit_queue_onehot = Wire(Vec(length+1,Bool()))
+  val cpu_is_hit_queue = Wire(Bool())
+  val cpu_hit_queue_index = Wire(UInt(log2Ceil(length+1).W))
+  cpu_is_hit_queue := cpu_hit_queue_onehot.asUInt() =/= 0.U
+  cpu_hit_queue_index := OHToUInt(cpu_hit_queue_onehot)
+  val buffer = new Buffer(length+1)
+  val wstrb = Module(new Wstrb)
+  val full_mask = Wire(UInt(32.W))
+  val reverse_full_mask = Wire(UInt(32.W))
+  wstrb.io.size := io.cpu_size
+  wstrb.io.offset := io.cpu_addr(1,0)
   /**
    * 处理cache请求
    */
-  for(i <- 0 until length){
-    hit_queue_onehot(i) := buffer.data(i).valid &&  buffer.data(i).addr === io.cache_query_addr
+  for(i <- 0 to length){ //0~7都可以填充 但是最多只能放7个
+    cache_hit_queue_onehot(i) := buffer.data(i).valid &&  buffer.data(i).addr(31,2) === io.cache_query_addr(31,2)
+    cpu_hit_queue_onehot(i) := buffer.data(i).valid &&  buffer.data(i).addr(31,2) === io.cpu_addr(31,2)
   }
-  hit_queue_index := hit_queue_onehot.asUInt()
-  when(is_hit_queue){
-    io.cache_query_data := buffer.data(hit_queue_index).wdata << buffer.data(hit_queue_index).addr(1,0)
-    io.cache_query_mask := Cat(Mux(wstrb.io.mask(0),"hff".U(8.W),0.U(8.W)),
-      Mux(wstrb.io.mask(1),"hff".U(8.W),0.U(8.W)),
-      Mux(wstrb.io.mask(2),"hff".U(8.W),0.U(8.W)),
-      Mux(wstrb.io.mask(3),"hff".U(8.W),0.U(8.W)))
+  cache_hit_queue_index := OHToUInt(cache_hit_queue_onehot)
+  when(cache_is_hit_queue){
+    io.cache_query_data := buffer.data(cache_hit_queue_index).wdata << buffer.data(cache_hit_queue_index).addr(1,0)
+    io.cache_query_mask := Cat(Mux(buffer.data(cache_hit_queue_index).wstrb(3),"hff".U(8.W),0.U(8.W)),
+      Mux(buffer.data(cache_hit_queue_index).wstrb(2),"hff".U(8.W),0.U(8.W)),
+      Mux(buffer.data(cache_hit_queue_index).wstrb(1),"hff".U(8.W),0.U(8.W)),
+      Mux(buffer.data(cache_hit_queue_index).wstrb(0),"hff".U(8.W),0.U(8.W)))
   }.otherwise{
     io.cache_query_data := 0.U
     io.cache_query_mask := 0.U
@@ -58,30 +68,51 @@ class StoreBuffer(length:Int) extends Module{
    */
   io.cpu_ok := !buffer.full()
   when(io.cpu_req && io.cpu_ok){
-    buffer.enq_data().size := io.cpu_size
-    buffer.enq_data().addr := io.cpu_addr
-    buffer.enq_data().wdata := io.cpu_wdata
-    buffer.enq()
+    when(cpu_is_hit_queue){
+      // 合并同类项
+      buffer.data(cpu_hit_queue_index).wstrb :=  wstrb.io.mask | buffer.data(cpu_hit_queue_index).wstrb
+      buffer.data(cpu_hit_queue_index).wdata := buffer.data(cpu_hit_queue_index).wdata & reverse_full_mask |
+        io.cpu_wdata & full_mask
+    }.otherwise {
+      buffer.enq_data().wstrb := wstrb.io.mask
+      buffer.enq_data().addr := io.cpu_addr
+      buffer.enq_data().wdata := io.cpu_wdata
+      buffer.enq_data().valid := true.B
+      //    buffer.enq_data().port := io.cpu_port
+      buffer.enq()
+    }
   }
 
   /**
    * 处理向cache写入的数据
    */
-  val sWork::sWait::Nil = Enum(2)
-  val state = RegInit(0.U(1.W))
+//  val state = RegInit(0.U(1.W))
 
-  when(state === sWork && !buffer.empty() && io.cache_write_ready){
-    io.cache_write_valid := true.B
-  }
-  when(io.cache_write_valid && io.cache_write_ready){
-    io.cache_write_size := buffer.deq_data().size
-    io.cache_write_addr := buffer.deq_data().addr
-    io.cache_write_wdata := buffer.deq_data().wdata
-    state := sWait
+
+  full_mask := Cat(Mux(wstrb.io.mask(3),"hff".U(8.W),0.U(8.W)),
+    Mux(wstrb.io.mask(2),"hff".U(8.W),0.U(8.W)),
+    Mux(wstrb.io.mask(1),"hff".U(8.W),0.U(8.W)),
+    Mux(wstrb.io.mask(0),"hff".U(8.W),0.U(8.W)))
+  reverse_full_mask := ~full_mask
+  when(!buffer.empty()){
+      io.cache_write_valid := true.B
+      io.cache_write_wstrb := buffer.deq_data().wstrb
+      io.cache_write_addr := buffer.deq_data().addr
+      io.cache_write_wdata := buffer.deq_data().wdata
+  }.otherwise{
+    io.cache_write_valid := false.B
+    io.cache_write_wstrb := "b0000".U
+    io.cache_write_addr := 0.U
+    io.cache_write_wdata := 0.U
   }
   when(io.cache_response){
-    state := sWork
-    buffer.deq()
+    when(io.cpu_addr(31,2) === buffer.deq_data().addr(31,2)){
+      //多沿一个事务
+      buffer.deq_data().valid := true.B
+    }.otherwise{
+      buffer.deq()
+      buffer.deq_data().valid := false.B
+    }
   }
 
 
@@ -90,18 +121,34 @@ class bufferItem extends Bundle{
   val valid = Bool()
   val addr  = UInt(32.W)
   val wdata = UInt(32.W)
-  val size  = UInt(3.W)
+  val wstrb  = UInt(4.W)
+//  val port  = UInt(1.W)
 }
-class Buffer extends  Bundle{
-  val data    = Mem(7,new bufferItem)
-  val enq_ptr = RegInit(0.U(3.W))
-  val deq_ptr  = RegInit(0.U(3.W))
+class Buffer(length:Int) extends  Bundle{
+  val data   = RegInit(VecInit(Seq.fill(length+1)({
+    val bundle = Wire(new bufferItem)
+    bundle.valid := 0.U
+    bundle.addr := 0.U
+    bundle.wstrb := 0.U
+    bundle.wdata := 0.U
+    bundle
+  })))
+  val enq_ptr = RegInit(0.U(log2Ceil(length).W))
+  val deq_ptr  = RegInit(0.U(log2Ceil(length).W))
+  when(enq_ptr === length.U){
+    enq_ptr := 0.U
+  }
+  when(deq_ptr === length.U){
+    deq_ptr := 0.U
+  }
   def empty():Bool={
     enq_ptr === deq_ptr
   }
   def full():Bool={
     enq_ptr === deq_ptr - 1.U
   }
+
+
   def count():UInt={
     enq_ptr - deq_ptr
   }
@@ -115,6 +162,6 @@ class Buffer extends  Bundle{
     data(enq_ptr)
   }
   def deq_data():bufferItem={
-    data(enq_ptr)
+    data(deq_ptr)
   }
 }
