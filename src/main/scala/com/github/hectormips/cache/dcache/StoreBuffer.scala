@@ -138,12 +138,6 @@ class Buffer(length:Int) extends  Bundle{
   })))
   val enq_ptr = RegInit(0.U(log2Ceil(length).W))
   val deq_ptr  = RegInit(0.U(log2Ceil(length).W))
-  when(enq_ptr === length.U){
-    enq_ptr := 0.U
-  }
-  when(deq_ptr === length.U){
-    deq_ptr := 0.U
-  }
   def empty():Bool={
     enq_ptr === deq_ptr
   }
@@ -156,10 +150,18 @@ class Buffer(length:Int) extends  Bundle{
     enq_ptr - deq_ptr
   }
   def enq():Unit={
-    enq_ptr := enq_ptr + 1.U
+    when(enq_ptr === length.U){
+      enq_ptr := 0.U
+    }.otherwise{
+      enq_ptr := enq_ptr + 1.U
+    }
   }
   def deq():Unit={
-    deq_ptr := deq_ptr + 1.U
+    when(deq_ptr === length.U){
+      deq_ptr := 0.U
+    }.otherwise{
+      deq_ptr := deq_ptr + 1.U
+    }
   }
   def enq_data():bufferItem={
     data(enq_ptr)

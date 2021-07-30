@@ -601,14 +601,10 @@ class DcacheQueue(length:Int) extends Module{
     item.size := 0.U
     item
   })))
-  val enq_ptr = RegInit(0.U(log2Ceil(length).W))
-  val deq_ptr  = RegInit(0.U(log2Ceil(length).W))
-  when(enq_ptr === length.U){
-    enq_ptr := 0.U
-  }
-  when(deq_ptr === length.U){
-    deq_ptr := 0.U
-  }
+  val enq_ptr = RegInit(0.U(log2Ceil(length+1).W))
+  val deq_ptr  = RegInit(0.U(log2Ceil(length+1).W))
+
+
 
   io.empty := enq_ptr === deq_ptr
   io.full := enq_ptr === deq_ptr - 1.U
@@ -617,7 +613,11 @@ class DcacheQueue(length:Int) extends Module{
     enq_data().addr := io.in_addr
     enq_data().port := io.in_port
     enq_data().size := io.in_size
-    enq_ptr := enq_ptr + 1.U
+    when(enq_ptr === length.U){
+      enq_ptr := 0.U
+    }.otherwise{
+      enq_ptr := enq_ptr + 1.U
+    }
   }
   io.out_size := deq_data().size
   io.out_port := deq_data().port
@@ -625,7 +625,12 @@ class DcacheQueue(length:Int) extends Module{
 
   when(io.deq && !io.empty){
     deq_data().valid := false.B
-    deq_ptr := deq_ptr + 1.U
+    when(deq_ptr === length.U){
+      deq_ptr := 0.U
+    }.otherwise{
+      deq_ptr := deq_ptr + 1.U
+
+    }
   }
   def enq_data():QueueItem={
     data(enq_ptr)
