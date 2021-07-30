@@ -130,7 +130,7 @@ class ICache(val config:CacheConfig)
   }
   for(way<- 0 until config.wayNum){
     for(bank <- 0 until config.bankNum) {
-      bData.wEn(way)(bank) := state===sREFILL && waySelReg === way.U && bDataWtBank ===bank.U && !clock.asBool()
+      bData.wEn(way)(bank) := state===sREFILL && waySelReg === way.U && bDataWtBank ===bank.U
     }
   }
   for(way<- 0 until config.wayNum){

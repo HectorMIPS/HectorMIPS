@@ -55,7 +55,7 @@ class Issuer extends Module {
     io.in_decoder1.cp0_addr === io.in_decoder2.cp0_addr
   val has_waw_hilo_hazard: Bool = io.in_decoder1.hilo_wen && io.in_decoder2.hilo_wen &&
     (io.in_decoder1.hilo_sel === io.in_decoder2.hilo_sel)
-  val has_waw_ram_hazard : Bool = io.in_decoder1.ram_wen && io.in_decoder1.is_valid &&
+  val has_waw_ram_hazard : Bool = (io.in_decoder1.ram_wen || io.in_decoder1.ram_en) && io.in_decoder1.is_valid &&
     (io.in_decoder2.ram_wen || io.in_decoder2.ram_en) && io.in_decoder2.is_valid
 
   has_raw_hazard := has_raw_regfile_hazard || has_raw_cp0_hazard || has_raw_hilo_hazard

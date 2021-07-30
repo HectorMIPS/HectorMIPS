@@ -140,8 +140,7 @@ class DCache(val config:CacheConfig)
 
   val lruMem = Module(new LruMem(config.wayNumWidth,config.indexWidth))// lru
   //  val victim = Module(new Victim(config)) // 写代理
-  val invalidateQueue = Module(new InvalidateQueue(new CacheConfig()))
-
+  val invalidateQueue = Module(new InvalidateQueue(config))
   io.axi.writeAddr <> invalidateQueue.io.writeAddr
   io.axi.writeData <> invalidateQueue.io.writeData
   io.axi.writeResp <> invalidateQueue.io.writeResp
@@ -216,8 +215,8 @@ class DCache(val config:CacheConfig)
     for(bank <- 0 until config.bankNum){
       dataMem(way)(bank).io.clka := clock
       dataMem(way)(bank).io.clkb := clock
-      dataMem(way)(bank).io.wea := Mux(bData.wEn(0)(way)(bank),"b1111".U,"b0000".U)
-      dataMem(way)(bank).io.web := Mux(bData.wEn(1)(way)(bank),Mux(bank.U === bankIndex(1),storeBuffer.io.cache_write_wstrb,"h1111".U),"b0000".U)
+      dataMem(way)(bank).io.wea := Mux(bData.wEn(0)(way)(bank),"b1111".U(4.W),"b0000".U(4.W))
+      dataMem(way)(bank).io.web := Mux(bData.wEn(1)(way)(bank),Mux(bank.U === bankIndex(1),storeBuffer.io.cache_write_wstrb,"b1111".U(4.W)),"b0000".U(4.W))
       dataMem(way)(bank).io.ena := true.B
       dataMem(way)(bank).io.enb := true.B
     }
@@ -313,12 +312,12 @@ class DCache(val config:CacheConfig)
   for(way<- 0 until config.wayNum){
     for(bank <- 0 until config.bankNum) {
       // 读端口的数据写使能
-      bData.wEn(0)(way)(bank) := state(0)===sREFILL && waySelReg(0) === way.U && bDataWtBank(0) ===bank.U && !clock.asBool()
+      bData.wEn(0)(way)(bank) := state(0)===sREFILL && waySelReg(0) === way.U && bDataWtBank(0) ===bank.U
       //          (state===sREPLACE && victim.io.find && waySelReg === way.U) ||// 如果victim buffer里找到了
       //        (state === sVictimReplace && waySelReg === way.U && bankIndex ===bank.U)||  //读/写命中victim
+      // 写端口数据写使能
       bData.wEn(1)(way)(bank) := (state(1) === sLOOKUP  && is_hitWay(1) && cache_hit_way(1) === way.U && bankIndex(1) ===bank.U)|| // 写命中
-        (state(1) === sREFILL && waySelReg(1) === way.U && bDataWtBank(1) ===bank.U) ||
-        (state(1) === sREFILL && waySelReg(1) === way.U && bank.U === bankIndex(1))
+        (state(1) === sREFILL && waySelReg(1) === way.U && (bDataWtBank(1) ===bank.U || bankIndex(1) === bank.U) )
     }
   }
   for(way<- 0 until config.wayNum){
