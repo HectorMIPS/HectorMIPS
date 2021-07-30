@@ -37,31 +37,35 @@ class Uncache extends Module{
 
 
   val polling = RegInit(false.B)
+  val portHandleReq = Wire(Bool())
+  portHandleReq := false.B
   polling := ~polling
-  io.input(0).addr_ok := !do_req && polling
-  io.input(1).addr_ok := !do_req && !polling
+  io.input(0).addr_ok :=  !do_req && polling
+  io.input(1).addr_ok :=  !do_req && !polling
 
-  when( (io.input(0).req || io.input(1).req)  && !do_req){
+  when( (io.input(0).req || io.input(1).req) && !do_req){
     when(io.input(0).req && io.input(0).addr_ok){
       do_req := true.B
       exe_port := 0.U
       exe_port_r := 0.U
+      do_wr_r := io.input(0).wr
+      do_size_r := io.input(0).size
+      do_addr_r := io.input(0).addr
+      do_wdata_r := io.input(0).wdata
     }.elsewhen(io.input(1).req && io.input(1).addr_ok){
       do_req := true.B
       exe_port := 1.U
       exe_port_r := 1.U
+      do_wr_r := io.input(1).wr
+      do_size_r := io.input(1).size
+      do_addr_r := io.input(1).addr
+      do_wdata_r := io.input(1).wdata
     }
   }.elsewhen(data_back){
     do_req := false.B
   }
   exe_port := 0.U
 
-  when(io.input(exe_port).req && io.input(exe_port).addr_ok){
-    do_wr_r := io.input(exe_port).wr
-    do_size_r := io.input(exe_port).size
-    do_addr_r := io.input(exe_port).addr
-    do_wdata_r := io.input(exe_port).wdata
-  }
 
   for(i<- 0 to 1) {
     when(exe_port_r === i.U) {
@@ -80,7 +84,7 @@ class Uncache extends Module{
   
   data_back := addr_rev && (io.axi.rvalid.asBool() && io.axi.rready.asBool()) ||
     (io.axi.bvalid.asBool() && io.axi.bready.asBool())
-  
+
   when(io.axi.arvalid.asBool() && io.axi.arready.asBool()){
     addr_rev := true.B
   }.elsewhen(io.axi.awvalid.asBool() && io.axi.awready.asBool()){
