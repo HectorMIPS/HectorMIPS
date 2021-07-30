@@ -78,8 +78,8 @@ class Uncache extends Module{
   val addr_rev = RegInit(false.B)
   val wdata_rev = RegInit(false.B)
   
-  data_back := addr_rev && (io.axi.rvalid.asBool() && io.axi.rready.asBool() 
-    || io.axi.bvalid.asBool() && io.axi.bready.asBool())
+  data_back := addr_rev && (io.axi.rvalid.asBool() && io.axi.rready.asBool()) ||
+    (io.axi.bvalid.asBool() && io.axi.bready.asBool())
   
   when(io.axi.arvalid.asBool() && io.axi.arready.asBool()){
     addr_rev := true.B
@@ -121,6 +121,7 @@ class Uncache extends Module{
   
   //w
   io.axi.wid := 2.U
+//  dontTouch(io.axi.wid)
   io.axi.wdata := do_wdata_r
   
   wstrb.io.offset := do_addr_r(1,0)
