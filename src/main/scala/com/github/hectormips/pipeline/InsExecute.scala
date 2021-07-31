@@ -7,7 +7,7 @@ import chisel3.util.Mux1H
 import chisel3.util._
 import com.github.hectormips.RamState
 import com.github.hectormips.pipeline.cp0.{ExcCodeConst, ExceptionConst, ExecuteCP0Bundle}
-import com.github.hectormips.pipeline.issue.{Alu, AluIO, AluOut}
+import com.github.hectormips.pipeline.issue.{Alu, AluEx, AluIO, AluOut}
 
 
 // 通过译码阶段传入的参数
@@ -146,7 +146,7 @@ class InsExecute extends Module {
   val io                          : InsExecuteBundle = IO(new InsExecuteBundle)
   val flush                       : Bool             = Wire(Bool())
   val this_allowin                : Bool             = Wire(Bool())
-  val alu                         : Vec[AluIO]       = VecInit(Seq.fill(2)(Module(new Alu).io))
+  val alu                         : Vec[AluIO]       = VecInit(Seq(Module(new AluEx).io, Module(new Alu).io))
   // alu输出的结果仍然按照指令原本的顺序
   val alu_out                     : Vec[AluOut]      = Wire(Vec(2, new AluOut))
   val ins2_op                     : AluOp.Type       = io.id_ex_in(1).alu_op_id_ex

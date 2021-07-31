@@ -60,12 +60,12 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   val cp0_status_im                : UInt                       = Wire(UInt(8.W))
   val cp0_cause_ip                 : UInt                       = Wire(UInt(8.W))
 
-  def addr_mapping(physical_addr: UInt): UInt = {
-    val vaddr: UInt = Wire(UInt(32.W))
-    vaddr := Mux((physical_addr >= 0x80000000L.U && physical_addr <= 0x9fffffffL.U) ||
-      (physical_addr >= 0xa0000000L.U && physical_addr <= 0xbfffffffL.U),
-      physical_addr & 0x1fffffff.U, physical_addr)
-    vaddr
+  def addr_mapping(vaddr: UInt): UInt = {
+    val physical_addr: UInt = Wire(UInt(32.W))
+    physical_addr := Mux((vaddr >= 0x80000000L.U && vaddr <= 0x9fffffffL.U) ||
+      (vaddr >= 0xa0000000L.U && vaddr <= 0xbfffffffL.U),
+      vaddr & 0x1fffffff.U, vaddr)
+    physical_addr
   }
 
   // 寄存器堆
@@ -226,7 +226,11 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
       (data_sram_state_reg(i) === RamState.waiting_for_request && ex_module.io.ex_ram_out(i).mem_en &&
         ex_module.io.id_ex_in(i).bus_valid)) &&
       io.data_sram_like_io(i).addr_ok) {
-      data_sram_state_reg(i) := RamState.waiting_for_response
+      when(ex_module.io.ex_ram_out(i).mem_wen === 0.U) {
+        data_sram_state_reg(i) := RamState.waiting_for_response
+      }.otherwise {
+        data_sram_state_reg(i) := RamState.waiting_for_read
+      }
     }.elsewhen(data_sram_state_reg(i) === RamState.waiting_for_response && io.data_sram_like_io(i).data_ok) {
       data_sram_state_reg(i) := RamState.waiting_for_read
       data_sram_buffer_reg(i) := io.data_sram_like_io(i).rdata
@@ -297,16 +301,16 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   }
   cp0_hazard_bypass_wb_ex := wb_module.io.cp0_hazard_bypass_wb_ex
 
-    io.debug.debug_wb_pc := Cat(wb_module.io.pc_wb(1), wb_module.io.pc_wb(0))
-    io.debug.debug_wb_rf_wnum := Cat(wb_module.io.regfile_waddr(1), wb_module.io.regfile_waddr(0))
-    io.debug.debug_wb_rf_wen := Cat(VecInit(Seq.fill(4)(wb_module.io.regfile_wen(1))).asUInt(),
-      VecInit(Seq.fill(4)(wb_module.io.regfile_wen(0))).asUInt())
-    io.debug.debug_wb_rf_wdata := Cat(wb_module.io.regfile_wdata(1), wb_module.io.regfile_wdata(0))
+  io.debug.debug_wb_pc := Cat(wb_module.io.pc_wb(1), wb_module.io.pc_wb(0))
+  io.debug.debug_wb_rf_wnum := Cat(wb_module.io.regfile_waddr(1), wb_module.io.regfile_waddr(0))
+  io.debug.debug_wb_rf_wen := Cat(VecInit(Seq.fill(4)(wb_module.io.regfile_wen(1))).asUInt(),
+    VecInit(Seq.fill(4)(wb_module.io.regfile_wen(0))).asUInt())
+  io.debug.debug_wb_rf_wdata := Cat(wb_module.io.regfile_wdata(1), wb_module.io.regfile_wdata(0))
 
-//  io.debug.debug_wb_pc := wb_module.io.pc_wb(0)
-//  io.debug.debug_wb_rf_wnum := wb_module.io.regfile_waddr(0)
-//  io.debug.debug_wb_rf_wen := VecInit(Seq.fill(4)(wb_module.io.regfile_wen(0))).asUInt()
-//  io.debug.debug_wb_rf_wdata := wb_module.io.regfile_wdata(0)
+  //  io.debug.debug_wb_pc := wb_module.io.pc_wb(0)
+  //  io.debug.debug_wb_rf_wnum := wb_module.io.regfile_waddr(0)
+  //  io.debug.debug_wb_rf_wen := VecInit(Seq.fill(4)(wb_module.io.regfile_wen(0))).asUInt()
+  //  io.debug.debug_wb_rf_wdata := wb_module.io.regfile_wdata(0)
 
   id_module.io.next_allowin := ex_allowin
   ex_module.io.next_allowin := ms_allowin
