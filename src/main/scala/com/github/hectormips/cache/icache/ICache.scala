@@ -259,17 +259,17 @@ class ICache(val config:CacheConfig)
       state := sREFILL
       when(io.axi.readData.valid && io.axi.readData.bits.id === io.axi.readAddr.bits.id){
         bDataWtBank := bDataWtBank+1.U
-//        when(bDataWtBank === (bankIndex + 2.U)){
-          // 关键字优先
-//        }
-        when(io.axi.readData.bits.last){
-          state := sIDLE
+        when(bDataWtBank === (bankIndex + 3.U)){
+           // 关键字优先
           when(bankIndex === (config.bankNum - 1).U){
             io.inst := Cat(0.U(32.W),bData.read(cache_hit_way)(bankIndex))
           }.otherwise{
             io.inst := Cat(bData.read(cache_hit_way)(bankIndex+1.U),bData.read(cache_hit_way)(bankIndex))
           }
           io.instOK := true.B
+        }
+        when(io.axi.readData.bits.last){
+          state := sIDLE
         }
       }
     }

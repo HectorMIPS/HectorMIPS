@@ -12,8 +12,8 @@ import chisel3.util._
  * @param victimDepth               victim buffer的深度，太深容易影响时序
  * @param victim_fetch_cycles       victim 取数据/写数据周期数
  */
-class CacheConfig(val _wayNum: Int = 2, val WayWidth: Int = 4 * 1024, val DataWidthByByte: Int = 16, val victimDepth: Int = 16,
-                  val victim_fetch_cycles:Int = 4) {
+class CacheConfig(val _wayNum: Int = 2, val WayWidth: Int = 4 * 1024, val DataWidthByByte: Int = 16,
+                  val prefetch_buffer_size:Int= 2) {
 
   //  val physicalWidth = 32
   val wayNumWidth = log2Ceil(_wayNum) //1
@@ -26,11 +26,13 @@ class CacheConfig(val _wayNum: Int = 2, val WayWidth: Int = 4 * 1024, val DataWi
   val offsetWidth = log2Ceil(DataWidthByByte) //4
   val indexWidth = log2Ceil(WayWidth) - offsetWidth //路大小位数 减去offset位数,8
   val lineNum = 1 << indexWidth
-  val victimDepthWidth = log2Ceil(victimDepth)
+//  val victimDepthWidth = log2Ceil(victimDepth)
 
   //victim
-  val victim_fetch_cycles_width = log2Ceil(victim_fetch_cycles)
-  val victim_fetch_every_cycle = bankNum / victim_fetch_cycles
+//  val victim_fetch_cycles_width = log2Ceil(victim_fetch_cycles)
+//  val victim_fetch_every_cycle = bankNum / victim_fetch_cycles
+
+  //prefetch
 
 //  val dcache_worker =
   def getTag(x: UInt): UInt = x(31, 32 - tagWidth) //(31,12)
