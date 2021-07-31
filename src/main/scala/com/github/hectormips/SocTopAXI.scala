@@ -40,7 +40,7 @@ class SocTopAXI extends Module {
     io.debug.debug_wb_rf_wen := Cat(cpu_top.io.debug.debug_wb_rf_wen, cpu_top.io.debug.debug_wb_rf_wen)
     io.debug.debug_wb_rf_wdata := Cat(cpu_top.io.debug.debug_wb_rf_wdata, cpu_top.io.debug.debug_wb_rf_wdata)
 
-    // TODO: 以后高32位要加上
+
     mem_judge.io.inst.req := cpu_top.io.inst_sram_like_io.req
     mem_judge.io.inst.wr := cpu_top.io.inst_sram_like_io.wr
     mem_judge.io.inst.size := cpu_top.io.inst_sram_like_io.size
@@ -60,6 +60,7 @@ class SocTopAXI extends Module {
     mem_judge.io.cached_inst <> cache.io.icache
     mem_judge.io.cached_data <> cache.io.dcache
     mem_judge.io.uncached_data <> cache.io.uncached
+    mem_judge.io.uncached_inst <> cache.io.uncache_inst
 
     cache.io.axi <> crossbar.io.in
 

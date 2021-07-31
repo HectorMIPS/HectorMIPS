@@ -8,7 +8,7 @@ class axi_crossbar_2x1 extends BlackBox {
     val aclk = Input(Clock())
     val aresetn = Input(Bool())
     //64 bit 输入
-    val in = Flipped(new AXIIO(3))
+    val in = Flipped(new AXIIO(4))
     val s_arqos = Input(UInt(12.W))
     val s_awqos = Input(UInt(12.W))
     val m_arqos = Output(UInt(4.W))

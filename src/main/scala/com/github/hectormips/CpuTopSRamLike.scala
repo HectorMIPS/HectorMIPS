@@ -60,13 +60,6 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   val cp0_status_im                : UInt                       = Wire(UInt(8.W))
   val cp0_cause_ip                 : UInt                       = Wire(UInt(8.W))
 
-  def addr_mapping(vaddr: UInt): UInt = {
-    val physical_addr: UInt = Wire(UInt(32.W))
-    physical_addr := Mux((vaddr >= 0x80000000L.U && vaddr <= 0x9fffffffL.U) ||
-      (vaddr >= 0xa0000000L.U && vaddr <= 0xbfffffffL.U),
-      vaddr & 0x1fffffff.U, vaddr)
-    physical_addr
-  }
 
   // 寄存器堆
   val regfile: RegFile = Module(new RegFile(reg_init))
@@ -109,7 +102,7 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   pf_module.io.flush := pipeline_flush_ex
   pf_module.io.ins_ram_data_ok := io.inst_sram_like_io.data_ok
   pf_module.io.fetch_state := fetch_state_reg
-  io.inst_sram_like_io.addr := addr_mapping(pf_module.io.ins_ram_addr)
+  io.inst_sram_like_io.addr := pf_module.io.ins_ram_addr
   io.inst_sram_like_io.req := pf_module.io.ins_ram_en
   io.inst_sram_like_io.wr := 0.B
   io.inst_sram_like_io.wdata := DontCare
@@ -212,7 +205,7 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   for (i <- 0 to 1) {
     io.data_sram_like_io(i).req := ex_module.io.ex_ram_out(i).mem_en
     io.data_sram_like_io(i).wr := ex_module.io.ex_ram_out(i).mem_wen
-    io.data_sram_like_io(i).addr := addr_mapping(ex_module.io.ex_ram_out(i).mem_addr)
+    io.data_sram_like_io(i).addr := ex_module.io.ex_ram_out(i).mem_addr
     io.data_sram_like_io(i).size := ex_module.io.ex_ram_out(i).mem_size
     io.data_sram_like_io(i).wdata := ex_module.io.ex_ram_out(i).mem_wdata
   }
