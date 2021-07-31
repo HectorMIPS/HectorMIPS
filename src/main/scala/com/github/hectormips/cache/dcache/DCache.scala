@@ -42,9 +42,9 @@ class DCache(val config:CacheConfig)
       val writeData  = Decoupled(new AXIWriteData(32,4))
       val writeResp =  Flipped(Decoupled( new AXIWriteResponse(4)))
     }
-    //    val debug_total_count = Output(UInt(32.W))  // cache总查询次数
-    //    val debug_pure_hit_count = Output(UInt(32.W))
-    //    val debug_hit_count   = Output(UInt(32.W))  // cache命中数
+        val debug_total_count = Output(UInt(32.W))  // cache总查询次数
+//        val debug_pure_hit_count = Output(UInt(32.W))
+        val debug_hit_count   = Output(UInt(32.W))  // cache命中数
 
   })
   val sIDLE::sLOOKUP::sREPLACE::sREFILL::sWaiting::sEviction::sEvictionWaiting::Nil =Enum(7)
@@ -381,23 +381,29 @@ class DCache(val config:CacheConfig)
   //  /**
   //   * debug
   //   */
-  //  val debug_total_count_r = RegInit(0.U(32.W))
-  //  val debug_hit_count_r = RegInit(0.U(32.W))
-  //  val debug_pure_hit_count_r = RegInit(0.U(32.W))
-  //  io.debug_pure_hit_count := debug_pure_hit_count_r
-  //  io.debug_total_count := debug_total_count_r
-  //  io.debug_hit_count := debug_hit_count_r
-  //
-  //  when(state===sLOOKUP){
-  //    debug_total_count_r := debug_total_count_r + 1.U
-  //    when(is_hitWay){
-  //      debug_pure_hit_count_r := debug_pure_hit_count_r + 1.U
-  //      debug_hit_count_r := debug_hit_count_r + 1.U
-  //    }
-  //  }
-  //  when(state === sVictimReplace){
-  //    debug_hit_count_r := debug_hit_count_r + 1.U
-  //  }
+  val debug_total_count_r = RegInit(0.U(32.W))
+  val debug_hit_count_r = RegInit(0.U(32.W))
+  dontTouch(io.debug_total_count)
+  dontTouch(io.debug_hit_count)
+  //    val debug_pure_hit_count_r = RegInit(0.U(32.W))
+  //    io.debug_pure_hit_count := debug_pure_hit_count_r
+  io.debug_total_count := debug_total_count_r
+  io.debug_hit_count := debug_hit_count_r
+
+  when(state(0)===sLOOKUP){
+    debug_total_count_r := debug_total_count_r + 1.U
+    when(is_hitWay(0)){
+      //        debug_pure_hit_count_r := debug_pure_hit_count_r + 1.U
+      debug_hit_count_r := debug_hit_count_r + 1.U
+    }
+  }
+  when(state(1)===sLOOKUP){
+    debug_total_count_r := debug_total_count_r + 1.U
+    when(is_hitWay(1)){
+      //      debug_pure_hit_count_r := debug_pure_hit_count_r + 1.U
+      debug_hit_count_r := debug_hit_count_r + 1.U
+    }
+  }
 
   /**
    * 驱逐

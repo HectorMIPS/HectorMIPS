@@ -197,7 +197,8 @@ class ICache(val config:CacheConfig)
 
   io.debug_total_count := debug_total_count_r
   io.debug_hit_count := debug_hit_count_r
-
+  dontTouch(io.debug_total_count)
+  dontTouch(io.debug_hit_count)
   when(state===sLOOKUP){
     debug_total_count_r := debug_total_count_r + 1.U
     when(is_hitWay){
