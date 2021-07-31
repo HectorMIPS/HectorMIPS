@@ -13,7 +13,7 @@ import chisel3.util._
  * @param victim_fetch_cycles       victim 取数据/写数据周期数
  */
 class CacheConfig(val _wayNum: Int = 2, val WayWidth: Int = 4 * 1024, val DataWidthByByte: Int = 16,
-                  val prefetch_buffer_size:Int= 2) {
+                  val victimDepth:Int = 8,val prefetch_buffer_size:Int= 2) {
 
   //  val physicalWidth = 32
   val wayNumWidth = log2Ceil(_wayNum) //1
