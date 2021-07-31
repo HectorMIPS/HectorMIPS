@@ -26,6 +26,10 @@ class Cache(val config:CacheConfig)  extends Module{
     val dcache = Flipped(Vec(2,new SRamLikeDataIO()))
     val uncached = Flipped(Vec(2,new SRamLikeDataIO()))
 
+    val icache_hit_count = Output(UInt(32.W))
+    val icache_total_count = Output(UInt(32.W))
+    val dcache_hit_count = Output(UInt(32.W))
+    val dcache_total_count = Output(UInt(32.W))
     val axi = new AXIIO(3)
   }
   )
@@ -34,6 +38,11 @@ class Cache(val config:CacheConfig)  extends Module{
   // 2路组相连，每页8KB 每行32B
   val icache = Module(new ICache(new CacheConfig(WayWidth =8*1024,DataWidthByByte=32)))
   val uncached = Module(new Uncache())
+
+  io.dcache_hit_count := dcache.io.debug_hit_count
+  io.dcache_total_count := dcache.io.debug_total_count
+  io.icache_hit_count := icache.io.debug_hit_count
+  io.icache_total_count := icache.io.debug_total_count
 
   //icache 与CPU接口
   icache.io.valid := io.icache.req
