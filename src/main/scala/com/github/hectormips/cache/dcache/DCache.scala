@@ -152,17 +152,10 @@ class DCache(val config: CacheConfig)
   val cache_hit_way = Wire(Vec(2, UInt(config.wayNumWidth.W)))
 
   //  val addr_r = RegInit(0.U(32.W)) //地址寄存器
-  val addr_r_0 = Reg(UInt(32.W)) //地址寄存器
-  val addr_r_1 = Wire(UInt(32.W)) //地址寄存器
-  addr_r_1 := storeBuffer.io.cache_write_addr
-  //  val size_r = RegInit(2.U(2.W))
-//  val size_r = Wire(Vec(2, UInt(2.W)))
-//  size_r(0) := queue.io.out_size
-//  size_r(1) := 0.U
-  //  size_r(1) := storeBuffer.io.cache_write_size
-
-  //  val wr_r = Wire(Vec(2,Bool()))
-  //  wr_r(0) := queue.io.deq.bits.wr
+//  val addr_r_0 = Reg(UInt(32.W)) //地址寄存器
+  val addr_r = Wire(Vec(2,UInt(32.W))) //地址寄存器
+  val addr_r_0 = RegInit(0.U(32.W))
+  addr_r(1) := storeBuffer.io.cache_write_addr
 
   val wdata_r = Wire(UInt(32.W))
   //  wdata_r(0) := queue.io.deq.bits.wdata
@@ -189,19 +182,30 @@ class DCache(val config: CacheConfig)
   for (i <- 0 to 1) {
     is_hitWay(i) := cache_hit_onehot(i).asUInt().orR() // 判断是否命中cache
     state(i) := sIDLE
+    index(i) := config.getIndex(addr_r(i))
+    bankIndex(i) := config.getBankIndex(addr_r(i))
+    tag(i) := config.getBankIndex(addr_r(i))
   }
-  index(0) := config.getIndex(addr_r_0)
-  index(1) := config.getIndex(addr_r_1)
-  bankIndex(0) := config.getBankIndex(addr_r_0) //offset去掉尾部2位
-  bankIndex(1) := config.getBankIndex(addr_r_1) //offset去掉尾部2位
-  tag(0) := config.getTag(addr_r_0)
-  tag(1) := config.getTag(addr_r_1)
+  when(state(0)===sIDLE){
+    when(read_can_fire){
+      when(io.valid(0)){
+        addr_r(0) := io.addr(0)
+      }.otherwise{
+        addr_r(0) := io.addr(1)
+      }
+    }.otherwise{
+        addr_r(0) := 0.U
+    }
+  }.otherwise{
+    addr_r(0) := addr_r_0
+  }
+
 
   when(io.valid(0) && io.addr_ok(0) && !io.wr(0)) {
     addr_r_0 := io.addr(0)
     port_r := 0.U
   }.elsewhen(io.valid(1) && io.addr_ok(1) && !io.wr(1)) {
-    addr_r_1 := io.addr(1)
+    addr_r_0 := io.addr(1)
     port_r:= 1.U
   }
   /**
@@ -238,26 +242,26 @@ class DCache(val config: CacheConfig)
    */
 
   for (way <- 0 until config.wayNum) {
-    tagvMem(way).io.addra := config.getIndexByExpression(state(0) === sIDLE, io.addr(port_r), addr_r_0)
+    tagvMem(way).io.addra := config.getIndexByExpression(state(0) === sIDLE, io.addr(port_r), addr_r(0))
     tagvData.read(0)(way).tag := tagvMem(way).io.douta(config.tagWidth - 1, 0)
     tagvData.read(0)(way).valid := tagvMem(way).io.douta(config.tagWidth)
 
 
-    dirtyMem(way).io.addra := config.getIndexByExpression(state(0) === sIDLE, io.addr(port_r), addr_r_0)
+    dirtyMem(way).io.addra := config.getIndexByExpression(state(0) === sIDLE, io.addr(port_r), addr_r(0))
     dirtyData.read(0)(way) := dirtyMem(way).io.douta
     for (bank <- 0 until config.bankNum) {
-      dataMem(way)(bank).io.addra := config.getIndexByExpression(state(0) === sIDLE, io.addr(port_r), addr_r_0)
+      dataMem(way)(bank).io.addra := config.getIndexByExpression(state(0) === sIDLE, io.addr(port_r), addr_r(0))
       bData.read(0)(way)(bank) := dataMem(way)(bank).io.douta
     }
   }
   for (way <- 0 until config.wayNum) {
-    tagvMem(way).io.addrb := config.getIndex(addr_r_1)
+    tagvMem(way).io.addrb := config.getIndex(addr_r(1))
     tagvData.read(1)(way).tag := tagvMem(way).io.doutb(config.tagWidth - 1, 0)
     tagvData.read(1)(way).valid := tagvMem(way).io.doutb(config.tagWidth)
-    dirtyMem(way).io.addrb := config.getIndex(addr_r_1)
+    dirtyMem(way).io.addrb := config.getIndex(addr_r(1))
     dirtyData.read(1)(way) := dirtyMem(way).io.doutb
     for (bank <- 0 until config.bankNum) {
-      dataMem(way)(bank).io.addrb := config.getIndex(addr_r_1)
+      dataMem(way)(bank).io.addrb := config.getIndex(addr_r(1))
       bData.read(1)(way)(bank) := dataMem(way)(bank).io.doutb //现在
     }
   }
@@ -368,7 +372,7 @@ class DCache(val config: CacheConfig)
   /**
    * store buffer配置
    */
-  storeBuffer.io.cache_query_addr := addr_r_0
+  storeBuffer.io.cache_query_addr := addr_r(0)
   val storeBuffer_reverse_mask = Wire(UInt(32.W))
   storeBuffer_reverse_mask := ~storeBuffer.io.cache_query_mask
   storeBuffer.io.cache_response := false.B
@@ -445,7 +449,7 @@ class DCache(val config: CacheConfig)
               when(state(1) === sIDLE) {
                 state(0) := sLOOKUP
               }.otherwise {
-                state(0) := sIDLE
+                state(0) := sWaiting // 阻塞状态
               }
             }.otherwise {
               state(0) := sLOOKUP
@@ -455,7 +459,7 @@ class DCache(val config: CacheConfig)
           }
         }.elsewhen(worker.U === 1.U) {
           when(storeBuffer.io.cache_write_valid) {
-            when(index(0) === index(1) && read_can_fire) {
+            when(index(0) === index(1) && (read_can_fire || state(0)===sWaiting) ) {
               // 等待直到读端口进入空状态
               state(1) := sIDLE
             }.otherwise {
@@ -499,7 +503,7 @@ class DCache(val config: CacheConfig)
             state(worker) := sLOOKUP
           }.otherwise {
             io.axi.readAddr.bits.id := worker_id(worker)
-            io.axi.readAddr.bits.addr := Mux(worker.U===0.U,addr_r_0,addr_r_1)
+            io.axi.readAddr.bits.addr := Mux(worker.U===0.U,addr_r(0),addr_r(1))
             io.axi.readAddr.valid := true.B
             state(worker) := sREPLACE
             waySelReg(worker) := lruMem.io.waySel
@@ -511,7 +515,7 @@ class DCache(val config: CacheConfig)
         bDataWtBank(worker) := bankIndex(worker)
         when(io.axi.readAddr.ready) {
           io.axi.readAddr.bits.id := worker_id(worker)
-          io.axi.readAddr.bits.addr := Mux(worker.U===0.U,addr_r_0,addr_r_1)
+          io.axi.readAddr.bits.addr := Mux(worker.U===0.U,addr_r(0),addr_r(1))
           when(dirtyData.read(worker)(waySelReg(worker)) === true.B) {
             state(worker) := sEvictionWaiting
             invalidateQueue.io.req(worker) := true.B
@@ -522,7 +526,7 @@ class DCache(val config: CacheConfig)
           state(worker) := sREPLACE
           io.axi.readAddr.valid := true.B
           io.axi.readAddr.bits.id := worker_id(worker)
-          io.axi.readAddr.bits.addr := Mux(worker.U===0.U,addr_r_0,addr_r_1)
+          io.axi.readAddr.bits.addr := Mux(worker.U===0.U,addr_r(0),addr_r(1))
         }
       }
       is(sEvictionWaiting) {
@@ -562,6 +566,17 @@ class DCache(val config: CacheConfig)
               storeBuffer.io.cache_response := true.B
             }
           }
+        }
+      }
+      is(sWaiting){
+        when(index(0) === index(1)) {
+          when(state(1) === sIDLE) {
+            state(0) := sLOOKUP
+          }.otherwise {
+            state(0) := sWaiting // 阻塞状态
+          }
+        }.otherwise {
+          state(0) := sLOOKUP
         }
       }
       //      is(sWaiting) {
