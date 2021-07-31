@@ -184,7 +184,7 @@ class DCache(val config: CacheConfig)
     state(i) := sIDLE
     index(i) := config.getIndex(addr_r(i))
     bankIndex(i) := config.getBankIndex(addr_r(i))
-    tag(i) := config.getBankIndex(addr_r(i))
+    tag(i) := config.getTag(addr_r(i))
   }
   when(state(0)===sIDLE){
     when(read_can_fire){
@@ -242,15 +242,15 @@ class DCache(val config: CacheConfig)
    */
 
   for (way <- 0 until config.wayNum) {
-    tagvMem(way).io.addra := config.getIndexByExpression(state(0) === sIDLE, io.addr(port_r), addr_r(0))
+    tagvMem(way).io.addra := config.getIndex(addr_r(0))
     tagvData.read(0)(way).tag := tagvMem(way).io.douta(config.tagWidth - 1, 0)
     tagvData.read(0)(way).valid := tagvMem(way).io.douta(config.tagWidth)
 
 
-    dirtyMem(way).io.addra := config.getIndexByExpression(state(0) === sIDLE, io.addr(port_r), addr_r(0))
+    dirtyMem(way).io.addra := config.getIndex(addr_r(0))
     dirtyData.read(0)(way) := dirtyMem(way).io.douta
     for (bank <- 0 until config.bankNum) {
-      dataMem(way)(bank).io.addra := config.getIndexByExpression(state(0) === sIDLE, io.addr(port_r), addr_r(0))
+      dataMem(way)(bank).io.addra := config.getIndex(addr_r(0))
       bData.read(0)(way)(bank) := dataMem(way)(bank).io.douta
     }
   }
