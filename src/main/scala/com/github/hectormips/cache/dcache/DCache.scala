@@ -280,10 +280,10 @@ class DCache(val config:CacheConfig)
           dirtyMem(way).io.web := true.B
           dirtyMem(way).io.dinb := true.B
           when(bank.U === bDataWtBank(1)){
-            m.io.dinb  :=  io.axi.readData.bits.data
-          }.otherwise{
             when(bank.U === bankIndex(1)){
               m.io.dinb := wdata_r
+            }.otherwise{
+              m.io.dinb  :=  io.axi.readData.bits.data
             }
           }
         }.elsewhen(state(1)===sLOOKUP && is_hitWay(1) && cache_hit_way(1) === way.U){
@@ -317,7 +317,7 @@ class DCache(val config:CacheConfig)
       //        (state === sVictimReplace && waySelReg === way.U && bankIndex ===bank.U)||  //读/写命中victim
       // 写端口数据写使能
       bData.wEn(1)(way)(bank) := (state(1) === sLOOKUP  && is_hitWay(1) && cache_hit_way(1) === way.U && bankIndex(1) ===bank.U)|| // 写命中
-        (state(1) === sREFILL && waySelReg(1) === way.U && (bDataWtBank(1) ===bank.U || bankIndex(1) === bank.U) )
+        (state(1) === sREFILL && waySelReg(1) === way.U && bDataWtBank(1) ===bank.U )
     }
   }
   for(way<- 0 until config.wayNum){
@@ -411,32 +411,38 @@ class DCache(val config:CacheConfig)
   /**
    * Cache状态机
    */
+//  val lookupReadyGO = Bool()
 
+//  lookupReadyGO := state(0) === sLOOKUP && state(1)=/=sIDLE && state(1) =/= s
 
   io.axi.readAddr.valid :=  false.B
   //  victim.io.qaddr := Cat(addr_r(31,config.offsetWidth),0.U(config.offsetWidth.W))
   for(worker <- 0 to 1) {
     switch(state(worker)) {
       is(sIDLE) {
-        when(worker.U === 0.U && !queue.io.empty) {
-          when(addr_r(1)(31,2) === addr_r(0)(31,2)){
-            when(state(1)===sIDLE){
-              state(worker) := sLOOKUP
-            }.otherwise{
-              state(worker) := sIDLE
+        when(worker.U === 0.U) {
+          when(!queue.io.empty) {
+            when(index(0) === index(1)) {
+              when(state(1) === sIDLE) {
+                state(0) := sLOOKUP
+              }.otherwise {
+                state(0) := sIDLE
+              }
+            }.otherwise {
+              state(0) := sLOOKUP
             }
           }.otherwise{
-            state(worker) := sLOOKUP
+            state(0) := sIDLE
           }
-        }.elsewhen(worker.U === 1.U && storeBuffer.io.cache_write_valid){
-          when(addr_r(1) === addr_r(0)){
-            when(state(0)===sWaiting){// 让0端口先走
-              state(worker) := sLOOKUP
-            }.otherwise{
-              state(worker) := sIDLE
+        }.elsewhen(worker.U === 1.U){
+          when(storeBuffer.io.cache_write_valid) {
+            when(index(0) === index(1)) {
+                state(1) := sIDLE
+            }.otherwise {
+              state(1) := sLOOKUP
             }
           }.otherwise{
-            state(worker) := sLOOKUP
+            state(1) := sIDLE
           }
         }.otherwise{
           state(worker) := sIDLE

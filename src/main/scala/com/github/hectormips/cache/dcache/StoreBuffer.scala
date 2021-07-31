@@ -55,7 +55,7 @@ class StoreBuffer(length:Int) extends Module{
   }
   cache_hit_queue_index := OHToUInt(cache_hit_queue_onehot)
   when(cache_is_hit_queue){
-    io.cache_query_data := buffer.data(cache_hit_queue_index).wdata << buffer.data(cache_hit_queue_index).addr(1,0)
+    io.cache_query_data := buffer.data(cache_hit_queue_index).wdata
     io.cache_query_mask := Cat(Mux(buffer.data(cache_hit_queue_index).wstrb(3),"hff".U(8.W),0.U(8.W)),
       Mux(buffer.data(cache_hit_queue_index).wstrb(2),"hff".U(8.W),0.U(8.W)),
       Mux(buffer.data(cache_hit_queue_index).wstrb(1),"hff".U(8.W),0.U(8.W)),
