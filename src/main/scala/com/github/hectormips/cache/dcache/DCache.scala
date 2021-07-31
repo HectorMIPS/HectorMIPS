@@ -442,7 +442,8 @@ class DCache(val config:CacheConfig)
           }
         }.elsewhen(worker.U === 1.U){
           when(storeBuffer.io.cache_write_valid) {
-            when(index(0) === index(1)) {
+            when(index(0) === index(1) && !queue.io.empty) {
+              // 等待直到读端口进入空状态
                 state(1) := sIDLE
             }.otherwise {
               state(1) := sLOOKUP
