@@ -29,9 +29,9 @@ class ICache(val config:CacheConfig)
     val debug_total_count = Output(UInt(32.W))  // cache总查询次数
     val debug_hit_count   = Output(UInt(32.W))  // cache命中数
   })
-  val sIDLE::sLOOKUP::sREPLACE::sREFILL::Nil =Enum(4)
+  val sIDLE::sLOOKUP::sREPLACE::sREFILL::sQueryPrefetch::sWaitPrefetch::sReqPrefetch::Nil =Enum(7)
   val state = RegInit(0.U(3.W))// 初始化阶段
-
+  val prefetch = Module(new Prefetch(config))
 
 
   /**
@@ -67,8 +67,8 @@ class ICache(val config:CacheConfig)
 
 
   val addrokReg = RegInit(false.B)
-  io.addr_ok := state === sIDLE
-//  io.addr_ok := state === sIDLE || (state === sLOOKUP && is_hitWay)
+//  io.addr_ok := state === sIDLE
+  io.addr_ok := state === sIDLE || (state === sLOOKUP && is_hitWay)
 
   state := sIDLE
 
@@ -172,22 +172,21 @@ class ICache(val config:CacheConfig)
   /**
    * axi访问设置
    */
-  io.axi.readAddr.bits.id := 0.U
+  io.axi.readAddr.bits.id := Mux(prefetch.io.use_axi,prefetch.io.readAddr.bits.id,0.U)
   io.axi.readAddr.bits.len := (config.bankNum - 1).U
   io.axi.readAddr.bits.size := 2.U // 4B
-  io.axi.readAddr.bits.addr := addr_r
+  io.axi.readAddr.bits.addr := Mux(prefetch.io.use_axi,prefetch.io.readAddr.bits.addr,addr_r)
   io.axi.readAddr.bits.cache := 0.U
   io.axi.readAddr.bits.lock := 0.U
   io.axi.readAddr.bits.prot := 0.U
   io.axi.readAddr.bits.burst := 2.U //突发模式2
-//  val readAddrValidReg = RegInit(false.B)
-  //  readAddrReg := ()
+  io.axi.readAddr.valid := Mux(prefetch.io.use_axi,prefetch.io.readAddr.valid,state===sREPLACE)
 
-//  io.axi.readAddr.valid:= true.B
-  io.axi.readAddr.valid := false.B
-  //  val AXIReadDataReady = RegInit(false.B)
-  //  AXIReadDataReady := () &&
-  io.axi.readData.ready := true.B  //ready最多持续一拍
+  io.axi.readData.ready := state===sREFILL | prefetch.io.readData.ready
+
+  prefetch.io.readAddr.ready := io.axi.readAddr.ready
+  prefetch.io.readData.bits <> io.axi.readData.bits
+  prefetch.io.readData.valid := io.axi.readData.valid
 
   /**
    * debug
@@ -206,6 +205,17 @@ class ICache(val config:CacheConfig)
     }
   }
 
+
+  /**
+   * 预取器
+   */
+  prefetch.io.req_valid := state === sReqPrefetch && prefetch.io.req_ready
+  prefetch.io.req_addr := addr_r
+
+  prefetch.io.query_addr := addr_r
+  prefetch.io.query_valid := false.B
+
+
   /**
    * Cache状态机
    */
@@ -213,8 +223,6 @@ class ICache(val config:CacheConfig)
     is(sIDLE){
       when(io.valid){
         state := sLOOKUP
-//        io.addr_ok:= true.B
-//        addrokReg := true.B
         addr_r := io.addr
       }
     }
@@ -227,37 +235,40 @@ class ICache(val config:CacheConfig)
         }
         io.instOK := true.B
         lruMem.io.visit := cache_hit_way // lru记录命中
-//        when(io.valid) {
-//          // 直接进入下一轮
-//          addr_r := io.addr
-//          state := sLOOKUP
-//        }.otherwise {
-//          state := sIDLE
-//        }
-        state := sIDLE
+        when(io.valid) {
+          // 直接进入下一轮
+          addr_r := io.addr
+          state := sLOOKUP
+        }.otherwise {
+          state := sIDLE
+        }
+//        state := sIDLE
 
       }.otherwise {
         //没命中,尝试请求
         io.inst := 0.U
         io.instOK := false.B
         state :=  sREPLACE
-        io.axi.readAddr.valid := true.B
+//        io.axi.readAddr.valid := true.B
       }
     }
     is(sREPLACE){
       waySelReg := lruMem.io.waySel
       bDataWtBank := bankIndex
       when(io.axi.readAddr.ready) {
-        state := sREFILL
+        state := sReqPrefetch
       }.otherwise{
         state := sREPLACE
-        io.axi.readAddr.valid := true.B
+//        io.axi.readAddr.valid := true.B
       }
+    }
+    is(sReqPrefetch){
+      state := RegNext(sREFILL)
     }
     is(sREFILL){
       // 取数据，重写TAGV
       state := sREFILL
-      when(io.axi.readData.valid && io.axi.readData.bits.id === io.axi.readAddr.bits.id){
+      when(io.axi.readData.valid && io.axi.readData.bits.id === 0.U){
         bDataWtBank := bDataWtBank+1.U
         when(bDataWtBank === (bankIndex + 3.U)){
            // 关键字优先
