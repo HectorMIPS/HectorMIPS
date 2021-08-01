@@ -300,6 +300,8 @@ class DCache(val config: CacheConfig)
             }.otherwise {
               m.io.dinb := io.axi.readData.bits.data
             }
+          }.otherwise{
+             m.io.dinb := wdata_r
           }
         }.elsewhen(state(1) === sLOOKUP && is_hitWay(1) && cache_hit_way(1) === way.U) {
           // write hit
@@ -332,7 +334,7 @@ class DCache(val config: CacheConfig)
       //        (state === sVictimReplace && waySelReg === way.U && bankIndex ===bank.U)||  //读/写命中victim
       // 写端口数据写使能
       bData.wEn(1)(way)(bank) := (state(1) === sLOOKUP && is_hitWay(1) && cache_hit_way(1) === way.U && bankIndex(1) === bank.U) || // 写命中
-        (state(1) === sREFILL && waySelReg(1) === way.U && bDataWtBank(1) === bank.U)
+        (state(1) === sREFILL && waySelReg(1) === way.U && (bDataWtBank(1) === bank.U || bank.U === bankIndex(1)) )
     }
   }
   for (way <- 0 until config.wayNum) {

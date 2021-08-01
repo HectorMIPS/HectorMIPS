@@ -169,6 +169,8 @@ class InsExecute extends Module {
     (exception_occur(0) && exception_index === 0.U)
   val exception_on_inst1          : Bool             = (interrupt_occur && interrupt_available) ||
     (exception_occur(1) && exception_index === 1.U)
+  // 内存请求状态寄存器，当ex阶段需要发起内存请求并且已经发送了请求之后才能继续前进
+  val mem_req_sent_reg            : Vec[Bool]        = RegInit(VecInit(Seq(0.B, 0.B)))
 
   // 后方流水线是否写cp0
   val ms_cp0_hazard : Bool = (io.cp0_hazard_bypass_ms_ex(0).bus_valid && io.cp0_hazard_bypass_ms_ex(0).cp0_en) ||
@@ -188,9 +190,9 @@ class InsExecute extends Module {
       !ms_cp0_hazard && !wb_cp0_hazard, 1.B) &&
     // 由于可能存在同时两条访存指令，可能当一个指令返回了addr_ok和data_ok后另一条指令还没返回addr_ok
     Mux(io.id_ex_in(0).bus_valid && io.id_ex_in(0).mem_en_id_ex && !exception_on_inst0,
-      io.data_ram_state(0) === RamState.waiting_for_response || io.data_ram_state(0) === RamState.waiting_for_read, 1.B) &&
+      (io.data_ram_state(0) === RamState.waiting_for_response || io.data_ram_state(0) === RamState.waiting_for_read) && mem_req_sent_reg(0), 1.B) &&
     Mux(io.id_ex_in(1).bus_valid && io.id_ex_in(1).mem_en_id_ex && !exception_on_inst0 && !exception_on_inst1,
-      io.data_ram_state(1) === RamState.waiting_for_response || io.data_ram_state(1) === RamState.waiting_for_read, 1.B)
+      (io.data_ram_state(1) === RamState.waiting_for_response || io.data_ram_state(1) === RamState.waiting_for_read) && mem_req_sent_reg(1), 1.B)
 
   val in_bus_valid: Bool = io.id_ex_in(0).bus_valid && !reset.asBool() && (!flush || eret_occur)
   for (i_alu <- 0 to 1) {
@@ -272,6 +274,7 @@ class InsExecute extends Module {
     io.ex_ms_out(i).cp0_sel_ex_ms := io.id_ex_in(i).cp0_sel_id_ex
     io.ex_ms_out(i).regfile_wdata_from_cp0_ex_ms := io.id_ex_in(i).regfile_wdata_from_cp0_id_ex
     io.ex_ms_out(i).mem_req := io.id_ex_in(i).mem_en_id_ex
+    io.ex_ms_out(i).mem_wen := io.id_ex_in(i).mem_wen_id_ex
     // 如果发生例外或者中断并且报在第二条指令上，那么只发射第一条指令
     io.ex_ms_out(i).issue_num := Mux(exception_or_interruption_en && exception_index === 1.U,
       1.U, io.id_ex_in(i).issue_num)
@@ -312,7 +315,7 @@ class InsExecute extends Module {
     io.bypass_ex_id(i).bus_valid := io.id_ex_in(i).bus_valid && io.id_ex_in(i).regfile_we_id_ex
     io.bypass_ex_id(i).data_valid := io.id_ex_in(i).bus_valid &&
       // 写寄存器来源为内存或者cp0时，前递的数据尚未准备完成
-      (!io.id_ex_in(i).regfile_wsrc_sel_id_ex || io.id_ex_in(i).regfile_wdata_from_cp0_id_ex)
+      (!io.id_ex_in(i).regfile_wsrc_sel_id_ex && !io.id_ex_in(i).regfile_wdata_from_cp0_id_ex)
     io.bypass_ex_id(i).reg_data := alu_out(i).alu_res
     io.bypass_ex_id(i).reg_addr := MuxCase(0.U, Seq(
       (io.id_ex_in(i).regfile_waddr_sel_id_ex === RegFileWAddrSel.inst_rd) -> io.id_ex_in(i).inst_rd_id_ex,
@@ -344,6 +347,14 @@ class InsExecute extends Module {
   this_allowin := io.next_allowin && !reset.asBool() && ready_go
   io.this_allowin := this_allowin
 
+  for (i <- 0 to 1) {
+    when(this_allowin || exceptionShielded(i)) {
+      mem_req_sent_reg(i) := 0.B
+    }.elsewhen(io.id_ex_in(i).bus_valid && io.id_ex_in(i).mem_en_id_ex && io.data_ram_state(i) === RamState.waiting_for_request) {
+      // 每个需要访存的指令只有将其请求发送之后才能继续推进
+      mem_req_sent_reg(i) := 1.B
+    }
+  }
 }
 
 object InsExecute extends App {

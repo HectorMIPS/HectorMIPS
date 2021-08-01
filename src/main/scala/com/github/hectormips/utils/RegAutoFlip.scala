@@ -9,15 +9,17 @@ import com.github.hectormips.pipeline.WithValid
 // 当使用阶段allowin并且上个阶段所有有效指令均有效时允许流水线流动
 object RegAutoFlip {
 
-  def apply[T <: WithValid](next: T, init: T, this_allowin: Bool): T = {
-    val r = RegInit(init)
-    when(this_allowin) {
-      when(next.bus_valid) {
-        r := next
-      }.otherwise {
-        r.bus_valid := 0.B
+  def apply[T <: WithValid](next: T, init: T, this_allowin: Bool, force_reset: Bool = 0.B): T = {
+    withReset(force_reset) {
+      val r = RegInit(init)
+      when(this_allowin) {
+        when(next.bus_valid) {
+          r := next
+        }.otherwise {
+          r.bus_valid := 0.B
+        }
       }
+      r
     }
-    r
   }
 }

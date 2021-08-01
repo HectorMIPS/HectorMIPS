@@ -313,7 +313,7 @@ class Decoder extends Module {
   // 前递数据有效但是尚未准备完成
   def hasValidBypassButNotReady(bypass: Vec[BypassMsgBundle]): Bool = {
     (bypass(1).reg_addr =/= 0.U && bypass(1).bus_valid && !bypass(1).data_valid) ||
-      (bypass(1).reg_addr =/= 0.U && bypass(0).bus_valid && !bypass(0).data_valid)
+      (bypass(0).reg_addr =/= 0.U && bypass(0).bus_valid && !bypass(0).data_valid)
   }
 
   val ex_id_hazard_but_not_ready: Bool = hasValidBypassButNotReady(io.in.bypass_bus.bp_ex_id)

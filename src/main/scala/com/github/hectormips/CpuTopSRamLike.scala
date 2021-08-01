@@ -6,6 +6,7 @@ import chisel3.util._
 import chisel3.util.experimental.forceName
 import com.github.hectormips.pipeline._
 import com.github.hectormips.pipeline.cp0.{CP0, ExecuteCP0Bundle}
+import com.github.hectormips.pipeline.issue.InstFIFO
 import com.github.hectormips.utils.{RegAutoFlip, RegDualAutoFlip}
 
 class CpuTopSRamLikeBundle extends Bundle {
@@ -38,7 +39,8 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   val lo     : UInt = RegEnable(lo_next, 0.U, lo_wen)
 
   // 连线
-  val if_id_bus                    : FetchDecodeBundle          = Wire(new FetchDecodeBundle)
+  val if_fifo_bus                  : FetchDecodeBundle          = Wire(new FetchDecodeBundle)
+  val fifo_id_bus                  : FetchDecodeBundle          = Wire(new FetchDecodeBundle)
   val id_ex_bus                    : Vec[DecodeExecuteBundle]   = Wire(Vec(2, new DecodeExecuteBundle))
   val ex_ms_bus                    : Vec[ExecuteMemoryBundle]   = Wire(Vec(2, new ExecuteMemoryBundle))
   val ms_wb_bus                    : Vec[MemoryWriteBackBundle] = Wire(Vec(2, new MemoryWriteBackBundle))
@@ -59,6 +61,9 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   val cp0_hazard_bypass_wb_ex      : Vec[CP0HazardBypass]       = Wire(Vec(2, new CP0HazardBypass))
   val cp0_status_im                : UInt                       = Wire(UInt(8.W))
   val cp0_cause_ip                 : UInt                       = Wire(UInt(8.W))
+  val fetch_force_cancel           : Bool                       = pipeline_flush_ex || to_epc_en_ex_pf ||
+    (id_pf_bus.bus_valid && id_pf_bus.jump_taken)
+
 
   def addr_mapping(vaddr: UInt): UInt = {
     val physical_addr: UInt = Wire(UInt(32.W))
@@ -73,8 +78,16 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   // 每个寄存器都以其需要被用于输入的阶段命名
 
 
-  val fetch_state_reg: RamState.Type = RegInit(RamState.waiting_for_request)
-
+  val fetch_state_reg  : RamState.Type = RegInit(RamState.waiting_for_request)
+  // 默认情况下只有第一条指令有效
+  val inst_valid_buffer: UInt          = RegInit(1.U(2.W))
+  when(fetch_force_cancel) {
+    inst_valid_buffer := 1.U
+  }.otherwise {
+    when(fetch_state_reg === RamState.waiting_for_response && io.inst_sram_like_io.data_ok) {
+      inst_valid_buffer := io.inst_sram_like_io.inst_valid
+    }
+  }
 
   // 预取
   val pf_module   : InsPreFetch           = Module(new InsPreFetch)
@@ -89,10 +102,12 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
     ex_pf_bundle
   })
   pf_module.io.in_valid := 1.U // 目前始终允许
-  when(pipeline_flush_ex || (pf_module.io.ins_ram_en && io.inst_sram_like_io.addr_ok)) {
+  when(pipeline_flush_ex) {
     id_pf_buffer.bus_valid := 0.B
-  }.elsewhen(id_pf_bus.bus_valid && !pipeline_flush_ex) {
+  }.elsewhen(id_pf_bus.bus_valid) {
     id_pf_buffer := id_pf_bus
+  }.elsewhen(fetch_state_reg === RamState.waiting_for_response && io.inst_sram_like_io.data_ok) {
+    id_pf_buffer.bus_valid := 0.B
   }
   when(to_epc_en_ex_pf || to_exception_service_en_ex_pf) {
     ex_pf_buffer.to_epc_en_ex_pf := to_epc_en_ex_pf
@@ -101,14 +116,16 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
     ex_pf_buffer.defaults()
   }
   pf_module.io.id_pf_in := id_pf_buffer
+  pf_module.io.inst_sram_ins_valid := Mux(io.inst_sram_like_io.data_ok && !fetch_force_cancel && fetch_state_reg === RamState.waiting_for_response,
+    io.inst_sram_like_io.inst_valid, inst_valid_buffer)
   pf_module.io.pc := pc
   pf_module.io.next_allowin := if_allowin
   pf_module.io.to_exception_service_en_ex_pf := ex_pf_buffer.to_exception_service_en_ex_pf
   pf_module.io.to_epc_en_ex_pf := ex_pf_buffer.to_epc_en_ex_pf
   pf_module.io.cp0_pf_epc := epc_cp0_pf
   pf_module.io.flush := pipeline_flush_ex
-  pf_module.io.ins_ram_data_ok := io.inst_sram_like_io.data_ok
   pf_module.io.fetch_state := fetch_state_reg
+  // TODO: 为pf模块添加inst_sram输入缓冲
   io.inst_sram_like_io.addr := addr_mapping(pf_module.io.ins_ram_addr)
   io.inst_sram_like_io.req := pf_module.io.ins_ram_en
   io.inst_sram_like_io.wr := 0.B
@@ -134,7 +151,8 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   when(id_allowin && fetch_state_reg === RamState.waiting_for_read) {
     fetch_state_reg := RamState.waiting_for_request
   }
-  when(pipeline_flush_ex || to_epc_en_ex_pf) {
+  // 如果发生了跳转，也取消当前的取指行为
+  when(fetch_force_cancel) {
     when(fetch_state_reg === RamState.waiting_for_response && !io.inst_sram_like_io.data_ok) {
       fetch_state_reg := RamState.cancel
     }.otherwise {
@@ -156,19 +174,34 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   if_module.io.ins_ram_data_ok := io.inst_sram_like_io.data_ok
   if_module.io.ins_ram_data_valid := io.inst_sram_like_io.inst_valid
   if_module.io.fetch_state := fetch_state_reg
-  if_module.io.inst_num_request := pf_module.io.inst_num_request
   if_allowin := if_module.io.this_allowin
-  if_id_bus := if_module.io.if_id_out
-  if_id_bus.bus_valid := if_module.io.if_id_out.bus_valid
+  if_fifo_bus := if_module.io.if_id_out
+
+
+  val inst_fifo: InstFIFO = Module(new InstFIFO(6))
+  // if-fifo
+  inst_fifo.io.in.bits.inst_bundle.inst := if_fifo_bus.ins_if_id
+  inst_fifo.io.in.bits.inst_bundle.pc := if_fifo_bus.pc_debug_if_id
+  inst_fifo.io.in.bits.inst_bundle.inst_valid := if_fifo_bus.ins_valid_if_id
+  inst_fifo.io.in.valid := if_fifo_bus.bus_valid
+  if_module.io.next_allowin := inst_fifo.io.in.ready
+  // fifo-id
+  fifo_id_bus.ins_if_id := inst_fifo.io.out.bits.inst_bundle.inst
+  fifo_id_bus.pc_debug_if_id := inst_fifo.io.out.bits.inst_bundle.pc
+  fifo_id_bus.ins_valid_if_id := inst_fifo.io.out.bits.inst_bundle.inst_valid
+  fifo_id_bus.bus_valid := inst_fifo.io.out.valid && !fetch_force_cancel
+  inst_fifo.io.out.ready := id_allowin
+  inst_fifo.io.in.bits.flush := (id_pf_bus.jump_taken && id_pf_bus.bus_valid) || pipeline_flush_ex
 
 
   // 译码
   // 使用fifo来替代译码阶段的来源寄存器
-  val id_reg: FetchDecodeBundle = RegAutoFlip(next = if_id_bus, init = {
+
+  val id_reg: FetchDecodeBundle = RegAutoFlip(next = fifo_id_bus, init = {
     val bundle: FetchDecodeBundle = Wire(new FetchDecodeBundle)
     bundle.defaults()
     bundle
-  }, this_allowin = id_allowin)
+  }, this_allowin = id_allowin, force_reset = reset.asBool() || pipeline_flush_ex)
 
 
   val id_module: InsDecode = Module(new InsDecode)
@@ -216,7 +249,8 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
     io.data_sram_like_io(i).size := ex_module.io.ex_ram_out(i).mem_size
     io.data_sram_like_io(i).wdata := ex_module.io.ex_ram_out(i).mem_wdata
   }
-  val ms_ready_go: Bool = Wire(Bool())
+  val ms_ready_go: Bool      = Wire(Bool())
+  val ms_ram_wen : Vec[Bool] = Wire(Vec(2, Bool()))
   // 在flush的时候，当前指令会被取消，对后面的访存指令不要做其他操作
   for (i <- 0 to 1) {
     when(data_sram_state_reg(i) === RamState.waiting_for_request && ex_module.io.ex_ram_out(i).mem_en &&
@@ -234,8 +268,11 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
     }.elsewhen(data_sram_state_reg(i) === RamState.waiting_for_response && io.data_sram_like_io(i).data_ok) {
       data_sram_state_reg(i) := RamState.waiting_for_read
       data_sram_buffer_reg(i) := io.data_sram_like_io(i).rdata
-    }.elsewhen(data_sram_state_reg(i) === RamState.waiting_for_read && ms_ready_go) {
-      data_sram_state_reg(i) := RamState.waiting_for_request
+    }.elsewhen(data_sram_state_reg(i) === RamState.waiting_for_read) {
+      // 如果是写请求，则无需等待ms读出内容
+      when(ms_ram_wen(i) =/= 0.U || (ms_ram_wen(i) === 0.U && ms_ready_go)) {
+        data_sram_state_reg(i) := RamState.waiting_for_request
+      }
     }
   }
 
@@ -266,6 +303,9 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   ms_module.io.data_ram_state := data_sram_state_reg
   ms_wb_bus := ms_module.io.ms_wb_out
   ms_allowin := ms_module.io.this_allowin
+  for (i <- 0 to 1) {
+    ms_ram_wen(i) := ms_reg(i).mem_wen
+  }
   cp0_hazard_bypass_ms_ex := ms_module.io.cp0_hazard_bypass_ms_ex
   bypass_bus.bp_ms_id := ms_module.io.bypass_ms_id
   ms_ready_go := ms_module.io.ram_access_done

@@ -37,18 +37,24 @@ class MemAccessJudge extends Module{
 
   //  val inst_state = RegInit(0.U(3.W))
   //  val data_state = RegInit(0.U(3.W))
+  val should_cache_data_r   = RegInit(VecInit(Seq.fill(2)(false.B)))
+  val should_cache_data_c = Wire(Vec(2,Bool()))
+  val should_cache_data  = Wire(Vec(2,Bool()))
 
-
-  val should_cache_data = Wire(Vec(2,Bool()))
 
 //  val should_cache_data_r = RegInit(VecInit(Seq.fill(2)(false.B)))
   for(i<- 0 until 2) {
+    should_cache_data(i) := Mux(io.data(i).req,should_cache_data_c(i),should_cache_data_r(i))
+    when(io.data(i).req){
+      should_cache_data_r(i) := should_cache_data_c(i)
+    }
+
     when(io.data(i).addr >= "h1faf_0000".U && io.data(i).addr <= "h1faf_ffff".U) {
-      should_cache_data(i) := false.B
+      should_cache_data_c(i) := false.B
     }.elsewhen(io.data(i).addr >= "h8000_0000".U && io.data(i).addr <= "hbfff_ffff".U) {
-      should_cache_data(i) := false.B
+      should_cache_data_c(i) := false.B
     }.otherwise {
-      should_cache_data(i) := true.B
+      should_cache_data_c(i) := true.B
     }
   }
   //  should_cache_data := false.B
