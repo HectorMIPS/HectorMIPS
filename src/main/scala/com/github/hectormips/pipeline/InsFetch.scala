@@ -19,12 +19,12 @@ object InsJumpSel extends OneHotEnum {
 }
 
 class DecodePreFetchBundle extends Bundle {
-  val jump_sel_id_pf  : InsJumpSel.Type = Output(InsJumpSel())
-  val jump_val_id_pf  : Vec[UInt]       = Output(Vec(3, UInt(32.W)))
-  val is_jump         : Bool            = Output(Bool())
-  val bus_valid       : Bool            = Output(Bool())
-  val jump_taken      : Bool            = Output(Bool())
-  val stall_id_pf     : Bool            = Output(Bool())
+  val jump_sel_id_pf: InsJumpSel.Type = Output(InsJumpSel())
+  val jump_val_id_pf: Vec[UInt]       = Output(Vec(3, UInt(32.W)))
+  val is_jump       : Bool            = Output(Bool())
+  val bus_valid     : Bool            = Output(Bool())
+  val jump_taken    : Bool            = Output(Bool())
+  val stall_id_pf   : Bool            = Output(Bool())
 
   def defaults(): Unit = {
     jump_sel_id_pf := InsJumpSel.seq_pc
@@ -47,7 +47,6 @@ class ExecutePrefetchBundle extends Bundle {
 }
 
 
-
 class InsPreFetchBundle extends WithAllowin {
   val pc                           : UInt                 = Input(UInt(32.W))
   val id_pf_in                     : DecodePreFetchBundle = Flipped(new DecodePreFetchBundle)
@@ -64,6 +63,7 @@ class InsPreFetchBundle extends WithAllowin {
   val fetch_state                  : RamState.Type        = Input(RamState())
   // 上一个请求的valid信号，每次data_ok的时候被刷新，用于判断下一次跳转+4/+8
   val inst_sram_ins_valid          : UInt                 = Input(UInt(2.W))
+  val data_ok                      : Bool                 = Input(Bool())
 
   val in_valid: Bool = Input(Bool()) // 传入预取的输入是否有效
 
@@ -82,7 +82,7 @@ class InsPreFetch extends Module {
   val feed_back_valid  : Bool              = io.id_pf_in.bus_valid || exception_or_eret
   // 如果有load-to-branch的情况，清空了队列之后还需要等待
   val req              : Bool              = !io.id_pf_in.stall_id_pf && io.next_allowin &&
-    (io.fetch_state === RamState.waiting_for_request || io.fetch_state === RamState.requesting)
+    (io.fetch_state === RamState.waiting_for_request || io.fetch_state === RamState.requesting || io.data_ok)
   pc_jump := seq_pc_4
 
   switch(io.id_pf_in.jump_sel_id_pf) {

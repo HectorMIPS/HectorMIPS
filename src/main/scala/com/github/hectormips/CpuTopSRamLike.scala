@@ -125,7 +125,7 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   pf_module.io.cp0_pf_epc := epc_cp0_pf
   pf_module.io.flush := pipeline_flush_ex
   pf_module.io.fetch_state := fetch_state_reg
-  // TODO: 为pf模块添加inst_sram输入缓冲
+  pf_module.io.data_ok := io.inst_sram_like_io.data_ok
   io.inst_sram_like_io.addr := addr_mapping(pf_module.io.ins_ram_addr)
   io.inst_sram_like_io.req := pf_module.io.ins_ram_en
   io.inst_sram_like_io.wr := 0.B
@@ -146,9 +146,6 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
     fetch_state_reg := RamState.waiting_for_response
   }
   when(io.inst_sram_like_io.data_ok && fetch_state_reg === RamState.waiting_for_response) {
-    fetch_state_reg := RamState.waiting_for_read
-  }
-  when(id_allowin && fetch_state_reg === RamState.waiting_for_read) {
     fetch_state_reg := RamState.waiting_for_request
   }
   // 如果发生了跳转，也取消当前的取指行为
