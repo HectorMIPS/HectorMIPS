@@ -68,11 +68,12 @@ class MemAccessJudge extends Module{
       data_physical_addr(i) := io.data(i).addr
     }
   }
-  when(io.inst.addr >= "ha000_0000".U && io.inst.addr <= "hbfff_ffff".U){
-    should_cache_inst := false.B
-  }.otherwise {
-    should_cache_inst := true.B
-  }
+  should_cache_inst := true.B
+//  when(io.inst.addr >= "ha000_0000".U && io.inst.addr <= "hbfff_ffff".U){
+//    should_cache_inst := false.B
+//  }.otherwise {
+//    should_cache_inst := true.B
+//  }
   when(io.inst.addr >= "h8000_0000".U && io.inst.addr <= "hbfff_ffff".U){
     inst_physical_addr := io.inst.addr & "h1fff_ffff".U
   }.otherwise{

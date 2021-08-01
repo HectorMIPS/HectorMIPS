@@ -54,6 +54,7 @@ class ICache(val config: CacheConfig)
   val cache_hit_way = Wire(UInt(config.wayNumWidth.W))
 
   val addr_r = RegInit(0.U(32.W)) //地址寄存器
+  val addr   = Wire(UInt(32.W))
   val bData = new BankData(config)
   val tagvData = new TAGVData(config)
 
@@ -67,8 +68,10 @@ class ICache(val config: CacheConfig)
 
 
   val addrokReg = RegInit(false.B)
+
   //  io.addr_ok := state === sIDLE
   io.addr_ok := state === sIDLE || (state === sLOOKUP && is_hitWay)
+  addr := Mux(state === sIDLE || state === sLOOKUP && is_hitWay && io.valid,io.addr,addr_r)
 
   state := sIDLE
 
@@ -100,11 +103,11 @@ class ICache(val config: CacheConfig)
   }
 
   for (way <- 0 until config.wayNum) {
-    tagvMem(way).io.addra := config.getIndexByExpression(state === sIDLE, io.addr, addr_r)
+    tagvMem(way).io.addra := config.getIndexByExpression(state === sIDLE, io.addr, addr)
     tagvData.read(way).tag := tagvMem(way).io.douta(config.tagWidth - 1, 0)
     tagvData.read(way).valid := tagvMem(way).io.douta(config.tagWidth)
     for (bank <- 0 until config.bankNum) {
-      dataMem(way)(bank).io.addra := config.getIndexByExpression(state === sIDLE, io.addr, addr_r)
+      dataMem(way)(bank).io.addra := config.getIndexByExpression(state === sIDLE, io.addr, addr)
       bData.read(way)(bank) := dataMem(way)(bank).io.douta
     }
   }
@@ -193,7 +196,8 @@ class ICache(val config: CacheConfig)
   prefetch.io.req_addr := addr_r
 
   prefetch.io.query_addr := addr_r
-  prefetch.io.query_valid := state === sQueryPrefetch
+//  prefetch.io.query_valid := state === sQueryPrefetch
+  prefetch.io.query_valid := false.B
   prefetch.io.readAddr.ready := io.axi.readAddr.ready
   prefetch.io.readData.bits <> io.axi.readData.bits
   prefetch.io.readData.valid := io.axi.readData.valid
