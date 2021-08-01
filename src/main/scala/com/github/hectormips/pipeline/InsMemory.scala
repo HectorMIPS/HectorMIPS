@@ -115,8 +115,7 @@ class InsMemory extends Module {
     io.ms_wb_out(i).bus_valid := io.ex_ms_in(i).bus_valid && !reset.asBool() && ready_go
     io.ms_wb_out(i).pc_ms_wb := io.ex_ms_in(i).pc_ex_ms_debug
 
-    val bypass_bus_valid: Bool = io.ex_ms_in(i).bus_valid && Mux(io.ex_ms_in(i).regfile_wsrc_sel_ex_ms,
-      io.data_ram_state(i) === RamState.waiting_for_read, 1.B)
+    val bypass_bus_valid: Bool = io.ex_ms_in(i).bus_valid
 
     io.bypass_ms_id(i).bus_valid := bypass_bus_valid
     io.bypass_ms_id(i).data_valid := io.ex_ms_in(i).bus_valid && !reset.asBool() && ready_go && io.ex_ms_in(i).regfile_we_ex_ms &&

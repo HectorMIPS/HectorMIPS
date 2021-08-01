@@ -141,7 +141,6 @@ class InsSufFetch extends Module {
   val io: InsSufFetchBundle = IO(new InsSufFetchBundle())
 
   // 取消sufetch模块的缓冲，直接放入fifo
-
   io.if_id_out.ins_if_id := io.ins_ram_data
   io.if_id_out.ins_valid_if_id := io.ins_ram_data_valid
   io.if_id_out.bus_valid := !reset.asBool() && !io.flush &&

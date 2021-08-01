@@ -309,6 +309,16 @@ class Decoder extends Module {
   val alu_src1: UInt            = Wire(UInt(32.W))
   val alu_src2: UInt            = Wire(UInt(32.W))
 
+  val ram_wen: Bool = ins_sw | ins_sh | ins_sb
+  val ram_en : Bool = ins_lw | ins_lb |
+    ins_lbu | ins_lh | ins_lhu | ins_sw | ins_sh | ins_sb
+  io.out_regular.mem_en := ram_en
+  io.out_regular.mem_wen := ram_wen
+  io.out_issue.ram_wen := ram_wen
+  io.out_issue.ram_en := ram_en
+  io.out_issue.ram_wsrc_regfile := rt
+  io.out_regular.regfile_wsrc_sel := ins_lw | ins_lb |
+    ins_lbu | ins_lh | ins_lhu
 
   // 前递数据有效但是尚未准备完成
   def hasValidBypassButNotReady(bypass: Vec[BypassMsgBundle]): Bool = {
@@ -335,7 +345,8 @@ class Decoder extends Module {
   def hasRegularHazard(bus_hazard_but_not_ready: Bool, regaddr: UInt): Bool = {
     bus_hazard_but_not_ready &&
       ((src1_sel === AluSrc1Sel.regfile_read1 && rs === regaddr) ||
-        (src2_sel === AluSrc2Sel.regfile_read2 && rt === regaddr))
+        // 如果是访存指令，内容同样是由寄存器2读出
+        ((src2_sel === AluSrc2Sel.regfile_read2 || ram_wen) && rt === regaddr))
   }
 
   val load_regular_hazard: Bool = hasRegularHazard(ex_id_hazard_but_not_ready, io.in.bypass_bus.bp_ex_id(0).reg_addr) ||
@@ -460,16 +471,7 @@ class Decoder extends Module {
   io.out_regular.imm_32 := imm_signed.asUInt()
 
 
-  val ram_wen: Bool = ins_sw | ins_sh | ins_sb
-  val ram_en : Bool = ins_lw | ins_lb |
-    ins_lbu | ins_lh | ins_lhu | ins_sw | ins_sh | ins_sb
-  io.out_regular.mem_en := ram_en
-  io.out_regular.mem_wen := ram_wen
-  io.out_issue.ram_wen := ram_wen
-  io.out_issue.ram_en := ram_en
-  io.out_issue.ram_wsrc_regfile := rt
-  io.out_regular.regfile_wsrc_sel := ins_lw | ins_lb |
-    ins_lbu | ins_lh | ins_lhu
+
   io.out_regular.mem_data_sel := MuxCase(MemDataSel.word, Seq(
     (ins_lb | ins_lbu | ins_sb) -> MemDataSel.byte,
     (ins_lh | ins_lhu | ins_sh) -> MemDataSel.hword,
