@@ -16,7 +16,7 @@ import com.github.hectormips.cache.uncache.UncacheInst
  * 一路访问指令
  * 一路访问cached数据
  */
-class MemAccessJudge extends Module{
+class MemAccessJudge(cache_all_inst:Bool=false.B) extends Module{
   var io = IO(new Bundle{
     //输入
     val inst = Flipped(new SRamLikeInstIO())
@@ -78,15 +78,17 @@ class MemAccessJudge extends Module{
   val should_cache_inst   = Wire(Bool())
 
   /**
-   * 如果需要快速测试，可以把should_cache_inst 的组合逻辑注释掉
+   * 如果需要快速测试，cache_all_inst 设为false即可
    */
-  should_cache_inst_c := true.B
-//  when(io.inst.addr >= "ha000_0000".U && io.inst.addr <= "hbfff_ffff".U){
-//    should_cache_inst_c := false.B
-//  }.otherwise {
-//    should_cache_inst_c := true.B
-//  }
-
+  when(cache_all_inst) {
+    should_cache_inst_c := true.B
+  }.otherwise{
+      when(io.inst.addr >= "ha000_0000".U && io.inst.addr <= "hbfff_ffff".U){
+        should_cache_inst_c := false.B
+      }.otherwise {
+        should_cache_inst_c := true.B
+      }
+  }
 
   when(io.inst.req){
     should_cache_inst_r := should_cache_inst_c
