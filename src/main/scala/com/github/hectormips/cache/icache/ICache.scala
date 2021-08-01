@@ -196,12 +196,11 @@ class ICache(val config: CacheConfig)
   prefetch.io.req_addr := addr_r
 
   prefetch.io.query_addr := addr_r
-//  prefetch.io.query_valid := state === sQueryPrefetch
-  prefetch.io.query_valid := false.B
+  prefetch.io.query_valid := state === sQueryPrefetch
+//  prefetch.io.query_valid := false.B
   prefetch.io.readAddr.ready := io.axi.readAddr.ready
   prefetch.io.readData.bits <> io.axi.readData.bits
   prefetch.io.readData.valid := io.axi.readData.valid
-
   /**
    * debug
    */

@@ -54,7 +54,6 @@ class Prefetch(config: CacheConfig) extends Module {
   /**
    * 预取阶段
    */
-  buffer.data(buffer.ptr.value)(bankCounter) := io.readData.bits.data
   io.use_axi := state === sHANDSHAKE
   io.req_ready := state === sIDLE
   when(state === sIDLE && io.req_valid && io.req_ready) {
@@ -71,6 +70,7 @@ class Prefetch(config: CacheConfig) extends Module {
   }
   when(state === sREFILL) {
     when(io.readData.valid && io.readData.ready && io.readData.bits.id === 1.U) {
+      buffer.data(buffer.ptr.value)(bankCounter) := io.readData.bits.data
       bankCounter := bankCounter + 1.U
       when(io.readData.bits.last) {
         state := sIDLE
