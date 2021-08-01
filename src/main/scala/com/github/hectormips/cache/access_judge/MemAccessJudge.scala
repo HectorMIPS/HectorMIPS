@@ -28,8 +28,6 @@ class MemAccessJudge extends Module{
     val uncached_data = Vec(2,new SRamLikeDataIO()) //单口AXI-IO
     val cached_data   = Vec(2,new SRamLikeDataIO())
   })
-  val should_cache_inst = Wire(Bool())
-  val should_cache_data = Wire(Vec(2,Bool()))
   val data_physical_addr = Wire(Vec(2,UInt(32.W)))
   val inst_physical_addr = Wire(UInt(32.W))
 
@@ -45,18 +43,24 @@ class MemAccessJudge extends Module{
 //  }
 
 
-//  val should_cache_data_r = RegInit(VecInit(Seq.fill(2)(false.B)))
+  val should_cache_data_r = RegInit(VecInit(Seq.fill(2)(false.B)))
+  val should_cache_data_c = Wire(Vec(2,Bool()))
+  val should_cache_data   = Wire(Vec(2,Bool()))
   // uncache的地址范围： 0xa000_0000 -- 0xbfff_ffff
   //
+
   for(i<- 0 until 2) {
     /**
      * cache 属性确认
      */
-
+    should_cache_data(i) := Mux(io.data(i).req,should_cache_data_c(i),should_cache_data_r(i))
+    when(io.data(i).req){
+      should_cache_data_r(i) := should_cache_data_c(i)
+    }
     when(io.data(i).addr >= "ha000_0000".U && io.data(i).addr <= "hbfff_ffff".U){
-      should_cache_data(i) := false.B
+      should_cache_data_c(i) := false.B
     }.otherwise {
-      should_cache_data(i) := true.B
+      should_cache_data_c(i) := true.B
     }
 
     /**
@@ -68,12 +72,27 @@ class MemAccessJudge extends Module{
       data_physical_addr(i) := io.data(i).addr
     }
   }
-//  should_cache_inst := true.B
-  when(io.inst.addr >= "ha000_0000".U && io.inst.addr <= "hbfff_ffff".U){
-    should_cache_inst := false.B
-  }.otherwise {
-    should_cache_inst := true.B
+
+  val should_cache_inst_r = RegInit(false.B)
+  val should_cache_inst_c = Wire(Bool())
+  val should_cache_inst   = Wire(Bool())
+
+  /**
+   * 如果需要快速测试，可以把should_cache_inst 的组合逻辑注释掉
+   */
+  should_cache_inst_c := true.B
+//  when(io.inst.addr >= "ha000_0000".U && io.inst.addr <= "hbfff_ffff".U){
+//    should_cache_inst_c := false.B
+//  }.otherwise {
+//    should_cache_inst_c := true.B
+//  }
+
+
+  when(io.inst.req){
+    should_cache_inst_r := should_cache_inst_c
   }
+  should_cache_inst := Mux(io.inst.req,should_cache_inst_c,should_cache_inst_r)
+
   when(io.inst.addr >= "h8000_0000".U && io.inst.addr <= "hbfff_ffff".U){
     inst_physical_addr := io.inst.addr & "h1fff_ffff".U
   }.otherwise{
@@ -101,6 +120,8 @@ class MemAccessJudge extends Module{
     io.data(i).data_ok := Mux(should_cache_data(i),io.cached_data(i).data_ok,io.uncached_data(i).data_ok)
     io.data(i).rdata := Mux(should_cache_data(i),io.cached_data(i).rdata,io.uncached_data(i).rdata)
   }
+
+
   io.cached_inst.req := should_cache_inst && io.inst.req
   io.cached_inst.wr  := io.inst.wr
   io.cached_inst.size := io.inst.size

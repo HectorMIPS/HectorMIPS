@@ -37,7 +37,7 @@ class Cache(val config:CacheConfig)  extends Module{
   val dcache = Module(new DCache(new CacheConfig(WayWidth=8*1024,DataWidthByByte=32)))
 //  val icache = Module(new ICache(new CacheConfig(WayWidth=8*1024,DataWidthByByte=32)))
   // 2路组相连，每页8KB 每行32B
-  val icache = Module(new ICache(new CacheConfig(WayWidth =8*1024,DataWidthByByte=32)))
+  val icache = Module(new ICache(new CacheConfig(WayWidth =16*1024,DataWidthByByte=64)))
   val uncached = Module(new Uncache())
   val uncache_inst = Module(new UncacheInst())
 
