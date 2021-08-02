@@ -78,7 +78,7 @@ class MemAccessJudge(cache_all_inst:Bool=false.B) extends Module{
   val should_cache_inst   = Wire(Bool())
 
   /**
-   * 如果需要快速测试，cache_all_inst 设为false即可
+   * 如果需要快速测试，cache_all_inst 设为true即可
    */
   when(cache_all_inst) {
     should_cache_inst_c := true.B

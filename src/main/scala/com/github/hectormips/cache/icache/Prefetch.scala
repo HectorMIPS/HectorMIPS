@@ -36,7 +36,7 @@ class Prefetch(config: CacheConfig) extends Module {
     val query_addr = Input(UInt(32.W))
     val query_finded = Output(Bool())
     val query_data = Output(Vec(config.bankNum, UInt(32.W)))
-
+    val query_wait = Output(Bool()) //正在请求当前地址，可以直接等待结果
     /**
      * axi
      */
@@ -56,8 +56,14 @@ class Prefetch(config: CacheConfig) extends Module {
    */
   io.use_axi := state === sHANDSHAKE
   io.req_ready := state === sIDLE
-  when(state === sIDLE && io.req_valid && io.req_ready) {
-    addr_r := Cat(io.req_addr(31, config.offsetWidth), 0.U(config.offsetWidth.W)) + (config.bankNum * 4).U
+  val req_hit_onehot = Wire(Vec(config.prefetch_buffer_size, Bool()))
+  val is_req_hit = Wire(Bool())
+  for (i <- 0 until config.prefetch_buffer_size) {
+    req_hit_onehot(i) := buffer.valid(i) && buffer.addr(i)(31, config.offsetWidth) === io.req_addr(31, config.offsetWidth)
+  }
+  is_req_hit := req_hit_onehot.asUInt().orR() //为0表示没有命中
+  when(state === sIDLE && io.req_valid && io.req_ready && !is_req_hit) {
+    addr_r := io.req_addr
     state := sHANDSHAKE
   }
   when(state === sHANDSHAKE) {
@@ -86,12 +92,13 @@ class Prefetch(config: CacheConfig) extends Module {
   }
 
   /**
-   * 查询阶段
+   * 查询
    */
   val query_onehot = Wire(Vec(config.prefetch_buffer_size, Bool()))
   val query_hit = Wire(UInt(log2Ceil(config.prefetch_buffer_size).W))
+  io.query_wait := addr_r === io.query_addr
   query_hit := OHToUInt(query_onehot)
-  for (i <- 0 until 2) {
+  for (i <- 0 until config.prefetch_buffer_size) {
     query_onehot(i) := buffer.valid(i) && buffer.addr(i)(31, config.offsetWidth) === io.query_addr(31, config.offsetWidth)
   }
   io.query_finded := query_onehot.asUInt().orR() && io.query_valid
