@@ -32,24 +32,24 @@ class UncacheInst extends Module{
   }
   when(state === s1Handshake){
     when(io.axi.arvalid===true.B && io.axi.arready===true.B && io.axi.arid === 0.U){
-      state := s1Recv
+      state := s2Handshake
     }.otherwise{
       state := s1Handshake
     }
   }
+  when(state === s2Handshake){
+    when(io.axi.arvalid===true.B && io.axi.arready===true.B && io.axi.arid === 0.U){
+      state := s1Recv
+    }.otherwise{
+      state := s2Handshake
+    }
+  }
   when(state === s1Recv){
     when(io.axi.rvalid.asBool() && io.axi.rready.asBool() && io.axi.rid ===0.U){
-      state := s2Handshake
+      state := s2Recv
       rdata(0) :=  io.axi.rdata
     }.otherwise{
       state := s1Recv
-    }
-  }
-  when(state === s2Handshake){
-    when(io.axi.arvalid===true.B && io.axi.arready===true.B && io.axi.arid === 0.U){
-      state := s2Recv
-    }.otherwise{
-      state := s2Handshake
     }
   }
   when(state === s2Recv){
