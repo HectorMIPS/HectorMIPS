@@ -37,6 +37,7 @@ class Prefetch(config: CacheConfig) extends Module {
     val query_finded = Output(Bool())
     val query_data = Output(Vec(config.bankNum, UInt(32.W)))
     val query_wait = Output(Bool()) //正在请求当前地址，可以直接等待结果
+
     /**
      * axi
      */
@@ -78,6 +79,9 @@ class Prefetch(config: CacheConfig) extends Module {
     when(io.readData.valid && io.readData.ready && io.readData.bits.id === 1.U) {
       buffer.data(buffer.ptr.value)(bankCounter) := io.readData.bits.data
       bankCounter := bankCounter + 1.U
+      when(bankCounter===0.U){
+        buffer.valid(buffer.ptr.value) := false.B
+      }
       when(io.readData.bits.last) {
         state := sIDLE
         buffer.ptr.inc()
@@ -96,14 +100,12 @@ class Prefetch(config: CacheConfig) extends Module {
    */
   val query_onehot = Wire(Vec(config.prefetch_buffer_size, Bool()))
   val query_hit = Wire(UInt(log2Ceil(config.prefetch_buffer_size).W))
-  val query_wait_r = RegInit(false.B)
-  query_wait_r := addr_r === io.query_addr && state === sREFILL
-  io.query_wait := query_wait_r
+  io.query_wait := addr_r(31,config.offsetWidth) === io.query_addr(31,config.offsetWidth) && state === sREFILL
   query_hit := OHToUInt(query_onehot)
   for (i <- 0 until config.prefetch_buffer_size) {
     query_onehot(i) := buffer.valid(i) && buffer.addr(i)(31, config.offsetWidth) === io.query_addr(31, config.offsetWidth)
   }
-  io.query_finded := query_onehot.asUInt().orR() && io.query_valid
+  io.query_finded := query_onehot.asUInt().orR() && io.query_valid && !(state===sREFILL && io.readData.valid && io.readData.bits.id === 1.U)
   dontTouch(io.query_finded)
   io.query_data := buffer.data(query_hit)
 

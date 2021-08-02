@@ -18,7 +18,7 @@ class ICache(val config: CacheConfig)
 
     val inst = Output(UInt(64.W))
     val instOK = Output(Bool())
-
+    val instPC = Output(UInt(32.W))
     val instValid = Output(UInt())
 
     val axi = new Bundle {
@@ -75,6 +75,7 @@ class ICache(val config: CacheConfig)
 
   //  io.addr_ok := state === sIDLE
   io.addr_ok := state === sIDLE || (state === sLOOKUP && is_hitWay)
+  io.instPC := addr_r
   addr := Mux(state === sIDLE || state === sLOOKUP && is_hitWay && io.valid, io.addr, addr_r)
 
   state := sIDLE
@@ -92,6 +93,7 @@ class ICache(val config: CacheConfig)
   bankIndex := config.getBankIndex(addr_r)
   tag := config.getTag(addr_r)
   nextline_tag := config.getTag(prefetch_addr)
+
   //  val dataBankWtMask = WireInit(VecInit.tabulate(4) { _ => true.B })
   //  val writeData =WireInit(VecInit.tabulate(4) { _ => 0.U(8.W) })
   /**
@@ -208,7 +210,7 @@ class ICache(val config: CacheConfig)
   /**
    * 预取器
    */
-  prefetch.io.req_valid := state === sLOOKUP && !is_nextline_hitWay
+  prefetch.io.req_valid := (state === sLOOKUP || state === sREFILL) && !is_nextline_hitWay
   prefetch.io.req_addr := prefetch_addr
 
   prefetch.io.query_addr := addr_r
@@ -289,6 +291,8 @@ class ICache(val config: CacheConfig)
         }.otherwise {
           io.inst := Cat(prefetch.io.query_data(bankIndex + 1.U), prefetch.io.query_data(bankIndex))
         }
+      }.elsewhen(prefetch.io.query_wait){
+        state := sQueryPrefetch
       }.otherwise {
         when(prefetch.io.use_axi){
           state := sQueryPrefetch
