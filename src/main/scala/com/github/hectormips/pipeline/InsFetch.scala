@@ -30,7 +30,7 @@ class DecodePreFetchBundle extends Bundle {
     jump_sel_id_pf := InsJumpSel.seq_pc
     jump_val_id_pf := VecInit(Seq(0.U, 0.U, 0.U))
     is_jump := 0.B
-    bus_valid := 1.B
+    bus_valid := 0.B
     jump_taken := 0.B
     stall_id_pf := 0.B
   }
@@ -112,7 +112,8 @@ class InsPreFetch extends Module {
     // 如果队列已满或者还上一条请求还没有返回则原地踏步
     // 如果发起了请求但是没有addr_ok同样需要原地踏步
     (!io.next_allowin || (io.fetch_state === RamState.waiting_for_response && !io.data_ok) ||
-      (req && !io.addr_ok)) -> io.pc,
+      (req && !io.addr_ok &&
+        (io.fetch_state === RamState.waiting_for_request || io.fetch_state === RamState.requesting))) -> io.pc,
     // TODO:如果decode阶段要求跳转，则需要清空队列、取消当前请求，并且请求跳转地址的指令
     (ready_go && jump_to_target) -> pc_jump
   ))
@@ -122,7 +123,7 @@ class InsPreFetch extends Module {
   io.ins_ram_addr := pc_out
 
   // 发送完一条请求更新一次pc
-  io.pc_wen := req
+  io.pc_wen := req && io.addr_ok
   io.this_allowin := DontCare
   val pc_last_req: UInt = RegInit(init = 0xbfc00000L.U)
   when(req && io.addr_ok) {
