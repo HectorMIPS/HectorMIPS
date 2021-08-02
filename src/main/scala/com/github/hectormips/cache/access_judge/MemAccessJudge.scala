@@ -130,42 +130,31 @@ class MemAccessJudge(cache_all_inst:Bool=false.B) extends Module{
     io.data(i).data_ok := Mux(should_cache_data(i),io.cached_data(i).data_ok,io.uncached_data(i).data_ok)
     io.data(i).rdata := Mux(should_cache_data(i),io.cached_data(i).rdata,io.uncached_data(i).rdata)
   }
-  val queue = Module(new Queue(new QueueItem, 1))
-  val inst_handshake = RegInit(false.B)
+  val queue = Module(new Queue(new QueueItem, 3))
   io.inst.addr_ok := queue.io.enq.ready
+
   queue.io.enq.bits.addr := inst_physical_addr
   queue.io.enq.bits.wr := io.inst.wr
   queue.io.enq.bits.size := io.inst.size
   queue.io.enq.bits.wdata := io.inst.wdata
   queue.io.enq.bits.should_cache := should_cache_inst_c
   queue.io.enq.valid := io.inst.req
-  when(io.inst.req){
-    inst_handshake := false.B
-  }
-  when(queue.io.deq.bits.should_cache && io.cached_inst.req && io.cached_inst.addr_ok){
-    inst_handshake := true.B
-  }
-  when(!queue.io.deq.bits.should_cache && io.uncached_inst.req && io.uncached_inst.addr_ok){
-    inst_handshake := true.B
-  }
-  io.cached_inst.req := Mux(io.inst.req,should_cache_inst_c && !io.cached_inst.addr_ok, queue.io.deq.bits.should_cache && !inst_handshake)
-  io.cached_inst.wr := Mux(io.inst.req,io.inst.wr,queue.io.deq.bits.wr)
-  io.cached_inst.size := Mux(io.inst.req,io.inst.size,queue.io.deq.bits.size)
-  io.cached_inst.addr := Mux(io.inst.req,inst_physical_addr,queue.io.deq.bits.addr)
-  io.cached_inst.wdata := Mux(io.inst.req,io.inst.wdata,queue.io.deq.bits.wdata)
 
-  io.uncached_inst.req := Mux(io.inst.req,!should_cache_inst_c && !io.uncached_inst.addr_ok,!queue.io.deq.bits.should_cache && !inst_handshake)
-  io.uncached_inst.wr  := Mux(io.inst.req,io.inst.wr,queue.io.deq.bits.wr)
-  io.uncached_inst.size := Mux(io.inst.req,io.inst.size,queue.io.deq.bits.size)
-  io.uncached_inst.addr := Mux(io.inst.req,inst_physical_addr,queue.io.deq.bits.addr)
-  io.uncached_inst.wdata := Mux(io.inst.req,io.inst.wdata,queue.io.deq.bits.wdata)
+  io.cached_inst.req := queue.io.deq.valid && queue.io.deq.bits.should_cache
+  io.cached_inst.wr := queue.io.deq.bits.wr
+  io.cached_inst.size := queue.io.deq.bits.size
+  io.cached_inst.addr := queue.io.deq.bits.addr
+  io.cached_inst.wdata := queue.io.deq.bits.wdata
+
+  io.uncached_inst.req := queue.io.deq.valid && queue.io.deq.bits.should_cache
+  io.uncached_inst.wr  := queue.io.deq.bits.wr
+  io.uncached_inst.size := queue.io.deq.bits.size
+  io.uncached_inst.addr := queue.io.deq.bits.addr
+  io.uncached_inst.wdata := queue.io.deq.bits.wdata
 
   io.inst.data_ok := Mux(queue.io.deq.bits.should_cache,io.cached_inst.data_ok,io.uncached_inst.data_ok)
   io.inst.rdata := Mux(queue.io.deq.bits.should_cache,io.cached_inst.rdata,io.uncached_inst.rdata)
   io.inst.inst_valid := Mux(queue.io.deq.bits.should_cache,io.cached_inst.inst_valid,io.uncached_inst.inst_valid)
 
-  queue.io.deq.ready := false.B
-  when(io.inst.data_ok){
-    queue.io.deq.ready := true.B
-  }
+  queue.io.deq.ready := io.inst.data_ok
 }
