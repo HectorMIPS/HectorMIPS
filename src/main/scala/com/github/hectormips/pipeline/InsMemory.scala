@@ -34,6 +34,7 @@ class ExecuteMemoryBundle extends WithVEI {
   val cp0_sel_ex_ms                   : UInt                 = UInt(3.W)
   val regfile_wdata_from_cp0_ex_ms    : Bool                 = Bool()
   val mem_req                         : Bool                 = Bool()
+  val mem_wen                         : Bool                 = Bool()
 
   override def defaults(): Unit = {
     super.defaults()
@@ -52,6 +53,7 @@ class ExecuteMemoryBundle extends WithVEI {
     cp0_sel_ex_ms := 0.U
     regfile_wdata_from_cp0_ex_ms := 0.B
     mem_req := 0.B
+    mem_wen := 0.B
   }
 }
 
@@ -72,9 +74,9 @@ class InsMemory extends Module {
 
 
   // 如果有需要请求数据ram的指令则需要等待其访问完毕两条指令才能继续向下行进
-  val ready_go: Bool = Mux(io.ex_ms_in(0).mem_req && io.ex_ms_in(0).bus_valid,
+  val ready_go: Bool = Mux(io.ex_ms_in(0).mem_req && !io.ex_ms_in(0).mem_wen && io.ex_ms_in(0).bus_valid,
     io.data_ram_state(0) === RamState.waiting_for_read, 1.B) &&
-    Mux(io.ex_ms_in(1).mem_req && io.ex_ms_in(1).bus_valid,
+    Mux(io.ex_ms_in(1).mem_req && !io.ex_ms_in(0).mem_wen && io.ex_ms_in(1).bus_valid,
       io.data_ram_state(1) === RamState.waiting_for_read, 1.B)
   io.this_allowin := io.next_allowin && !reset.asBool() && ready_go
 
@@ -113,12 +115,12 @@ class InsMemory extends Module {
     io.ms_wb_out(i).bus_valid := io.ex_ms_in(i).bus_valid && !reset.asBool() && ready_go
     io.ms_wb_out(i).pc_ms_wb := io.ex_ms_in(i).pc_ex_ms_debug
 
-    val bypass_bus_valid: Bool = io.ex_ms_in(i).bus_valid && Mux(io.ex_ms_in(i).regfile_wsrc_sel_ex_ms,
-      io.data_ram_state(i) === RamState.waiting_for_read, 1.B)
+    val bypass_bus_valid: Bool = io.ex_ms_in(i).bus_valid
 
     io.bypass_ms_id(i).bus_valid := bypass_bus_valid
     io.bypass_ms_id(i).data_valid := io.ex_ms_in(i).bus_valid && !reset.asBool() && ready_go && io.ex_ms_in(i).regfile_we_ex_ms &&
-      Mux(io.ex_ms_in(i).regfile_wsrc_sel_ex_ms, io.data_ram_state(i) === RamState.waiting_for_read, 1.B)
+      Mux(io.ex_ms_in(i).regfile_wsrc_sel_ex_ms, io.data_ram_state(i) === RamState.waiting_for_read, 1.B) &&
+      !io.ex_ms_in(i).regfile_wdata_from_cp0_ex_ms
     io.bypass_ms_id(i).reg_data := Mux(io.ex_ms_in(i).regfile_wsrc_sel_ex_ms, mem_rdata_out, io.ex_ms_in(i).alu_val_ex_ms)
     io.bypass_ms_id(i).reg_addr := MuxCase(0.U, Seq(
       (io.ex_ms_in(i).regfile_waddr_sel_ex_ms === RegFileWAddrSel.inst_rd) -> io.ex_ms_in(i).inst_rd_ex_ms,

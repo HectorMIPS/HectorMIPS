@@ -21,7 +21,7 @@ class RegFileBundle(read_port_num: Int = 2, write_port_num: Int = 2) extends Bun
 class RegFile(reg_init: Int = 0, read_port_num: Int = 2, write_port_num: Int = 2) extends Module {
   val io  : RegFileBundle = IO(new RegFileBundle)
   val regs: Vec[UInt]     = RegInit(
-    VecInit(Seq.fill(32)(5.U(32.W)))
+    VecInit(Seq.fill(32)(reg_init.U(32.W)))
   )
   regs(0) := reg_init.S.asUInt()
   when(io.we(0).asBool() && io.we(1).asBool() && io.waddr(0) === io.waddr(1)) {

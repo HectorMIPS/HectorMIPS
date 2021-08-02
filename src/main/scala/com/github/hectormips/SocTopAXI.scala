@@ -51,7 +51,7 @@ class SocTopAXI extends Module {
     cpu_top.io.inst_sram_like_io.data_ok := mem_judge.io.inst.data_ok
     cpu_top.io.inst_sram_like_io.rdata := mem_judge.io.inst.rdata
     cpu_top.io.inst_sram_like_io.inst_valid := mem_judge.io.inst.inst_valid
-
+    cpu_top.io.inst_sram_like_io.inst_pc := mem_judge.io.inst.inst_pc
 
     mem_judge.io.data(0) <> cpu_top.io.data_sram_like_io(0)
     mem_judge.io.data(1) <> cpu_top.io.data_sram_like_io(1)
