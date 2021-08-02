@@ -25,8 +25,13 @@ class InstFIFO(len: Int = 6) extends Module {
 
   val io: InstFIFOIO = IO(new InstFIFOIO)
   withReset(reset.asBool() || io.in.bits.flush) {
-    val queue: DecoupledIO[InstFIFOIn] = Queue(io.in, len)
-    io.out <> queue
+    val queue: Queue[InstBundle] = Module(new Queue(new InstBundle, len))
+    queue.io.enq.valid := io.in.valid
+    io.in.ready := queue.io.enq.ready && queue.io.count < (len * 3 / 5).U
+    queue.io.enq.bits := io.in.bits.inst_bundle
+    io.out.bits.inst_bundle := queue.io.deq.bits
+    io.out.valid := queue.io.deq.valid
+    queue.io.deq.ready := io.out.ready
   }
   io.out.bits.flush := DontCare
 }

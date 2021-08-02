@@ -55,7 +55,6 @@ class InsPreFetchBundle extends WithAllowin {
   val next_pc                      : UInt                 = Output(UInt(32.W))
   val pc_wen                       : Bool                 = Output(Bool())
   // 一次读入两条指令
-  val pc_debug_pf_if               : UInt                 = Output(UInt(32.W))
   val to_exception_service_en_ex_pf: Bool                 = Input(Bool())
   val to_epc_en_ex_pf              : Bool                 = Input(Bool())
   val flush                        : Bool                 = Input(Bool())
@@ -83,7 +82,8 @@ class InsPreFetch extends Module {
   val feed_back_valid  : Bool              = io.id_pf_in.bus_valid || exception_or_eret
   // 如果有load-to-branch的情况，清空了队列之后还需要等待
   val req              : Bool              = !io.id_pf_in.stall_id_pf && io.next_allowin &&
-    (io.fetch_state === RamState.waiting_for_request || io.fetch_state === RamState.requesting || io.data_ok)
+    (io.fetch_state === RamState.waiting_for_request || io.fetch_state === RamState.requesting || io.data_ok) &&
+    !io.flush
   pc_jump := seq_pc_4
 
   switch(io.id_pf_in.jump_sel_id_pf) {
@@ -114,8 +114,8 @@ class InsPreFetch extends Module {
     (!io.next_allowin || (io.fetch_state === RamState.waiting_for_response && !io.data_ok) ||
       (req && !io.addr_ok &&
         (io.fetch_state === RamState.waiting_for_request || io.fetch_state === RamState.requesting))) -> io.pc,
-    // TODO:如果decode阶段要求跳转，则需要清空队列、取消当前请求，并且请求跳转地址的指令
-    (ready_go && jump_to_target) -> pc_jump
+    // 如果decode阶段要求跳转，则需要清空队列、取消当前请求，并且请求跳转地址的指令
+    (ready_go && jump_to_target && io.id_pf_in.bus_valid) -> pc_jump
   ))
   io.next_pc := pc_out
   // 只要fifo没满就继续发请求
@@ -125,11 +125,6 @@ class InsPreFetch extends Module {
   // 发送完一条请求更新一次pc
   io.pc_wen := req && io.addr_ok
   io.this_allowin := DontCare
-  val pc_last_req: UInt = RegInit(init = 0xbfc00000L.U)
-  when(req && io.addr_ok) {
-    pc_last_req := pc_out
-  }
-  io.pc_debug_pf_if := pc_last_req
 
 }
 

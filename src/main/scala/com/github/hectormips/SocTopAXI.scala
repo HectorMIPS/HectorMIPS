@@ -29,7 +29,7 @@ class SocTopAXI extends Module {
     val cpu_top  : CpuTopSRamLike   = Module(new CpuTopSRamLike(0xbfbffffcL, 0))
     val cache    : Cache            = Module(new Cache(new CacheConfig()))
     val crossbar : axi_crossbar_2x1 = Module(new axi_crossbar_2x1)
-    val mem_judge: MemAccessJudge   = Module(new MemAccessJudge(1.B))
+    val mem_judge: MemAccessJudge   = Module(new MemAccessJudge(true.B))
 
 
     io.axi_io.force_name()
@@ -51,7 +51,7 @@ class SocTopAXI extends Module {
     cpu_top.io.inst_sram_like_io.data_ok := mem_judge.io.inst.data_ok
     cpu_top.io.inst_sram_like_io.rdata := mem_judge.io.inst.rdata
     cpu_top.io.inst_sram_like_io.inst_valid := mem_judge.io.inst.inst_valid
-
+    cpu_top.io.inst_sram_like_io.inst_pc := mem_judge.io.inst.inst_pc
 
     mem_judge.io.data(0) <> cpu_top.io.data_sram_like_io(0)
     mem_judge.io.data(1) <> cpu_top.io.data_sram_like_io(1)

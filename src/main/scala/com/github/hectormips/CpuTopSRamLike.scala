@@ -98,7 +98,7 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
     id_pf_buffer.bus_valid := 0.B
   }.elsewhen(id_pf_bus.bus_valid) {
     id_pf_buffer := id_pf_bus
-  }.elsewhen(fetch_state_reg === RamState.waiting_for_response && io.inst_sram_like_io.data_ok) {
+  }.elsewhen(pf_module.io.ins_ram_en && io.inst_sram_like_io.addr_ok && !fetch_force_cancel) {
     id_pf_buffer.bus_valid := 0.B
   }
   when(to_epc_en_ex_pf || to_exception_service_en_ex_pf) {
@@ -108,14 +108,14 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
     ex_pf_buffer.defaults()
   }
   pf_module.io.id_pf_in := id_pf_buffer
-  pf_module.io.inst_sram_ins_valid := Mux(io.inst_sram_like_io.data_ok && !fetch_force_cancel && fetch_state_reg === RamState.waiting_for_response,
+  pf_module.io.inst_sram_ins_valid := Mux(io.inst_sram_like_io.data_ok && !fetch_force_cancel,
     io.inst_sram_like_io.inst_valid, inst_valid_buffer)
   pf_module.io.pc := pc
   pf_module.io.next_allowin := if_allowin
   pf_module.io.to_exception_service_en_ex_pf := ex_pf_buffer.to_exception_service_en_ex_pf
   pf_module.io.to_epc_en_ex_pf := ex_pf_buffer.to_epc_en_ex_pf
   pf_module.io.cp0_pf_epc := epc_cp0_pf
-  pf_module.io.flush := pipeline_flush_ex
+  pf_module.io.flush := fetch_force_cancel
   pf_module.io.fetch_state := fetch_state_reg
   pf_module.io.data_ok := io.inst_sram_like_io.data_ok
   pf_module.io.addr_ok := io.inst_sram_like_io.addr_ok
@@ -151,7 +151,7 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
     }
   }
   // 如果发生了跳转，也取消当前的取指行为
-  when(fetch_force_cancel) {
+  when(fetch_force_cancel && fetch_state_reg =/= RamState.cancel) {
     when(fetch_state_reg === RamState.waiting_for_response && !io.inst_sram_like_io.data_ok) {
       fetch_state_reg := RamState.cancel
     }.otherwise {
@@ -159,7 +159,11 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
     }
   }
   when(fetch_state_reg === RamState.cancel && io.inst_sram_like_io.data_ok) {
-    fetch_state_reg := RamState.waiting_for_request
+    when(io.inst_sram_like_io.addr_ok && pf_module.io.ins_ram_en) {
+      fetch_state_reg := RamState.waiting_for_response
+    }.otherwise {
+      fetch_state_reg := RamState.waiting_for_request
+    }
   }
 
 
@@ -167,7 +171,7 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   val if_module: InsSufFetch = Module(new InsSufFetch)
   // 由于是伪阶段，不需要寄存器来存储延迟槽指令pc
   if_module.io.ins_ram_data := io.inst_sram_like_io.rdata
-  if_module.io.pc_debug_pf_if := pf_module.io.pc_debug_pf_if
+  if_module.io.pc_debug_pf_if := io.inst_sram_like_io.inst_pc
   if_module.io.next_allowin := id_allowin
   if_module.io.flush := fetch_force_cancel
   if_module.io.ins_ram_data_ok := io.inst_sram_like_io.data_ok

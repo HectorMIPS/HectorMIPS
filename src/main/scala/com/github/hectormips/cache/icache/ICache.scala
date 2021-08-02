@@ -18,7 +18,7 @@ class ICache(val config: CacheConfig)
 
     val inst = Output(UInt(64.W))
     val instOK = Output(Bool())
-
+    val instPC = Output(UInt(32.W))
     val instValid = Output(UInt())
 
     val axi = new Bundle {
@@ -75,6 +75,7 @@ class ICache(val config: CacheConfig)
 
   //  io.addr_ok := state === sIDLE
   io.addr_ok := state === sIDLE || (state === sLOOKUP && is_hitWay)
+  io.instPC := addr_r
   addr := Mux(state === sIDLE || state === sLOOKUP && is_hitWay && io.valid, io.addr, addr_r)
 
   state := sIDLE
@@ -92,6 +93,7 @@ class ICache(val config: CacheConfig)
   bankIndex := config.getBankIndex(addr_r)
   tag := config.getTag(addr_r)
   nextline_tag := config.getTag(prefetch_addr)
+
   //  val dataBankWtMask = WireInit(VecInit.tabulate(4) { _ => true.B })
   //  val writeData =WireInit(VecInit.tabulate(4) { _ => 0.U(8.W) })
   /**

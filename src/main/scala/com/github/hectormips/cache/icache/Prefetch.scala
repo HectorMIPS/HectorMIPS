@@ -54,7 +54,7 @@ class Prefetch(config: CacheConfig) extends Module {
   /**
    * 预取阶段
    */
-  io.use_axi := state === sHANDSHAKE || state === sREFILL
+  io.use_axi := state === sHANDSHAKE || state === sREFILL && io.req_addr(31,config.offsetWidth) === addr_r(31,config.offsetWidth)
   io.req_ready := state === sIDLE
   val req_hit_onehot = Wire(Vec(config.prefetch_buffer_size, Bool()))
   val is_req_hit = Wire(Bool())
@@ -65,6 +65,7 @@ class Prefetch(config: CacheConfig) extends Module {
   when(state === sIDLE && io.req_valid && io.req_ready && !is_req_hit) {
     addr_r := io.req_addr
     state := sHANDSHAKE
+    buffer.valid(buffer.ptr.value) := false.B
   }
 
   when(state === sHANDSHAKE) {

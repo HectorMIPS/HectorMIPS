@@ -54,6 +54,7 @@ class Cache(val config:CacheConfig)  extends Module{
   io.icache.rdata :=  icache.io.inst
   io.icache.data_ok := icache.io.instOK
   io.icache.inst_valid := icache.io.instValid
+  io.icache.inst_pc := icache.io.instPC
 
   //dcache
   for(i<- 0 to 1) {
