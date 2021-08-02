@@ -179,6 +179,8 @@ class DCache(val config: CacheConfig)
 
   val waySelReg = RegInit(VecInit(Seq.fill(2)(0.U(config.wayNumWidth.W))))
   //  val eviction = Wire(Bool()) //出现驱逐
+
+  val storeBuffer_reverse_mask = Wire(UInt(32.W))
   for (i <- 0 to 1) {
     is_hitWay(i) := cache_hit_onehot(i).asUInt().orR() // 判断是否命中cache
     state(i) := sIDLE
@@ -282,7 +284,11 @@ class DCache(val config: CacheConfig)
           dirtyMem(way).io.wea := true.B
           dirtyMem(way).io.dina := false.B
           when(bank.U === bDataWtBank(0)) {
-            m.io.dina := io.axi.readData.bits.data
+            when(storeBuffer.io.cache_query_mask=/=0.U && bank.U === config.getBankIndex(storeBuffer.io.cache_query_addr)){
+              m.io.dina := io.axi.readData.bits.data & storeBuffer_reverse_mask | storeBuffer.io.cache_query_data & storeBuffer.io.cache_query_mask
+            }.otherwise{
+              m.io.dina := io.axi.readData.bits.data
+            }
           }
         }
       }
@@ -329,12 +335,12 @@ class DCache(val config: CacheConfig)
   for (way <- 0 until config.wayNum) {
     for (bank <- 0 until config.bankNum) {
       // 读端口的数据写使能
-      bData.wEn(0)(way)(bank) := state(0) === sREFILL && waySelReg(0) === way.U && bDataWtBank(0) === bank.U
+      bData.wEn(0)(way)(bank) := (state(0) === sREFILL && waySelReg(0) === way.U && bDataWtBank(0) === bank.U)
       //          (state===sREPLACE && victim.io.find && waySelReg === way.U) ||// 如果victim buffer里找到了
       //        (state === sVictimReplace && waySelReg === way.U && bankIndex ===bank.U)||  //读/写命中victim
       // 写端口数据写使能
       bData.wEn(1)(way)(bank) := (state(1) === sLOOKUP && is_hitWay(1) && cache_hit_way(1) === way.U && bankIndex(1) === bank.U) || // 写命中
-        (state(1) === sREFILL && waySelReg(1) === way.U && (bDataWtBank(1) === bank.U || bDataWtBank(1)===bankIndex(1)) )
+        (state(1) === sREFILL && waySelReg(1) === way.U && (bDataWtBank(1) === bank.U || bank.U === bankIndex(1)) )
     }
   }
   for (way <- 0 until config.wayNum) {
@@ -375,7 +381,6 @@ class DCache(val config: CacheConfig)
    * store buffer配置
    */
   storeBuffer.io.cache_query_addr := addr_r(0)
-  val storeBuffer_reverse_mask = Wire(UInt(32.W))
   storeBuffer_reverse_mask := ~storeBuffer.io.cache_query_mask
   storeBuffer.io.cache_response := false.B
 
@@ -491,12 +496,16 @@ class DCache(val config: CacheConfig)
           when(worker.U === 0.U) {
 //            port_valid(port_r) := true.B
             io.data_ok(port_r) := true.B
-//            queue.io.deq := true.B
+            //            queue.io.deq := true.B
             io.rdata(port_r) := (bData.read(0)(cache_hit_way(0))(bankIndex(0)) & storeBuffer_reverse_mask) |
               (storeBuffer.io.cache_query_data & storeBuffer.io.cache_query_mask)
           }.elsewhen(worker.U === 1.U) {
             storeBuffer.io.cache_response := true.B
           }
+        }.elsewhen(worker.U === 0.U && storeBuffer.io.cache_query_mask === "hffff_ffff".U){
+         // store buffer hit
+          io.data_ok(port_r) := true.B
+          io.rdata(port_r) := storeBuffer.io.cache_query_data
         }.otherwise {
           //没命中,检查victim
           //        state := sCheckVictim

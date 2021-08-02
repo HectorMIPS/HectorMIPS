@@ -138,7 +138,7 @@ class MemAccessJudge(cache_all_inst:Bool=false.B) extends Module{
 
 
   io.inst.addr_ok := Mux(should_cache_inst,io.cached_inst.addr_ok,io.uncached_inst.addr_ok)
-  io.inst.data_ok := Mux(should_cache_inst,io.cached_inst.data_ok,io.uncached_inst.data_ok)
-  io.inst.rdata := Mux(should_cache_inst,io.cached_inst.rdata,io.uncached_inst.rdata)
-  io.inst.inst_valid := Mux(should_cache_inst,io.cached_inst.inst_valid,io.uncached_inst.inst_valid)
+  io.inst.data_ok := Mux(should_cache_inst_r,io.cached_inst.data_ok,io.uncached_inst.data_ok)
+  io.inst.rdata := Mux(should_cache_inst_r,io.cached_inst.rdata,io.uncached_inst.rdata)
+  io.inst.inst_valid := Mux(should_cache_inst_r,io.cached_inst.inst_valid,io.uncached_inst.inst_valid)
 }
