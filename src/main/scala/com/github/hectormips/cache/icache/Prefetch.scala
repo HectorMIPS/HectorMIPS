@@ -44,7 +44,7 @@ class Prefetch(config: CacheConfig) extends Module {
     val readAddr = Decoupled(new AXIAddr(32, 4))
     val readData = Flipped(Decoupled(new AXIReadData(32, 4)))
   })
-  val sIDLE :: sHANDSHAKE :: sREFILL :: Nil = Enum(3)
+  val sIDLE::sCheck :: sHANDSHAKE :: sREFILL :: Nil = Enum(4)
   val state = RegInit(0.U(2.W))
   val buffer = new Buffer(config)
 //  dontTouch(buffer.data)
@@ -54,7 +54,7 @@ class Prefetch(config: CacheConfig) extends Module {
   /**
    * 预取阶段
    */
-  io.use_axi := state === sHANDSHAKE
+  io.use_axi := state === sHANDSHAKE || state === sREFILL
   io.req_ready := state === sIDLE
   val req_hit_onehot = Wire(Vec(config.prefetch_buffer_size, Bool()))
   val is_req_hit = Wire(Bool())
@@ -66,6 +66,7 @@ class Prefetch(config: CacheConfig) extends Module {
     addr_r := io.req_addr
     state := sHANDSHAKE
   }
+
   when(state === sHANDSHAKE) {
     when(io.readAddr.valid && io.readAddr.ready) {
       state := sREFILL
@@ -96,7 +97,9 @@ class Prefetch(config: CacheConfig) extends Module {
    */
   val query_onehot = Wire(Vec(config.prefetch_buffer_size, Bool()))
   val query_hit = Wire(UInt(log2Ceil(config.prefetch_buffer_size).W))
-  io.query_wait := addr_r === io.query_addr
+  val query_wait_r = RegInit(false.B)
+  query_wait_r := addr_r === io.query_addr && state === sREFILL
+  io.query_wait := query_wait_r
   query_hit := OHToUInt(query_onehot)
   for (i <- 0 until config.prefetch_buffer_size) {
     query_onehot(i) := buffer.valid(i) && buffer.addr(i)(31, config.offsetWidth) === io.query_addr(31, config.offsetWidth)

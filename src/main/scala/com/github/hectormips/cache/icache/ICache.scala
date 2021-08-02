@@ -289,8 +289,6 @@ class ICache(val config: CacheConfig)
         }.otherwise {
           io.inst := Cat(prefetch.io.query_data(bankIndex + 1.U), prefetch.io.query_data(bankIndex))
         }
-      }.elsewhen(!prefetch.io.query_finded && prefetch.io.query_wait){
-        state := sQueryPrefetch
       }.otherwise {
         when(prefetch.io.use_axi){
           state := sQueryPrefetch
