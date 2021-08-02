@@ -50,11 +50,10 @@ class Prefetch(config: CacheConfig) extends Module {
 //  dontTouch(buffer.data)
   val addr_r = RegInit(0.U(32.W))
   val bankCounter = RegInit(0.U(config.bankNumWidth.W))
-
   /**
    * 预取阶段
    */
-  io.use_axi := state === sHANDSHAKE || state === sREFILL
+  io.use_axi := state === sHANDSHAKE || state === sREFILL && io.req_addr(31,config.offsetWidth) === addr_r(31,config.offsetWidth)
   io.req_ready := state === sIDLE
   val req_hit_onehot = Wire(Vec(config.prefetch_buffer_size, Bool()))
   val is_req_hit = Wire(Bool())

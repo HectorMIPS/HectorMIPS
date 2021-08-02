@@ -131,6 +131,13 @@ class MemAccessJudge(cache_all_inst:Bool=false.B) extends Module{
     io.data(i).rdata := Mux(should_cache_data(i),io.cached_data(i).rdata,io.uncached_data(i).rdata)
   }
   val queue = Module(new Queue(new QueueItem, 3))
+  val handshake = RegInit(false.B)
+  when(io.inst.req){
+    handshake := false.B
+  }
+  when(io.cached_inst.req && io.cached_inst.addr_ok || io.uncached_inst.req && io.uncached_inst.addr_ok){
+    handshake := true.B
+  }
   io.inst.addr_ok := queue.io.enq.ready
 
   queue.io.enq.bits.addr := inst_physical_addr
@@ -140,13 +147,13 @@ class MemAccessJudge(cache_all_inst:Bool=false.B) extends Module{
   queue.io.enq.bits.should_cache := should_cache_inst_c
   queue.io.enq.valid := io.inst.req
 
-  io.cached_inst.req := queue.io.deq.valid && queue.io.deq.bits.should_cache
+  io.cached_inst.req := queue.io.deq.valid && queue.io.deq.bits.should_cache && !handshake
   io.cached_inst.wr := queue.io.deq.bits.wr
   io.cached_inst.size := queue.io.deq.bits.size
   io.cached_inst.addr := queue.io.deq.bits.addr
   io.cached_inst.wdata := queue.io.deq.bits.wdata
 
-  io.uncached_inst.req := queue.io.deq.valid && queue.io.deq.bits.should_cache
+  io.uncached_inst.req := queue.io.deq.valid && !queue.io.deq.bits.should_cache && !handshake
   io.uncached_inst.wr  := queue.io.deq.bits.wr
   io.uncached_inst.size := queue.io.deq.bits.size
   io.uncached_inst.addr := queue.io.deq.bits.addr
