@@ -10,14 +10,11 @@ import chisel3.stage.{ChiselGeneratorAnnotation, ChiselStage}
 import firrtl.ir.UIntType
 
 
-//
-//class QueueItem extends Bundle{
-//  val port = UInt(1.W)
-//  val addr = UInt(32.W)
-//  val wr   = Bool()
-//  val size = UInt(2.W)
-//  val wdata = UInt(32.W)
-//}
+
+class QueueItem extends Bundle{
+  val port = UInt(1.W)
+  val addr = UInt(32.W)
+}
 
 
 class DCache(val config: CacheConfig)
@@ -50,12 +47,12 @@ class DCache(val config: CacheConfig)
   val sIDLE :: sLOOKUP :: sREPLACE :: sREFILL :: sWaiting :: sEviction :: sEvictionWaiting :: Nil = Enum(7)
   val state = RegInit(VecInit(Seq.fill(2)(0.U(3.W))))
 
-//  val queue = Module(new DcacheQueue(2))
+  val queue = Module(new Queue(new QueueItem, 3))
 //  val port_valid = RegInit(VecInit(Seq.fill(2)(true.B)))
   val storeBuffer = Module(new StoreBuffer(7))
 
-  val read_can_fire = Wire(Bool()) //允许读 且 有读请求
-  read_can_fire := io.valid(0) && io.addr_ok(0) && !io.wr(0) || io.valid(1) && io.addr_ok(1) && !io.wr(1)
+//  val read_can_fire = Wire(Bool()) //允许读 且 有读请求
+//  read_can_fire := io.valid(0) && io.addr_ok(0) && !io.wr(0) || io.valid(1) && io.addr_ok(1) && !io.wr(1)
   io.data_ok(1) := false.B
   io.data_ok(0) := false.B
   io.rdata(1) := 0.U
@@ -65,62 +62,43 @@ class DCache(val config: CacheConfig)
   io.addr_ok(0) := storeBuffer.io.cpu_ok && state(0)===sIDLE //读写都准备完成
   io.addr_ok(1) := storeBuffer.io.cpu_ok && state(0)===sIDLE
 
-//  when(!queue.io.full) {
-//    when(io.valid(0) && io.addr_ok(0) && !io.wr(0)) {
-//      queue.io.enq := true.B
-//      queue.io.in_addr := io.addr(0)
-//      queue.io.in_port := 0.U
-//      queue.io.in_size := io.size(0)
-//      port_valid(0) := false.B
-//    }.elsewhen(io.valid(1) && io.addr_ok(1) && !io.wr(1)) {
-//      queue.io.enq := true.B
-//      queue.io.in_addr := io.addr(1)
-//      queue.io.in_port := 1.U
-//      queue.io.in_size := io.size(1)
-//      port_valid(1) := false.B
-//    }.otherwise {
-//      queue.io.enq := false.B
-//      queue.io.in_addr := 0.U
-//      queue.io.in_port := 0.U
-//      queue.io.in_size := 0.U
-//    }
-//  }.otherwise {
-//    queue.io.enq := false.B
-//    queue.io.in_addr := 0.U
-//    queue.io.in_port := 0.U
-//    queue.io.in_size := 0.U
-//  }
-//  queue.io.deq := false.B
-
-
+  when(queue.io.enq.ready) {
+    when(io.valid(0) && io.addr_ok(0) && !io.wr(0)) {
+      queue.io.enq.valid := true.B
+      queue.io.enq.bits.addr := io.addr(0)
+      queue.io.enq.bits.port := 0.U
+    }.elsewhen(io.valid(1) && io.addr_ok(1) && !io.wr(1)) {
+      queue.io.enq.valid := true.B
+      queue.io.enq.bits.addr := io.addr(1)
+      queue.io.enq.bits.port := 1.U
+    }.otherwise {
+      queue.io.enq.valid := false.B
+      queue.io.enq.bits.addr := 0.U
+      queue.io.enq.bits.port := 0.U
+    }
+  }.otherwise {
+    queue.io.enq.valid := false.B
+    queue.io.enq.bits.addr := 0.U
+    queue.io.enq.bits.port := 0.U
+  }
+  queue.io.deq.ready := false.B
   storeBuffer.io.cpu_wdata := 0.U
   storeBuffer.io.cpu_req := false.B
   storeBuffer.io.cpu_addr := 0.U
   storeBuffer.io.cpu_size := 0.U
-//  val break_loop_0 = RegInit(false.B)
-//  val break_loop_1 = RegInit(false.B)
+
   when(io.wr(0) && io.addr_ok(0) && io.valid(0)) {
     storeBuffer.io.cpu_req := true.B
     storeBuffer.io.cpu_size := io.size(0)
     storeBuffer.io.cpu_addr := io.addr(0)
     storeBuffer.io.cpu_wdata := io.wdata(0)
-//    break_loop_0 := true.B
   }
   when(io.wr(1) && io.addr_ok(1) && io.valid(1)) {
     storeBuffer.io.cpu_req := true.B
     storeBuffer.io.cpu_size := io.size(1)
     storeBuffer.io.cpu_addr := io.addr(1)
     storeBuffer.io.cpu_wdata := io.wdata(1)
-//    break_loop_1 := true.B
   }
-//  when(break_loop_0) {
-//    break_loop_0 := false.B
-//    io.data_ok(0) := true.B
-//  }
-//  when(break_loop_1) {
-//    break_loop_1 := false.B
-//    io.data_ok(1) := true.B
-//  }
 
   /**
    * cache的数据
@@ -137,8 +115,6 @@ class DCache(val config: CacheConfig)
     Module(new dcache_dirty(config.lineNum))
   }
 
-  //  val selection = Module(new ByteSelection)
-  //  val wstrb = Module(new Wstrb())
 
 
   val lruMem = Module(new LruMem(config.wayNumWidth, config.indexWidth)) // lru
@@ -154,15 +130,15 @@ class DCache(val config: CacheConfig)
   //  val addr_r = RegInit(0.U(32.W)) //地址寄存器
 //  val addr_r_0 = Reg(UInt(32.W)) //地址寄存器
   val addr_r = Wire(Vec(2,UInt(32.W))) //地址寄存器
-  val addr_r_0 = RegInit(0.U(32.W))
+  addr_r(0) := queue.io.deq.bits.addr
   addr_r(1) := storeBuffer.io.cache_write_addr
 
   val wdata_r = Wire(UInt(32.W))
   //  wdata_r(0) := queue.io.deq.bits.wdata
   wdata_r := storeBuffer.io.cache_write_wdata
 
-  val port_r = Reg(UInt(1.W))
-//  port_r := queue.io.out_port
+  val port_r = Wire(UInt(1.W))
+  port_r := queue.io.deq.bits.port
 
   val bData = new BankData(config)
   val tagvData = new TAGVData(config)
@@ -188,28 +164,28 @@ class DCache(val config: CacheConfig)
     bankIndex(i) := config.getBankIndex(addr_r(i))
     tag(i) := config.getTag(addr_r(i))
   }
-  when(state(0)===sIDLE){
-    when(read_can_fire){
-      when(io.valid(0)){
-        addr_r(0) := io.addr(0)
-      }.otherwise{
-        addr_r(0) := io.addr(1)
-      }
-    }.otherwise{
-        addr_r(0) := 0.U
-    }
-  }.otherwise{
-    addr_r(0) := addr_r_0
-  }
+//  when(state(0)===sIDLE){
+//    when(read_can_fire){
+//      when(io.valid(0)){
+//        addr_r(0) := io.addr(0)
+//      }.otherwise{
+//        addr_r(0) := io.addr(1)
+//      }
+//    }.otherwise{
+//        addr_r(0) := 0.U
+//    }
+//  }.otherwise{
+//    addr_r(0) := addr_r_0
+//  }
 
 
-  when(io.valid(0) && io.addr_ok(0) && !io.wr(0)) {
-    addr_r_0 := io.addr(0)
-    port_r := 0.U
-  }.elsewhen(io.valid(1) && io.addr_ok(1) && !io.wr(1)) {
-    addr_r_0 := io.addr(1)
-    port_r:= 1.U
-  }
+//  when(io.valid(0) && io.addr_ok(0) && !io.wr(0)) {
+//    addr_r_0 := io.addr(0)
+//    port_r := 0.U
+//  }.elsewhen(io.valid(1) && io.addr_ok(1) && !io.wr(1)) {
+//    addr_r_0 := io.addr(1)
+//    port_r:= 1.U
+//  }
   /**
    * 初始化 ram
    */
@@ -451,7 +427,7 @@ class DCache(val config: CacheConfig)
     switch(state(worker)) {
       is(sIDLE) {
         when(worker.U === 0.U) {
-          when(read_can_fire) {
+          when(queue.io.count=/=0.U) {
             when(index(0) === index(1)) {
               when(state(1) === sIDLE) {
                 state(0) := sLOOKUP
@@ -466,7 +442,7 @@ class DCache(val config: CacheConfig)
           }
         }.elsewhen(worker.U === 1.U) {
           when(storeBuffer.io.cache_write_valid) {
-            when(index(0) === index(1) && (read_can_fire || state(0)===sWaiting) ) {
+            when(index(0) === index(1) && (queue.io.count=/=0.U || state(0) === sWaiting)) {
               // 等待直到读端口进入空状态
               state(1) := sIDLE
             }.otherwise {
@@ -494,16 +470,16 @@ class DCache(val config: CacheConfig)
           //
           //        }
           when(worker.U === 0.U) {
-//            port_valid(port_r) := true.B
             io.data_ok(port_r) := true.B
-            //            queue.io.deq := true.B
+            queue.io.deq.ready := true.B
             io.rdata(port_r) := (bData.read(0)(cache_hit_way(0))(bankIndex(0)) & storeBuffer_reverse_mask) |
               (storeBuffer.io.cache_query_data & storeBuffer.io.cache_query_mask)
           }.elsewhen(worker.U === 1.U) {
             storeBuffer.io.cache_response := true.B
           }
-        }.elsewhen(worker.U === 0.U && storeBuffer.io.cache_query_mask === "hffff_ffff".U){
-         // store buffer hit
+        }.elsewhen(worker.U === 0.U && storeBuffer.io.cache_query_mask === "hffff_ffff".U) {
+          // store buffer hit
+          queue.io.deq.ready := true.B
           io.data_ok(port_r) := true.B
           io.rdata(port_r) := storeBuffer.io.cache_query_data
         }.otherwise {
@@ -514,7 +490,7 @@ class DCache(val config: CacheConfig)
             state(worker) := sLOOKUP
           }.otherwise {
             io.axi.readAddr.bits.id := worker_id(worker)
-            io.axi.readAddr.bits.addr := Mux(worker.U===0.U,addr_r(0),addr_r(1))
+            io.axi.readAddr.bits.addr := Mux(worker.U === 0.U, addr_r(0), addr_r(1))
             state(worker) := sREPLACE
             waySelReg(worker) := lruMem.io.waySel
           }
@@ -525,7 +501,7 @@ class DCache(val config: CacheConfig)
         bDataWtBank(worker) := bankIndex(worker)
         when(io.axi.readAddr.ready) {
           io.axi.readAddr.bits.id := worker_id(worker)
-          io.axi.readAddr.bits.addr := Mux(worker.U===0.U,addr_r(0),addr_r(1))
+          io.axi.readAddr.bits.addr := Mux(worker.U === 0.U, addr_r(0), addr_r(1))
           when(dirtyData.read(worker)(waySelReg(worker)) === true.B) {
             state(worker) := sEvictionWaiting
             invalidateQueue.io.req(worker) := true.B
@@ -535,7 +511,7 @@ class DCache(val config: CacheConfig)
         }.otherwise {
           state(worker) := sREPLACE
           io.axi.readAddr.bits.id := worker_id(worker)
-          io.axi.readAddr.bits.addr := Mux(worker.U===0.U,addr_r(0),addr_r(1))
+          io.axi.readAddr.bits.addr := Mux(worker.U === 0.U, addr_r(0), addr_r(1))
         }
       }
       is(sEvictionWaiting) {
@@ -569,15 +545,14 @@ class DCache(val config: CacheConfig)
           when(io.axi.readData.bits.last) {
             state(worker) := sIDLE
             when(worker.U === 0.U) {
-//              queue.io.deq := true.B
-//              port_valid(port_r) := true.B
+              queue.io.deq.ready := true.B
             }.otherwise {
               storeBuffer.io.cache_response := true.B
             }
           }
         }
       }
-      is(sWaiting){
+      is(sWaiting) {
         when(index(0) === index(1)) {
           when(state(1) === sIDLE) {
             state(0) := sLOOKUP
@@ -588,18 +563,8 @@ class DCache(val config: CacheConfig)
           state(0) := sLOOKUP
         }
       }
-      //      is(sWaiting) {
-      //        state(worker) := sIDLE
-      //        io.rdata(port_r) := (bData.read(worker)(waySelReg(worker))(bankIndex(worker)) & storeBuffer_reverse_mask) |
-      //          (storeBuffer.io.cache_query_data & storeBuffer.io.cache_query_mask)
-      //        io.data_ok(port_r) := true.B
-      //        port_valid(port_r) := true.B
-      //        queue.io.deq := true.B
-      //      }
-      //    }
     }
   }
-
   /**
    * 驱逐写控制信号
    */
@@ -627,76 +592,76 @@ class DCache(val config: CacheConfig)
   //  victim.io.waddr := DontCare
 }
 
-class QueueItem extends Bundle {
-  val valid = Bool()
-  val addr = UInt(32.W)
-  val port = UInt(1.W)
-  val size = UInt(3.W)
-}
-
-class DcacheQueue(length: Int) extends Module {
-  val io = IO(new Bundle {
-    val empty = Output(Bool())
-    val full = Output(Bool())
-
-    val enq = Input(Bool())
-    val in_port = Input(UInt(1.W))
-    val in_addr = Input(UInt(32.W))
-    val in_size = Input(UInt(3.W))
-
-    val deq = Input(Bool())
-    val out_port = Output(UInt(1.W))
-    val out_addr = Output(UInt(32.W))
-    val out_size = Output(UInt(3.W))
-  })
-
-  val data = RegInit(VecInit(Seq.fill(length + 1)({
-    val item = Wire(new QueueItem)
-    item.valid := false.B
-    item.port := 0.U
-    item.addr := 0.U
-    item.size := 0.U
-    item
-  })))
-  val enq_ptr = RegInit(0.U(log2Ceil(length + 1).W))
-  val deq_ptr = RegInit(0.U(log2Ceil(length + 1).W))
-
-
-  io.empty := enq_ptr === deq_ptr
-  io.full := enq_ptr === deq_ptr - 1.U
-  when(io.enq && !io.full) {
-    enq_data().valid := true.B
-    enq_data().addr := io.in_addr
-    enq_data().port := io.in_port
-    enq_data().size := io.in_size
-    when(enq_ptr === length.U) {
-      enq_ptr := 0.U
-    }.otherwise {
-      enq_ptr := enq_ptr + 1.U
-    }
-  }
-  io.out_size := deq_data().size
-  io.out_port := deq_data().port
-  io.out_addr := deq_data().addr
-
-  when(io.deq && !io.empty) {
-    deq_data().valid := false.B
-    when(deq_ptr === length.U) {
-      deq_ptr := 0.U
-    }.otherwise {
-      deq_ptr := deq_ptr + 1.U
-
-    }
-  }
-
-  def enq_data(): QueueItem = {
-    data(enq_ptr)
-  }
-
-  def deq_data(): QueueItem = {
-    data(deq_ptr)
-  }
-}
+//class QueueItem extends Bundle {
+//  val valid = Bool()
+//  val addr = UInt(32.W)
+//  val port = UInt(1.W)
+//  val size = UInt(3.W)
+//}
+//
+//class DcacheQueue(length: Int) extends Module {
+//  val io = IO(new Bundle {
+//    val empty = Output(Bool())
+//    val full = Output(Bool())
+//
+//    val enq = Input(Bool())
+//    val in_port = Input(UInt(1.W))
+//    val in_addr = Input(UInt(32.W))
+//    val in_size = Input(UInt(3.W))
+//
+//    val deq = Input(Bool())
+//    val out_port = Output(UInt(1.W))
+//    val out_addr = Output(UInt(32.W))
+//    val out_size = Output(UInt(3.W))
+//  })
+//
+//  val data = RegInit(VecInit(Seq.fill(length + 1)({
+//    val item = Wire(new QueueItem)
+//    item.valid := false.B
+//    item.port := 0.U
+//    item.addr := 0.U
+//    item.size := 0.U
+//    item
+//  })))
+//  val enq_ptr = RegInit(0.U(log2Ceil(length + 1).W))
+//  val deq_ptr = RegInit(0.U(log2Ceil(length + 1).W))
+//
+//
+//  io.empty := enq_ptr === deq_ptr
+//  io.full := enq_ptr === deq_ptr - 1.U
+//  when(io.enq && !io.full) {
+//    enq_data().valid := true.B
+//    enq_data().addr := io.in_addr
+//    enq_data().port := io.in_port
+//    enq_data().size := io.in_size
+//    when(enq_ptr === length.U) {
+//      enq_ptr := 0.U
+//    }.otherwise {
+//      enq_ptr := enq_ptr + 1.U
+//    }
+//  }
+//  io.out_size := deq_data().size
+//  io.out_port := deq_data().port
+//  io.out_addr := deq_data().addr
+//
+//  when(io.deq && !io.empty) {
+//    deq_data().valid := false.B
+//    when(deq_ptr === length.U) {
+//      deq_ptr := 0.U
+//    }.otherwise {
+//      deq_ptr := deq_ptr + 1.U
+//
+//    }
+//  }
+//
+//  def enq_data(): QueueItem = {
+//    data(enq_ptr)
+//  }
+//
+//  def deq_data(): QueueItem = {
+//    data(deq_ptr)
+//  }
+//}
 
 object DCache extends App {
   new ChiselStage execute(args, Seq(ChiselGeneratorAnnotation(

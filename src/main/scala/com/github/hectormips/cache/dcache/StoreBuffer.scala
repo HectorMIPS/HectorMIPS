@@ -4,6 +4,7 @@ import chisel3.util._
 import com.github.hectormips.cache.utils.Wstrb
 
 import scala.collection.immutable.Nil
+import scala.collection.script.Include
 
 
 class StoreBuffer(length:Int) extends Module{
@@ -42,8 +43,13 @@ class StoreBuffer(length:Int) extends Module{
   val wstrb = Module(new Wstrb)
   val full_mask = Wire(UInt(32.W))
   val reverse_full_mask = Wire(UInt(32.W))
-  wstrb.io.size := io.cpu_size
-  wstrb.io.offset := io.cpu_addr(1,0)
+  val tmp_size = Reg(UInt(3.W))
+  val tmp_addr = Reg(UInt(32.W))
+  val tmp_wdata = Reg(UInt(32.W))
+  val tmp_valid = RegInit(false.B)
+
+  wstrb.io.size := tmp_size
+  wstrb.io.offset := tmp_addr(1,0)
   /**
    * 处理cache请求
    */
@@ -51,7 +57,7 @@ class StoreBuffer(length:Int) extends Module{
   cache_query_addr_r := io.cache_query_addr
   for(i <- 0 to length){ //0~7都可以填充 但是最多只能放7个
     cache_hit_queue_onehot(i) := buffer.data(i).valid &&  buffer.data(i).addr(31,2) === cache_query_addr_r(31,2)
-    cpu_hit_queue_onehot(i) := buffer.data(i).valid &&  buffer.data(i).addr(31,2) === io.cpu_addr(31,2)
+    cpu_hit_queue_onehot(i) := buffer.data(i).valid &&  buffer.data(i).addr(31,2) === tmp_addr(31,2)
   }
   cache_hit_queue_index := OHToUInt(cache_hit_queue_onehot)
   when(cache_is_hit_queue){
@@ -70,20 +76,28 @@ class StoreBuffer(length:Int) extends Module{
    */
 
   io.cpu_ok := !buffer.full()
+
   when(io.cpu_req && io.cpu_ok){
+    tmp_size  := io.cpu_size
+    tmp_addr  := io.cpu_addr
+    tmp_wdata := io.cpu_wdata
+    tmp_valid := true.B
+  }
+  when(tmp_valid){
     when(cpu_is_hit_queue){
       // 合并同类项
       buffer.data(cpu_hit_queue_index).wstrb :=  wstrb.io.mask | buffer.data(cpu_hit_queue_index).wstrb
       buffer.data(cpu_hit_queue_index).wdata := buffer.data(cpu_hit_queue_index).wdata & reverse_full_mask |
-        io.cpu_wdata & full_mask
+        tmp_wdata & full_mask
     }.otherwise {
       buffer.enq_data().wstrb := wstrb.io.mask
-      buffer.enq_data().addr := io.cpu_addr
-      buffer.enq_data().wdata := io.cpu_wdata
+      buffer.enq_data().addr := tmp_addr
+      buffer.enq_data().wdata := tmp_wdata
       buffer.enq_data().valid := true.B
       //    buffer.enq_data().port := io.cpu_port
       buffer.enq()
     }
+    tmp_valid := false.B
   }
 
   /**
