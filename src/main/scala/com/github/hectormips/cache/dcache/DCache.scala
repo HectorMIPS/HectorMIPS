@@ -445,7 +445,7 @@ class DCache(val config: CacheConfig)
 
   //  lookupReadyGO := state(0) === sLOOKUP && state(1)=/=sIDLE && state(1) =/= s
 
-  io.axi.readAddr.valid := false.B
+  io.axi.readAddr.valid := state(0)===sREPLACE || state(1)===sREPLACE
   //  victim.io.qaddr := Cat(addr_r(31,config.offsetWidth),0.U(config.offsetWidth.W))
   for (worker <- 0 to 1) {
     switch(state(worker)) {
@@ -515,7 +515,6 @@ class DCache(val config: CacheConfig)
           }.otherwise {
             io.axi.readAddr.bits.id := worker_id(worker)
             io.axi.readAddr.bits.addr := Mux(worker.U===0.U,addr_r(0),addr_r(1))
-            io.axi.readAddr.valid := true.B
             state(worker) := sREPLACE
             waySelReg(worker) := lruMem.io.waySel
           }
@@ -535,7 +534,6 @@ class DCache(val config: CacheConfig)
           }
         }.otherwise {
           state(worker) := sREPLACE
-          io.axi.readAddr.valid := true.B
           io.axi.readAddr.bits.id := worker_id(worker)
           io.axi.readAddr.bits.addr := Mux(worker.U===0.U,addr_r(0),addr_r(1))
         }
