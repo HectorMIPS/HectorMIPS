@@ -87,7 +87,7 @@ class ICache(val config: CacheConfig)
   val nextline_tag = Wire(UInt(config.tagWidth.W))
   val waySelReg = RegInit(0.U(config.wayNumWidth.W))
   val prefetch_addr = Wire(UInt(32.W))
-  prefetch_addr := Cat(addr(31, config.offsetWidth), 0.U(config.offsetWidth.W)) + (4 * config.bankNum).U
+  prefetch_addr := Cat(addr_r(31, config.offsetWidth), 0.U(config.offsetWidth.W)) + (4 * config.bankNum).U
   index := config.getIndex(addr_r)
   nextline_index := config.getIndex(prefetch_addr)
   bankIndex := config.getBankIndex(addr_r)
