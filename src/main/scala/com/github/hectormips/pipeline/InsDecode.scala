@@ -88,6 +88,7 @@ class InsDecode extends Module {
   val issuer                   : Issuer                 = Module(new Issuer)
   // 如果当前有两条指令，只有一条能被发射，同时新进入了两条指令，则靠后的一条会被存储在extra_ins_buffer中
   val issue_remain_buffer      : UInt                   = RegInit(0.U(32.W))
+  val issue_ramain_pc          : UInt                   = RegInit(0.U(32.W))
   val issue_remain_buffer_valid: Bool                   = RegInit(0.B)
 
 
@@ -97,9 +98,9 @@ class InsDecode extends Module {
     io.if_id_in.ins_valid_if_id(0), io.if_id_in.ins_valid_if_id(1)) && io.if_id_in.bus_valid
 
   decoders(0).in.pc_debug := Mux(issue_remain_buffer_valid,
-    io.if_id_in.pc_debug_if_id - 4.U, io.if_id_in.pc_debug_if_id)
+    issue_ramain_pc, io.if_id_in.pc_debug_if_id)
   decoders(1).in.pc_debug := Mux(issue_remain_buffer_valid,
-    io.if_id_in.pc_debug_if_id, io.if_id_in.pc_debug_if_id + 4.U)
+    issue_ramain_pc + 4.U, io.if_id_in.pc_debug_if_id + 4.U)
 
   decoders(0).in.instruction := Mux(issue_remain_buffer_valid,
     issue_remain_buffer, io.if_id_in.ins_if_id(31, 0))
@@ -126,8 +127,11 @@ class InsDecode extends Module {
     io.if_id_in.ins_valid_if_id(1) -> 2.U,
     io.if_id_in.ins_valid_if_id(0) -> 1.U,
   ))
-  val ins1_ready     : Bool = !decoders(0).out_hazard.load_to_regular && !decoders(0).out_hazard.load_to_branch
-  val ins2_ready     : Bool = !decoders(1).out_hazard.load_to_regular && !decoders(1).out_hazard.load_to_branch
+  val ins1_ready     : Bool = !decoders(0).out_hazard.load_to_regular &&
+    !(decoders(0).out_branch.is_jump && (decoders(0).out_hazard.load_to_branch || decoders(0).out_hazard.ex_to_branch))
+  val ins2_ready     : Bool = !decoders(1).out_hazard.load_to_regular &&
+    !(decoders(1).out_branch.is_jump && (decoders(1).out_hazard.load_to_branch || decoders(1).out_hazard.ex_to_branch))
+
 
   // 当准备被发射的指令没有冲突可以进入下一个阶段的时候准入指令
   val ready_go: Bool = MuxCase(0.B, Seq(
@@ -155,6 +159,8 @@ class InsDecode extends Module {
   when(wait_for_delay_slot && !io.flush && io.next_allowin && ready_go) {
     issue_remain_buffer := Mux(decoders(0).out_branch.is_jump || issue_from_buffer,
       io.if_id_in.ins_if_id(31, 0), io.if_id_in.ins_if_id(63, 32))
+    issue_ramain_pc := Mux(decoders(0).out_branch.is_jump || issue_from_buffer,
+      io.if_id_in.pc_debug_if_id, io.if_id_in.pc_debug_if_id + 4.U)
     issue_remain_buffer_valid := 1.B
   }.elsewhen(
     // 有两条指令在发射槽中，buffer未被占用，只发射一条时
@@ -164,6 +170,7 @@ class InsDecode extends Module {
       // 如果只发射了buffer中的指令，并且剩下两条指令有效，则不需要将其存入buffer
       !io.flush && io.next_allowin && ready_go && io.if_id_in.ins_valid_if_id(1) && io.if_id_in.bus_valid) {
     issue_remain_buffer := io.if_id_in.ins_if_id(63, 32)
+    issue_ramain_pc := io.if_id_in.pc_debug_if_id + 4.U
     issue_remain_buffer_valid := 1.B
   }.elsewhen(issue_from_buffer && ready_go && io.next_allowin && io.if_id_in.bus_valid) {
     // buffer中的内容被发射后需要将其置无效
@@ -177,7 +184,10 @@ class InsDecode extends Module {
     // 如果有跳转行为并且执行了跳转才将buffer中的内容置为无效
     issue_remain_buffer_valid := 0.B
   }
-
+  val jump_bus_valid: Bool = decoders(0).out_regular.ins_valid && decoders(0).out_branch.is_jump &&
+    decoders(0).out_branch.jump_taken && !wait_for_delay_slot && io.if_id_in.bus_valid &&
+    !decoders(0).out_hazard.load_to_branch && !decoders(0).out_hazard.ex_to_branch
+  val jump_taken    : Bool = decoders(0).out_branch.jump_taken && !wait_for_delay_slot
   // 直到buffer的指令被发射之前，bus都是有效的
   io.this_allowin := io.next_allowin && !reset.asBool() && ready_go &&
     // 在等待延迟槽指令并且buffer中内容有效的情况下，至少把buffer中原有的指令发射出去
@@ -186,17 +196,16 @@ class InsDecode extends Module {
       Mux(wait_for_delay_slot && issue_remain_buffer_valid, issue_from_buffer,
         issue_from_slot1 || issue_from_slot2), 1.B)
 
+
   // 如果有分支指令，仅当其在槽1时有效
   io.id_pf_out.jump_sel_id_pf := decoders(0).out_branch.jump_sel
   io.id_pf_out.jump_val_id_pf := decoders(0).out_branch.jump_val
   io.id_pf_out.is_jump := decoders(0).out_branch.is_jump
   // 仅在槽0是跳转并且延迟槽指令准备就绪时才对pf进行控制
-  io.id_pf_out.bus_valid := decoders(0).out_regular.ins_valid && decoders(0).out_branch.is_jump &&
-    decoders(0).out_branch.jump_taken && !wait_for_delay_slot && io.if_id_in.bus_valid &&
-    !decoders(0).out_hazard.load_to_branch
-  io.id_pf_out.jump_taken := decoders(0).out_branch.jump_taken && !wait_for_delay_slot
+  io.id_pf_out.bus_valid := jump_bus_valid
+  io.id_pf_out.jump_taken := jump_taken
   io.id_pf_out.stall_id_pf := decoders(0).out_regular.ins_valid && decoders(0).out_branch.is_jump &&
-    decoders(1).out_regular.ins_valid && decoders(0).out_hazard.load_to_branch
+    decoders(1).out_regular.ins_valid && (decoders(0).out_hazard.load_to_branch || decoders(1).out_hazard.ex_to_branch)
 
 
   val has_waw_hazard  : Bool = issuer.io.out.waw_hazard

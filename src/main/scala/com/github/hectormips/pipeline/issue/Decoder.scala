@@ -59,6 +59,7 @@ class DecoderBranchOut extends Bundle {
 class DecoderHazardOut extends Bundle {
   // load冲突是由写寄存器堆数据来源于cp0或者是内存引起的
   val load_to_branch : Bool = Bool()
+  val ex_to_branch   : Bool = Bool()
   val load_to_regular: Bool = Bool()
 }
 
@@ -239,8 +240,11 @@ class Decoder extends Module {
   offset := Cat(VecInit(Seq.fill(14)(instruction(15))).asUInt(), instruction(15, 0), 0.U(2.W)).asSInt()
   instr_index := instruction(25, 0)
 
-  val regfile_read1_with_bypass: UInt = Wire(UInt(32.W))
-  val regfile_read2_with_bypass: UInt = Wire(UInt(32.W))
+  val regfile_read1_with_bypass          : UInt = Wire(UInt(32.W))
+  val regfile_read2_with_bypass          : UInt = Wire(UInt(32.W))
+  // 摒弃来自于ex阶段前递的读数据
+  val regfile_read1_with_bypass_except_ex: UInt = Wire(UInt(32.W))
+  val regfile_read2_with_bypass_except_ex: UInt = Wire(UInt(32.W))
 
   def bypassDataPair(rf_addr: UInt, bypass: BypassMsgBundle): (Bool, UInt) = {
     (bypass.bus_valid && bypass.data_valid && bypass.reg_addr === rf_addr) -> bypass.reg_data
@@ -257,11 +261,23 @@ class Decoder extends Module {
     )))
   }
 
+  def regfileReadGenExceptEx(rf_addr: UInt, rf_read: UInt): UInt = {
+    Mux(rf_addr === 0.U, 0.U, MuxCase(rf_read, Seq(
+      bypassDataPair(rf_addr, io.in.bypass_bus.bp_ms_id(1)),
+      bypassDataPair(rf_addr, io.in.bypass_bus.bp_ms_id(0)),
+      bypassDataPair(rf_addr, io.in.bypass_bus.bp_wb_id(1)),
+      bypassDataPair(rf_addr, io.in.bypass_bus.bp_wb_id(0)),
+    )))
+  }
+
   regfile_read1_with_bypass := regfileReadGen(rs, io.in.regfile_read1)
   regfile_read2_with_bypass := regfileReadGen(rt, io.in.regfile_read2)
-  val regfile1_eq_regfile2: Bool = regfile_read1_with_bypass === regfile_read2_with_bypass
-  val regfile1_gt_0       : Bool = regfile_read1_with_bypass.asSInt() > 0.S
-  val regfile1_ge_0       : Bool = regfile_read1_with_bypass.asSInt() >= 0.S
+  regfile_read1_with_bypass_except_ex := regfileReadGenExceptEx(rs, io.in.regfile_read1)
+  regfile_read2_with_bypass_except_ex := regfileReadGenExceptEx(rt, io.in.regfile_read2)
+  val regfile1_eq_regfile2: Bool = regfile_read1_with_bypass_except_ex === regfile_read2_with_bypass_except_ex
+  val regfile1_gt_0       : Bool = regfile_read1_with_bypass_except_ex.asSInt() > 0.S
+  val regfile1_ge_0       : Bool = regfile_read1_with_bypass_except_ex.asSInt() >= 0.S
+  // 如果跳转指令需要使用寄存器堆的数据，不使用来自ex阶段的前递，缩短关键路径
   io.out_branch.jump_sel := MuxCase(InsJumpSel.nop, Seq(
     (ins_addu | ins_add | ins_addiu | ins_addi | ins_subu | ins_sub | ins_lw | ins_lb |
       ins_lbu | ins_lh | ins_lhu | ins_sw | ins_sh | ins_sb |
@@ -371,8 +387,13 @@ class Decoder extends Module {
       ((src2_sel === AluSrc2Sel.regfile_read2 || jump_use_regfile_read2) && bypass_addr === rt))
   }
 
+  // 如果从ex阶段的前递有效，不论数据是否准备完毕都需要停滞一拍
+  val ex_branch_hazard: Bool = hasBranchHazard(io.in.bypass_bus.bp_ex_id(0).bus_valid, io.in.bypass_bus.bp_ex_id(0).reg_addr) ||
+    hasBranchHazard(io.in.bypass_bus.bp_ex_id(1).bus_valid, io.in.bypass_bus.bp_ex_id(1).reg_addr)
+
   io.out_hazard.load_to_branch := load_branch_hazard
   io.out_hazard.load_to_regular := load_regular_hazard
+  io.out_hazard.ex_to_branch := ex_branch_hazard
 
 
   src1_sel := MuxCase(AluSrc1Sel.nop, Seq(
@@ -469,7 +490,6 @@ class Decoder extends Module {
   io.out_regular.rs := rs
   io.out_regular.sa_32 := sa
   io.out_regular.imm_32 := imm_signed.asUInt()
-
 
 
   io.out_regular.mem_data_sel := MuxCase(MemDataSel.word, Seq(
