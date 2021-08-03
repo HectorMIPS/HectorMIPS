@@ -72,7 +72,7 @@ class BTBTrue(size: Int) extends Module {
     // 预测值
     io.predicts(i).target := target_table(find_index.result)
     // 预测是否成功
-    io.predicts(i).predict := 1.B
+    io.predicts(i).predict := find_index.is_find & valid_table(find_index.result)
   }
 
   // ex段 pc查找结果
