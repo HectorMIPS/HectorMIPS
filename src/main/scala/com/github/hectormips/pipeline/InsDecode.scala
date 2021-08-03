@@ -126,8 +126,11 @@ class InsDecode extends Module {
     io.if_id_in.ins_valid_if_id(1) -> 2.U,
     io.if_id_in.ins_valid_if_id(0) -> 1.U,
   ))
-  val ins1_ready     : Bool = !decoders(0).out_hazard.load_to_regular && !decoders(0).out_hazard.load_to_branch
-  val ins2_ready     : Bool = !decoders(1).out_hazard.load_to_regular && !decoders(1).out_hazard.load_to_branch
+  val ins1_ready     : Bool = !decoders(0).out_hazard.load_to_regular &&
+    !(decoders(0).out_branch.is_jump && (decoders(0).out_hazard.load_to_branch || decoders(0).out_hazard.ex_to_branch))
+  val ins2_ready     : Bool = !decoders(1).out_hazard.load_to_regular &&
+    !(decoders(1).out_branch.is_jump && (decoders(1).out_hazard.load_to_branch || decoders(1).out_hazard.ex_to_branch))
+
 
   // 当准备被发射的指令没有冲突可以进入下一个阶段的时候准入指令
   val ready_go: Bool = MuxCase(0.B, Seq(
@@ -193,10 +196,10 @@ class InsDecode extends Module {
   // 仅在槽0是跳转并且延迟槽指令准备就绪时才对pf进行控制
   io.id_pf_out.bus_valid := decoders(0).out_regular.ins_valid && decoders(0).out_branch.is_jump &&
     decoders(0).out_branch.jump_taken && !wait_for_delay_slot && io.if_id_in.bus_valid &&
-    !decoders(0).out_hazard.load_to_branch
+    !decoders(0).out_hazard.load_to_branch && !decoders(0).out_hazard.ex_to_branch
   io.id_pf_out.jump_taken := decoders(0).out_branch.jump_taken && !wait_for_delay_slot
   io.id_pf_out.stall_id_pf := decoders(0).out_regular.ins_valid && decoders(0).out_branch.is_jump &&
-    decoders(1).out_regular.ins_valid && decoders(0).out_hazard.load_to_branch
+    decoders(1).out_regular.ins_valid && (decoders(0).out_hazard.load_to_branch || decoders(1).out_hazard.ex_to_branch)
 
 
   val has_waw_hazard  : Bool = issuer.io.out.waw_hazard
