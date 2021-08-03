@@ -14,6 +14,8 @@ class QueueItem extends Bundle{
   val wdata         = UInt(32.W)
   val size         = UInt(3.W)
   val wr           = Bool()
+  val jump         = Vec(2,Bool())
+  val target       = Vec(2,UInt(32.W))
 }
 
 /**
@@ -136,6 +138,8 @@ class MemAccessJudge(cache_all_inst:Bool=false.B) extends Module{
   queue.io.enq.bits.wdata := io.inst.wdata
   queue.io.enq.bits.should_cache := should_cache_inst_c
   queue.io.enq.valid := io.inst.req
+  queue.io.enq.bits.jump := io.inst.inst_predict_jump_out
+  queue.io.enq.bits.target := io.inst.inst_predict_jump_target_out
   val handshake = RegInit(false.B)
   val physical_inst_addr = Wire(UInt(32.W))
   val physical_queue_inst_addr = Wire(UInt(32.W))
@@ -164,9 +168,15 @@ class MemAccessJudge(cache_all_inst:Bool=false.B) extends Module{
   io.inst.data_ok := Mux(queue.io.deq.bits.should_cache,io.cached_inst.data_ok,io.uncached_inst.data_ok)
   io.inst.rdata := Mux(queue.io.deq.bits.should_cache,io.cached_inst.rdata,io.uncached_inst.rdata)
   io.inst.inst_valid := Mux(queue.io.deq.bits.should_cache,io.cached_inst.inst_valid,io.uncached_inst.inst_valid)
+  io.inst.inst_predict_jump_in := queue.io.deq.bits.jump
+  io.inst.inst_predict_jump_target_in := queue.io.deq.bits.target
   io.inst.inst_pc := queue.io.deq.bits.addr
   queue.io.deq.ready := io.inst.data_ok
 
+  io.cached_inst.inst_predict_jump_target_out := DontCare
+  io.cached_inst.inst_predict_jump_out := DontCare
+  io.uncached_inst.inst_predict_jump_target_out := DontCare
+  io.uncached_inst.inst_predict_jump_out := DontCare
 
 
   def physical_addr(virtual_addr:UInt):UInt={

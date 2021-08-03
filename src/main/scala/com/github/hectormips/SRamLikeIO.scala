@@ -19,6 +19,12 @@ class SRamLikeIO(data_width: Int = 32) extends Bundle {
 class SRamLikeInstIO extends SRamLikeIO(64) {
   val inst_valid: UInt = Input(UInt(2.W))
   val inst_pc   : UInt = Input(UInt(32.W))
+
+  val inst_predict_jump_out       : Vec[Bool] = Output(Vec(2, Bool()))
+  val inst_predict_jump_target_out: Vec[UInt] = Output(Vec(2, UInt(32.W)))
+
+  val inst_predict_jump_in       : Vec[Bool] = Input(Vec(2, Bool()))
+  val inst_predict_jump_target_in: Vec[UInt] = Input(Vec(2, UInt(32.W)))
 }
 
 class SRamLikeDataIO extends SRamLikeIO(32) {

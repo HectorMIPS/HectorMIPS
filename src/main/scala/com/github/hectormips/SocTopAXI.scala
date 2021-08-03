@@ -19,6 +19,7 @@ class SocTopSRamLikeBundle extends Bundle {
   forceName(debug.debug_wb_rf_wen, "debug_wb_rf_wen")
   forceName(debug.debug_wb_rf_wnum, "debug_wb_rf_wnum")
   forceName(debug.debug_wb_rf_wdata, "debug_wb_rf_wdata")
+  forceName(debug.debug_flush, "debug_fifo_flush")
 }
 
 
@@ -35,10 +36,7 @@ class SocTopAXI extends Module {
     io.axi_io.force_name()
     cpu_top.io.interrupt := io.interrupt
 
-    io.debug.debug_wb_pc := Cat(cpu_top.io.debug.debug_wb_pc, cpu_top.io.debug.debug_wb_pc)
-    io.debug.debug_wb_rf_wnum := Cat(cpu_top.io.debug.debug_wb_rf_wnum, cpu_top.io.debug.debug_wb_rf_wnum)
-    io.debug.debug_wb_rf_wen := Cat(cpu_top.io.debug.debug_wb_rf_wen, cpu_top.io.debug.debug_wb_rf_wen)
-    io.debug.debug_wb_rf_wdata := Cat(cpu_top.io.debug.debug_wb_rf_wdata, cpu_top.io.debug.debug_wb_rf_wdata)
+    io.debug <> cpu_top.io.debug
 
 
     mem_judge.io.inst.req := cpu_top.io.inst_sram_like_io.req
@@ -47,6 +45,11 @@ class SocTopAXI extends Module {
     mem_judge.io.inst.addr := cpu_top.io.inst_sram_like_io.addr
     mem_judge.io.inst.wdata := cpu_top.io.inst_sram_like_io.wdata
     mem_judge.io.inst.wr := cpu_top.io.inst_sram_like_io.wr
+    mem_judge.io.inst.inst_predict_jump_out := cpu_top.io.inst_sram_like_io.inst_predict_jump_out
+    mem_judge.io.inst.inst_predict_jump_target_out := cpu_top.io.inst_sram_like_io.inst_predict_jump_target_out
+    cpu_top.io.inst_sram_like_io.inst_predict_jump_in := mem_judge.io.inst.inst_predict_jump_in
+    cpu_top.io.inst_sram_like_io.inst_predict_jump_target_in := mem_judge.io.inst.inst_predict_jump_target_in
+
     cpu_top.io.inst_sram_like_io.addr_ok := mem_judge.io.inst.addr_ok
     cpu_top.io.inst_sram_like_io.data_ok := mem_judge.io.inst.data_ok
     cpu_top.io.inst_sram_like_io.rdata := mem_judge.io.inst.rdata

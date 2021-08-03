@@ -37,9 +37,11 @@ object HiloSel extends OneHotEnum {
 }
 
 class FetchDecodeBundle extends WithValid {
-  val ins_if_id      : UInt = UInt(64.W)
-  val pc_debug_if_id : UInt = UInt(32.W)
-  val ins_valid_if_id: UInt = UInt(2.W)
+  val ins_if_id                : UInt      = UInt(64.W)
+  val pc_debug_if_id           : UInt      = UInt(32.W)
+  val ins_valid_if_id          : UInt      = UInt(2.W)
+  val predict_jump_taken_if_id : Vec[Bool] = Vec(2, Bool())
+  val predict_jump_target_if_id: Vec[UInt] = Vec(2, UInt(32.W))
 
 
   override def defaults(): Unit = {
@@ -47,6 +49,8 @@ class FetchDecodeBundle extends WithValid {
     ins_if_id := 0.U
     pc_debug_if_id := 0xbfbffffcL.U
     ins_valid_if_id := 0.U
+    predict_jump_taken_if_id := VecInit(Seq.fill(2)(0.B))
+    predict_jump_target_if_id := VecInit(Seq.fill(2)(0xbfc00000L.U))
   }
 }
 
@@ -76,20 +80,23 @@ class InsDecodeBundle extends WithAllowin {
 
   val id_pf_out: DecodePreFetchBundle = Output(new DecodePreFetchBundle)
 
-  val id_ex_out: Vec[DecodeExecuteBundle] = Output(Vec(2, new DecodeExecuteBundle))
-  val flush    : Bool                     = Input(Bool())
+  val id_ex_out  : Vec[DecodeExecuteBundle] = Output(Vec(2, new DecodeExecuteBundle))
+  val id_pred_out: DecoderPredictorBundle   = Output(new DecoderPredictorBundle)
+  val flush      : Bool                     = Input(Bool())
 
 }
 
 class InsDecode extends Module {
-  val io                       : InsDecodeBundle        = IO(new InsDecodeBundle)
-  val decoders                 : Vec[Decoder#DecoderIO] = VecInit(Seq.fill(2)(Module(new Decoder).io))
+  val io                         : InsDecodeBundle        = IO(new InsDecodeBundle)
+  val decoders                   : Vec[Decoder#DecoderIO] = VecInit(Seq.fill(2)(Module(new Decoder).io))
   // 给出发射控制信号
-  val issuer                   : Issuer                 = Module(new Issuer)
+  val issuer                     : Issuer                 = Module(new Issuer)
   // 如果当前有两条指令，只有一条能被发射，同时新进入了两条指令，则靠后的一条会被存储在extra_ins_buffer中
-  val issue_remain_buffer      : UInt                   = RegInit(0.U(32.W))
-  val issue_ramain_pc          : UInt                   = RegInit(0.U(32.W))
-  val issue_remain_buffer_valid: Bool                   = RegInit(0.B)
+  val issue_remain_buffer        : UInt                   = RegInit(0.U(32.W))
+  val issue_ramain_pc            : UInt                   = RegInit(0.U(32.W))
+  val issue_remain_predict       : Bool                   = RegInit(0.B)
+  val issue_remain_predict_target: UInt                   = RegInit(0.U(32.W))
+  val issue_remain_buffer_valid  : Bool                   = RegInit(0.B)
 
 
   decoders(0).in.ins_valid := Mux(issue_remain_buffer_valid,
@@ -100,7 +107,17 @@ class InsDecode extends Module {
   decoders(0).in.pc_debug := Mux(issue_remain_buffer_valid,
     issue_ramain_pc, io.if_id_in.pc_debug_if_id)
   decoders(1).in.pc_debug := Mux(issue_remain_buffer_valid,
-    issue_ramain_pc + 4.U, io.if_id_in.pc_debug_if_id + 4.U)
+    io.if_id_in.pc_debug_if_id, io.if_id_in.pc_debug_if_id + 4.U)
+
+  decoders(0).in.predict_jump_taken := Mux(issue_remain_buffer_valid,
+    issue_remain_predict, io.if_id_in.predict_jump_taken_if_id(0))
+  decoders(1).in.predict_jump_taken := Mux(issue_remain_buffer_valid,
+    io.if_id_in.predict_jump_taken_if_id(0), io.if_id_in.predict_jump_taken_if_id(1))
+
+  decoders(0).in.predict_jump_target := Mux(issue_remain_buffer_valid,
+    issue_remain_predict_target, io.if_id_in.predict_jump_target_if_id(0))
+  decoders(1).in.predict_jump_target := Mux(issue_remain_buffer_valid,
+    io.if_id_in.predict_jump_taken_if_id(0), io.if_id_in.predict_jump_target_if_id(1))
 
   decoders(0).in.instruction := Mux(issue_remain_buffer_valid,
     issue_remain_buffer, io.if_id_in.ins_if_id(31, 0))
@@ -162,6 +179,17 @@ class InsDecode extends Module {
     issue_ramain_pc := Mux(decoders(0).out_branch.is_jump || issue_from_buffer,
       io.if_id_in.pc_debug_if_id, io.if_id_in.pc_debug_if_id + 4.U)
     issue_remain_buffer_valid := 1.B
+    issue_remain_predict := Mux(decoders(0).out_branch.is_jump || issue_from_buffer,
+      io.if_id_in.predict_jump_taken_if_id(0), io.if_id_in.predict_jump_taken_if_id(1))
+    issue_remain_predict_target := Mux(decoders(0).out_branch.is_jump || issue_from_buffer,
+      io.if_id_in.predict_jump_target_if_id(0), io.if_id_in.predict_jump_target_if_id(1))
+  }.elsewhen(decoders(0).out_regular.ins_valid && decoders(0).out_branch.is_jump &&
+    (decoders(0).out_branch.predict_fail || (decoders(0).out_branch.jump_taken && issue_from_buffer)) &&
+    decoders(1).out_regular.ins_valid && ready_go && io.next_allowin && io.if_id_in.bus_valid) {
+    // 如果有跳转行为并且行为与预测结果不一致，
+    // 或者预测正确，有跳转的情况下来自于if的两条指令中第一条是延迟槽指令时
+    // 将buffer中的内容置为无效
+    issue_remain_buffer_valid := 0.B
   }.elsewhen(
     // 有两条指令在发射槽中，buffer未被占用，只发射一条时
     ((!issue_from_buffer && issue_from_slot1 && !issue_from_slot2 && io.if_id_in.ins_valid_if_id(1)) ||
@@ -171,6 +199,8 @@ class InsDecode extends Module {
       !io.flush && io.next_allowin && ready_go && io.if_id_in.ins_valid_if_id(1) && io.if_id_in.bus_valid) {
     issue_remain_buffer := io.if_id_in.ins_if_id(63, 32)
     issue_ramain_pc := io.if_id_in.pc_debug_if_id + 4.U
+    issue_remain_predict := io.if_id_in.predict_jump_taken_if_id(1)
+    issue_remain_predict_target := io.if_id_in.predict_jump_target_if_id(1)
     issue_remain_buffer_valid := 1.B
   }.elsewhen(issue_from_buffer && ready_go && io.next_allowin && io.if_id_in.bus_valid) {
     // buffer中的内容被发射后需要将其置无效
@@ -178,14 +208,9 @@ class InsDecode extends Module {
   }.elsewhen(io.flush) {
     issue_remain_buffer_valid := 0.B
   }
-  when(issue_remain_buffer_valid &&
-    decoders(0).out_regular.ins_valid && decoders(0).out_branch.is_jump && decoders(0).out_branch.jump_taken &&
-    decoders(1).out_regular.ins_valid && ready_go && io.next_allowin && io.if_id_in.bus_valid) {
-    // 如果有跳转行为并且执行了跳转才将buffer中的内容置为无效
-    issue_remain_buffer_valid := 0.B
-  }
+
   val jump_bus_valid: Bool = decoders(0).out_regular.ins_valid && decoders(0).out_branch.is_jump &&
-    decoders(0).out_branch.jump_taken && !wait_for_delay_slot && io.if_id_in.bus_valid &&
+    !wait_for_delay_slot && io.if_id_in.bus_valid &&
     !decoders(0).out_hazard.load_to_branch && !decoders(0).out_hazard.ex_to_branch
   val jump_taken    : Bool = decoders(0).out_branch.jump_taken && !wait_for_delay_slot
   // 直到buffer的指令被发射之前，bus都是有效的
@@ -196,14 +221,30 @@ class InsDecode extends Module {
       Mux(wait_for_delay_slot && issue_remain_buffer_valid, issue_from_buffer,
         issue_from_slot1 || issue_from_slot2), 1.B)
 
+  val jump_target: UInt = MuxCase(decoders(0).out_regular.pc_debug + 8.U, Seq(
+    (decoders(0).out_branch.jump_sel === InsJumpSel.seq_pc) -> decoders(0).out_branch.jump_val(3),
+    (decoders(0).out_branch.jump_sel === InsJumpSel.pc_add_offset) -> decoders(0).out_branch.jump_val(0),
+    (decoders(0).out_branch.jump_sel === InsJumpSel.pc_cat_instr_index) -> decoders(0).out_branch.jump_val(1),
+    (decoders(0).out_branch.jump_sel === InsJumpSel.regfile_read1) -> decoders(0).out_branch.jump_val(2),
+  ))
 
+  // 如果预测结果是跳转，则当实际的结果不是跳转或者跳转目的地时预测失败
+  // 如果预测结果时不跳转，则当实际的结果是跳转的时候预测失败
   // 如果有分支指令，仅当其在槽1时有效
   io.id_pf_out.jump_sel_id_pf := decoders(0).out_branch.jump_sel
   io.id_pf_out.jump_val_id_pf := decoders(0).out_branch.jump_val
   io.id_pf_out.is_jump := decoders(0).out_branch.is_jump
-  // 仅在槽0是跳转并且延迟槽指令准备就绪时才对pf进行控制
-  io.id_pf_out.bus_valid := jump_bus_valid
+  // 仅在1. 槽0是跳转指令
+  // 2. 延迟槽指令准备就绪
+  // 3. 跳转指令的结果和延迟槽指令的预测结果不一致
+  // 时才对pf进行控制
+  io.id_pf_out.bus_valid := jump_bus_valid && decoders(0).out_branch.predict_fail
   io.id_pf_out.jump_taken := jump_taken
+  io.id_pred_out.en_ex := jump_bus_valid
+  io.id_pred_out.ex_success := jump_taken
+  io.id_pred_out.ex_target := jump_target
+  io.id_pred_out.ex_pc := decoders(0).out_regular.pc_debug
+
   io.id_pf_out.stall_id_pf := decoders(0).out_regular.ins_valid && decoders(0).out_branch.is_jump &&
     decoders(1).out_regular.ins_valid && (decoders(0).out_hazard.load_to_branch || decoders(1).out_hazard.ex_to_branch)
 

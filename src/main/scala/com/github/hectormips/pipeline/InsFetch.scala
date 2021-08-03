@@ -20,7 +20,7 @@ object InsJumpSel extends OneHotEnum {
 
 class DecodePreFetchBundle extends Bundle {
   val jump_sel_id_pf: InsJumpSel.Type = Output(InsJumpSel())
-  val jump_val_id_pf: Vec[UInt]       = Output(Vec(3, UInt(32.W)))
+  val jump_val_id_pf: Vec[UInt]       = Output(Vec(4, UInt(32.W)))
   val is_jump       : Bool            = Output(Bool())
   val bus_valid     : Bool            = Output(Bool())
   val jump_taken    : Bool            = Output(Bool())
@@ -28,7 +28,7 @@ class DecodePreFetchBundle extends Bundle {
 
   def defaults(): Unit = {
     jump_sel_id_pf := InsJumpSel.seq_pc
-    jump_val_id_pf := VecInit(Seq(0.U, 0.U, 0.U))
+    jump_val_id_pf := VecInit(Seq.fill(4)(0.U))
     is_jump := 0.B
     bus_valid := 0.B
     jump_taken := 0.B
@@ -48,22 +48,24 @@ class ExecutePrefetchBundle extends Bundle {
 
 
 class InsPreFetchBundle extends WithAllowin {
-  val pc                           : UInt                 = Input(UInt(32.W))
-  val id_pf_in                     : DecodePreFetchBundle = Flipped(new DecodePreFetchBundle)
-  val ins_ram_addr                 : UInt                 = Output(UInt(32.W))
-  val ins_ram_en                   : Bool                 = Output(Bool())
-  val next_pc                      : UInt                 = Output(UInt(32.W))
-  val pc_wen                       : Bool                 = Output(Bool())
+  val pc                           : UInt                        = Input(UInt(32.W))
+  val id_pf_in                     : DecodePreFetchBundle        = Flipped(new DecodePreFetchBundle)
+  val ins_ram_addr                 : UInt                        = Output(UInt(32.W))
+  val ins_ram_en                   : Bool                        = Output(Bool())
+  val next_pc                      : UInt                        = Output(UInt(32.W))
+  val pc_wen                       : Bool                        = Output(Bool())
   // 一次读入两条指令
-  val to_exception_service_en_ex_pf: Bool                 = Input(Bool())
-  val to_epc_en_ex_pf              : Bool                 = Input(Bool())
-  val flush                        : Bool                 = Input(Bool())
-  val cp0_pf_epc                   : UInt                 = Input(UInt(32.W))
-  val fetch_state                  : RamState.Type        = Input(RamState())
+  val to_exception_service_en_ex_pf: Bool                        = Input(Bool())
+  val to_epc_en_ex_pf              : Bool                        = Input(Bool())
+  val flush                        : Bool                        = Input(Bool())
+  val cp0_pf_epc                   : UInt                        = Input(UInt(32.W))
+  val fetch_state                  : RamState.Type               = Input(RamState())
   // 上一个请求的valid信号，每次data_ok的时候被刷新，用于判断下一次跳转+4/+8
-  val inst_sram_ins_valid          : UInt                 = Input(UInt(2.W))
-  val data_ok                      : Bool                 = Input(Bool())
-  val addr_ok                      : Bool                 = Input(Bool())
+  val inst_sram_ins_valid          : UInt                        = Input(UInt(2.W))
+  val data_ok                      : Bool                        = Input(Bool())
+  val addr_ok                      : Bool                        = Input(Bool())
+  val pred_pf_in                   : Vec[PredictorFetcherBundle] = Input(Vec(2, new PredictorFetcherBundle))
+  val pf_pred_out                  : Vec[FetcherPredictorBundle] = Output(Vec(2, new FetcherPredictorBundle))
 
   val in_valid: Bool = Input(Bool()) // 传入预取的输入是否有效
 
@@ -84,11 +86,14 @@ class InsPreFetch extends Module {
   val req              : Bool              = !io.id_pf_in.stall_id_pf && io.next_allowin &&
     (io.fetch_state === RamState.waiting_for_request || io.fetch_state === RamState.requesting || io.data_ok) &&
     !io.flush
-  pc_jump := seq_pc_4
+  pc_jump := io.id_pf_in.jump_val_id_pf(3)
+  // 如果上一次取出的指令是跳转指令但是需要等待延迟槽指令的时候，则将跳转地址存进buffer里
+  val branch_predict_target_buffer      : UInt = RegInit(0.U(32.W))
+  val branch_predict_target_buffer_valid: Bool = RegInit(0.B)
 
   switch(io.id_pf_in.jump_sel_id_pf) {
     is(InsJumpSel.seq_pc) {
-      pc_jump := seq_pc_8
+      pc_jump := io.id_pf_in.jump_val_id_pf(3)
     }
     is(InsJumpSel.pc_add_offset) {
       pc_jump := io.id_pf_in.jump_val_id_pf(0)
@@ -101,12 +106,13 @@ class InsPreFetch extends Module {
     }
 
   }
-  val jump_to_target: Bool = io.id_pf_in.bus_valid && io.id_pf_in.jump_taken
-  val no_jump       : Bool = !io.id_pf_in.bus_valid || (io.id_pf_in.bus_valid && !io.id_pf_in.jump_taken)
+  // 如果来自id的bus有效 说明跳转被取消了 或者没有成功预测跳转
+  val target_from_id: Bool = io.id_pf_in.bus_valid
   // 直到当前指令可以被decode接收时才发送新的请求
   val ready_go      : Bool = io.next_allowin
-  // 没有特殊情况则继续请求下一条指令
-  val pc_out        : UInt = MuxCase(seq_pc_8, Seq(
+
+
+  val pc_out: UInt = MuxCase(seq_pc_8, Seq(
     io.to_epc_en_ex_pf -> seq_epc_8,
     io.to_exception_service_en_ex_pf -> seq_exception_8,
     // 如果队列已满或者还上一条请求还没有返回则原地踏步
@@ -114,9 +120,34 @@ class InsPreFetch extends Module {
     (!io.next_allowin || (io.fetch_state === RamState.waiting_for_response && !io.data_ok) ||
       (req && !io.addr_ok &&
         (io.fetch_state === RamState.waiting_for_request || io.fetch_state === RamState.requesting))) -> io.pc,
-    // 如果decode阶段要求跳转，则需要清空队列、取消当前请求，并且请求跳转地址的指令
-    (ready_go && jump_to_target && io.id_pf_in.bus_valid) -> pc_jump
+    // 如果decode阶段要求重新取指，则需要清空队列、取消当前请求，并且请求目的地址的指令
+    (ready_go && target_from_id) -> pc_jump,
+    (branch_predict_target_buffer_valid && !target_from_id) -> branch_predict_target_buffer,
+    // 如果预测上一次取出的第一条指令需要跳转并且延迟槽指令已经被取出，则直接跳转前往目的地
+    (io.pred_pf_in(0).predict && io.inst_sram_ins_valid(1)) -> io.pred_pf_in(0).target,
+    // 如果第一条指令需要跳转但是取出的第二条指令无效，则需要先取出延迟槽指令之后再跳转前往目的地
+    // 如果第二条指令需要跳转，则必须等待延迟槽指令
+    (io.pred_pf_in(0).predict && !io.inst_sram_ins_valid(1)) -> seq_pc_4,
   ))
+  io.pf_pred_out(0).pc := io.pc
+  io.pf_pred_out(1).pc := seq_pc_4
+
+  when(!io.id_pf_in.bus_valid && !io.to_exception_service_en_ex_pf && !io.to_epc_en_ex_pf) {
+    when((io.pred_pf_in(0).predict && !io.inst_sram_ins_valid(1)) ||
+      (io.inst_sram_ins_valid(1) && io.pred_pf_in(1).predict) && req &&
+        io.addr_ok && !branch_predict_target_buffer_valid) {
+      // 当需要等待延迟槽指令并且请求已经被发出的时候将buffer置为valid
+      branch_predict_target_buffer_valid := 1.B
+      branch_predict_target_buffer := Mux(io.pred_pf_in(0).predict, io.pred_pf_in(0).target, io.pred_pf_in(1).target)
+
+    }.elsewhen(req && io.addr_ok && branch_predict_target_buffer_valid) {
+      // 当延迟槽指令请求完毕之后将buffer置无效
+      branch_predict_target_buffer_valid := 0.B
+    }
+  }.otherwise {
+    branch_predict_target_buffer_valid := 0.B
+  }
+  // 如果当前正在取的指令
   io.next_pc := pc_out
   // 只要fifo没满就继续发请求
   io.ins_ram_en := req
@@ -131,12 +162,14 @@ class InsPreFetch extends Module {
 class InsSufFetchBundle extends WithAllowin {
   val ins_ram_data: UInt = Input(UInt(64.W))
 
-  val if_id_out         : FetchDecodeBundle = Output(new FetchDecodeBundle)
-  val pc_debug_pf_if    : UInt              = Input(UInt(32.W))
-  val flush             : Bool              = Input(Bool())
-  val ins_ram_data_ok   : Bool              = Input(Bool())
-  val ins_ram_data_valid: UInt              = Input(UInt(2.W))
-  val fetch_state       : RamState.Type     = Input(RamState())
+  val if_id_out                  : FetchDecodeBundle = Output(new FetchDecodeBundle)
+  val pc_debug_pf_if             : UInt              = Input(UInt(32.W))
+  val flush                      : Bool              = Input(Bool())
+  val ins_ram_data_ok            : Bool              = Input(Bool())
+  val ins_ram_data_valid         : UInt              = Input(UInt(2.W))
+  val ins_ram_predict_jump_taken : Vec[Bool]         = Input(Vec(2, Bool()))
+  val ins_ram_predict_jump_target: Vec[UInt]         = Input(Vec(2, UInt(32.W)))
+  val fetch_state                : RamState.Type     = Input(RamState())
 }
 
 // 获取同步RAM的数据
@@ -150,6 +183,8 @@ class InsSufFetch extends Module {
     // 由缓冲寄存器读出
     io.ins_ram_data_ok && io.fetch_state === RamState.waiting_for_response
   io.if_id_out.pc_debug_if_id := io.pc_debug_pf_if
+  io.if_id_out.predict_jump_taken_if_id := io.ins_ram_predict_jump_taken
+  io.if_id_out.predict_jump_target_if_id := io.ins_ram_predict_jump_target
   io.this_allowin := !reset.asBool() && io.next_allowin
 }
 

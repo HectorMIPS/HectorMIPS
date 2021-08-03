@@ -70,7 +70,8 @@ class Cache(val config:CacheConfig)  extends Module{
   //uncached
   uncached.io.input <> io.uncached
   uncache_inst.io.input <> io.uncache_inst
-
+  io.icache.inst_predict_jump_target_in := DontCare
+  io.icache.inst_predict_jump_in := DontCare
 
   // 读地址通道
   io.axi.arid := Cat(uncache_inst.io.axi.arid,uncached.io.axi.arid,icache.io.axi.readAddr.bits.id,dcache.io.axi.readAddr.bits.id)

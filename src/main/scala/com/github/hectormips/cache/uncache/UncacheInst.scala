@@ -26,6 +26,8 @@ class UncacheInst extends Module{
   io.input.rdata := Cat(io.axi.rdata,rdata(0))
   io.input.inst_valid := Cat(true.B,true.B)
   io.input.inst_pc := addr_r
+  io.input.inst_predict_jump_in := DontCare
+  io.input.inst_predict_jump_target_in := DontCare
   when(state === sIDLE && io.input.req && io.input.addr_ok){
     state := s1Handshake
     addr_r := io.input.addr

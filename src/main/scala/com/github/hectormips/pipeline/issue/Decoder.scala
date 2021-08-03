@@ -6,13 +6,15 @@ import com.github.hectormips.pipeline.cp0.ExceptionConst
 import com.github.hectormips.pipeline.{AluOp, AluSrc1Sel, AluSrc2Sel, BypassMsgBundle, DecodeBypassBundle, HiloSel, InsJumpSel, MemDataSel, RegFileWAddrSel}
 
 class DecoderIn extends Bundle {
-  val instruction  : UInt               = UInt(32.W)
-  val bypass_bus   : DecodeBypassBundle = new DecodeBypassBundle
-  val regfile_read1: UInt               = UInt(32.W)
-  val regfile_read2: UInt               = UInt(32.W)
-  val pc_debug     : UInt               = UInt(32.W)
-  val is_delay_slot: Bool               = Bool()
-  val ins_valid    : Bool               = Bool()
+  val instruction        : UInt               = UInt(32.W)
+  val bypass_bus         : DecodeBypassBundle = new DecodeBypassBundle
+  val regfile_read1      : UInt               = UInt(32.W)
+  val regfile_read2      : UInt               = UInt(32.W)
+  val pc_debug           : UInt               = UInt(32.W)
+  val predict_jump_taken : Bool               = Bool()
+  val predict_jump_target: UInt               = UInt(32.W)
+  val is_delay_slot      : Bool               = Bool()
+  val ins_valid          : Bool               = Bool()
 }
 
 class DecoderRegularOut extends Bundle {
@@ -50,10 +52,11 @@ class DecoderRegularOut extends Bundle {
 }
 
 class DecoderBranchOut extends Bundle {
-  val jump_sel  : InsJumpSel.Type = InsJumpSel()
-  val jump_val  : Vec[UInt]       = Vec(3, UInt(32.W))
-  val is_jump   : Bool            = Bool()
-  val jump_taken: Bool            = Bool()
+  val jump_sel    : InsJumpSel.Type = InsJumpSel()
+  val jump_val    : Vec[UInt]       = Vec(4, UInt(32.W))
+  val is_jump     : Bool            = Bool()
+  val jump_taken  : Bool            = Bool()
+  val predict_fail: Bool            = Bool()
 }
 
 class DecoderHazardOut extends Bundle {
@@ -274,11 +277,10 @@ class Decoder extends Module {
   regfile_read2_with_bypass := regfileReadGen(rt, io.in.regfile_read2)
   regfile_read1_with_bypass_except_ex := regfileReadGenExceptEx(rs, io.in.regfile_read1)
   regfile_read2_with_bypass_except_ex := regfileReadGenExceptEx(rt, io.in.regfile_read2)
-  val regfile1_eq_regfile2: Bool = regfile_read1_with_bypass_except_ex === regfile_read2_with_bypass_except_ex
-  val regfile1_gt_0       : Bool = regfile_read1_with_bypass_except_ex.asSInt() > 0.S
-  val regfile1_ge_0       : Bool = regfile_read1_with_bypass_except_ex.asSInt() >= 0.S
-  // 如果跳转指令需要使用寄存器堆的数据，不使用来自ex阶段的前递，缩短关键路径
-  io.out_branch.jump_sel := MuxCase(InsJumpSel.nop, Seq(
+  val regfile1_eq_regfile2: Bool            = regfile_read1_with_bypass_except_ex === regfile_read2_with_bypass_except_ex
+  val regfile1_gt_0       : Bool            = regfile_read1_with_bypass_except_ex.asSInt() > 0.S
+  val regfile1_ge_0       : Bool            = regfile_read1_with_bypass_except_ex.asSInt() >= 0.S
+  val jump_sel            : InsJumpSel.Type = MuxCase(InsJumpSel.nop, Seq(
     (ins_addu | ins_add | ins_addiu | ins_addi | ins_subu | ins_sub | ins_lw | ins_lb |
       ins_lbu | ins_lh | ins_lhu | ins_sw | ins_sh | ins_sb |
       ins_slt | ins_sltu | ins_sll | ins_srl | ins_sra | ins_lui | ins_and | ins_or |
@@ -300,25 +302,41 @@ class Decoder extends Module {
       (ins_blez && regfile1_gt_0)) -> InsJumpSel.seq_pc,
     (ins_jr | ins_jalr) -> InsJumpSel.regfile_read1
   ))
-  val is_jump: Bool = ins_beq | ins_bne | ins_bgez | ins_bgtz | ins_blez | ins_bltz |
+  // 如果跳转指令需要使用寄存器堆的数据，不使用来自ex阶段的前递，缩短关键路径
+  io.out_branch.jump_sel := jump_sel
+  val is_jump    : Bool      = ins_beq | ins_bne | ins_bgez | ins_bgtz | ins_blez | ins_bltz |
     ins_bgezal | ins_bltzal | ins_j | ins_jal | ins_jr | ins_jalr
-  io.out_branch.is_jump := is_jump
-
-
-  // 0: pc=pc+(signed)(offset<<2)
-  // 1: pc=pc[31:28]|instr_index<<2
-  // 2: regfile_read1(bypass)
-  io.out_branch.jump_val(0) := pc_delay_slot + offset.asUInt()
-  io.out_branch.jump_val(1) := Cat(Seq(pc_delay_slot(31, 28), instr_index, "b00".U(2.W)))
-  io.out_branch.jump_val(2) := regfile_read1_with_bypass
-
-  io.out_branch.jump_taken := (ins_beq && regfile1_eq_regfile2) ||
+  val jump_taken : Bool      = (ins_beq && regfile1_eq_regfile2) ||
     (ins_bne && !regfile1_eq_regfile2) ||
     (ins_bgtz && regfile1_gt_0) ||
     ((ins_bgez | ins_bgezal) && regfile1_ge_0) ||
     ((ins_bltz | ins_bltzal) && !regfile1_ge_0) ||
     (ins_blez && !regfile1_gt_0) ||
     ins_jr || ins_jal || ins_j || ins_jalr
+  val jump_val   : Vec[UInt] = VecInit(Seq(
+    pc_delay_slot + offset.asUInt(),
+    Cat(Seq(pc_delay_slot(31, 28), instr_index, "b00".U(2.W))),
+    regfile_read1_with_bypass_except_ex,
+    pc + 8.U
+  ))
+  val jump_target: UInt      = MuxCase(pc + 4.U, Seq(
+    (jump_sel === InsJumpSel.seq_pc) -> jump_val(3),
+    (jump_sel === InsJumpSel.pc_cat_instr_index) -> jump_val(1),
+    (jump_sel === InsJumpSel.regfile_read1) -> jump_val(2),
+    (jump_sel === InsJumpSel.pc_add_offset) -> jump_val(0)
+  ))
+  io.out_branch.is_jump := is_jump
+  io.out_branch.predict_fail := Mux(io.in.predict_jump_taken,
+    !is_jump || !jump_taken || (jump_taken && io.in.predict_jump_target =/= jump_target),
+    jump_taken)
+
+
+  // 0: pc=pc+(signed)(offset<<2)
+  // 1: pc=pc[31:28]|instr_index<<2
+  // 2: regfile_read1(bypass)
+  io.out_branch.jump_val := jump_val
+
+  io.out_branch.jump_taken := jump_taken
 
   val src1_sel: AluSrc1Sel.Type = Wire(AluSrc1Sel())
   val src2_sel: AluSrc2Sel.Type = Wire(AluSrc2Sel())
