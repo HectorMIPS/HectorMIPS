@@ -63,8 +63,8 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   val cp0_cause_ip                 : UInt                       = Wire(UInt(8.W))
   // 将ex阶段的flush回馈延迟一个周期
   val feedback_flipper             : Bool                       = RegInit(0.B)
-  val fetch_force_cancel           : Bool                       = feedback_flipper ||
-    (id_pf_bus.bus_valid && id_pf_bus.jump_taken)
+  val branch_state                 : BranchState.Type           = RegInit(BranchState.no_branch)
+  val fetch_force_cancel           : Bool                       = feedback_flipper || branch_state === BranchState.flushing
   when(feedback_flipper === 1.B) {
     feedback_flipper := 0.B
   }.elsewhen(to_epc_en_ex_pf || to_exception_service_en_ex_pf || pipeline_flush_ex) {
@@ -79,12 +79,17 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   val fetch_state_reg  : RamState.Type = RegInit(RamState.waiting_for_request)
   // 默认情况下只有第一条指令有效
   val inst_valid_buffer: UInt          = RegInit(1.U(2.W))
-  when(fetch_force_cancel || (id_pf_bus.bus_valid && id_pf_bus.jump_taken)) {
+  when(fetch_force_cancel || branch_state === BranchState.flushing) {
     inst_valid_buffer := 1.U
   }.otherwise {
     when(fetch_state_reg === RamState.waiting_for_response && io.inst_sram_like_io.data_ok) {
       inst_valid_buffer := io.inst_sram_like_io.inst_valid
     }
+  }
+  when(id_pf_bus.bus_valid && id_pf_bus.jump_taken) {
+    branch_state := BranchState.flushing
+  }.elsewhen(branch_state === BranchState.flushing) {
+    branch_state := BranchState.branching
   }
 
   // 预取
@@ -104,8 +109,10 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
     id_pf_buffer.bus_valid := 0.B
   }.elsewhen(id_pf_bus.bus_valid) {
     id_pf_buffer := id_pf_bus
+    branch_state := BranchState.flushing
   }.elsewhen(pf_module.io.ins_ram_en && io.inst_sram_like_io.addr_ok && !fetch_force_cancel) {
     id_pf_buffer.bus_valid := 0.B
+    branch_state := BranchState.no_branch
   }
   when(to_epc_en_ex_pf || to_exception_service_en_ex_pf) {
     ex_pf_buffer.to_epc_en_ex_pf := to_epc_en_ex_pf
@@ -198,7 +205,8 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   fifo_id_bus.ins_if_id := inst_fifo.io.out.bits.inst_bundle.inst
   fifo_id_bus.pc_debug_if_id := inst_fifo.io.out.bits.inst_bundle.pc
   fifo_id_bus.ins_valid_if_id := inst_fifo.io.out.bits.inst_bundle.inst_valid
-  fifo_id_bus.bus_valid := inst_fifo.io.out.valid && !fetch_force_cancel
+  fifo_id_bus.bus_valid := inst_fifo.io.out.valid && !fetch_force_cancel &&
+    !(id_pf_bus.jump_taken && id_pf_bus.bus_valid)
   inst_fifo.io.out.ready := id_allowin
   inst_fifo.io.in.bits.flush := (id_pf_bus.jump_taken && id_pf_bus.bus_valid) || pipeline_flush_ex
 
