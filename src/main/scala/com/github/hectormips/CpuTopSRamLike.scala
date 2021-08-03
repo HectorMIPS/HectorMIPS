@@ -194,7 +194,7 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   if_fifo_bus := if_module.io.if_id_out
 
 
-  val inst_fifo: InstFIFO = Module(new InstFIFO(128))
+  val inst_fifo: InstFIFO = Module(new InstFIFO(10))
   // if-fifo
   inst_fifo.io.in.bits.inst_bundle.inst := if_fifo_bus.ins_if_id
   inst_fifo.io.in.bits.inst_bundle.pc := if_fifo_bus.pc_debug_if_id
