@@ -37,7 +37,7 @@ class MemAccessJudge(cache_all_inst:Bool=false.B) extends Module{
     val cached_data   = Vec(2,new SRamLikeDataIO())
   })
   val data_physical_addr = Wire(Vec(2,UInt(32.W)))
-  val inst_physical_addr = Wire(UInt(32.W))
+//  val inst_physical_addr = Wire(UInt(32.W))
 
 
 
@@ -100,11 +100,11 @@ class MemAccessJudge(cache_all_inst:Bool=false.B) extends Module{
   }
 
 
-  when(io.inst.addr >= "h8000_0000".U && io.inst.addr <= "hbfff_ffff".U){
-    inst_physical_addr := queue.io.deq.bits.addr  & "h1fff_ffff".U
-  }.otherwise{
-    inst_physical_addr := queue.io.deq.bits.addr
-  }
+//  when(io.inst.addr >= "h8000_0000".U && io.inst.addr <= "hbfff_ffff".U){
+//    inst_physical_addr := queue.io.deq.bits.addr  & "h1fff_ffff".U
+//  }.otherwise{
+//    inst_physical_addr := queue.io.deq.bits.addr
+//  }
 
 //  io.inst.addr :=
 
@@ -127,6 +127,7 @@ class MemAccessJudge(cache_all_inst:Bool=false.B) extends Module{
     io.data(i).data_ok := Mux(should_cache_data(i),io.cached_data(i).data_ok,io.uncached_data(i).data_ok)
     io.data(i).rdata := Mux(should_cache_data(i),io.cached_data(i).rdata,io.uncached_data(i).rdata)
   }
+
   io.inst.addr_ok := queue.io.enq.ready
 
   queue.io.enq.bits.addr := io.inst.addr
@@ -136,27 +137,45 @@ class MemAccessJudge(cache_all_inst:Bool=false.B) extends Module{
   queue.io.enq.bits.should_cache := should_cache_inst_c
   queue.io.enq.valid := io.inst.req
   val handshake = RegInit(false.B)
+  val physical_inst_addr = Wire(UInt(32.W))
+  val physical_queue_inst_addr = Wire(UInt(32.W))
+  physical_inst_addr := physical_addr(io.inst.addr)
+  physical_queue_inst_addr := physical_addr(queue.io.enq.bits.addr)
+
   when(io.inst.req){
     handshake := false.B
   }
+
   when(io.cached_inst.req && io.cached_inst.addr_ok || io.uncached_inst.req && io.uncached_inst.addr_ok){
     handshake :=true.B
   }
-  io.cached_inst.req := queue.io.deq.valid && !handshake && queue.io.deq.bits.should_cache
-  io.cached_inst.wr := queue.io.deq.bits.wr
-  io.cached_inst.size := queue.io.deq.bits.size
-  io.cached_inst.addr := inst_physical_addr
-  io.cached_inst.wdata := queue.io.deq.bits.wdata
+  io.cached_inst.req := Mux(io.inst.req,should_cache_inst_c,queue.io.deq.valid && !handshake && queue.io.deq.bits.should_cache)
+  io.cached_inst.wr := false.B
+  io.cached_inst.size := 2.U
+  io.cached_inst.addr := Mux(io.inst.req,physical_inst_addr,physical_queue_inst_addr)
+  io.cached_inst.wdata := 0.U
 
-  io.uncached_inst.req := queue.io.deq.valid && !queue.io.deq.bits.should_cache && !handshake
-  io.uncached_inst.wr  := queue.io.deq.bits.wr
-  io.uncached_inst.size := queue.io.deq.bits.size
-  io.uncached_inst.addr := inst_physical_addr
-  io.uncached_inst.wdata := queue.io.deq.bits.wdata
+  io.uncached_inst.req := Mux(io.inst.req,!should_cache_inst_c,queue.io.deq.valid && !queue.io.deq.bits.should_cache && !handshake)
+  io.uncached_inst.wr  := false.B
+  io.uncached_inst.size := 2.U
+  io.uncached_inst.addr := Mux(io.inst.req,physical_inst_addr,physical_queue_inst_addr)
+  io.uncached_inst.wdata := 0.U
 
   io.inst.data_ok := Mux(queue.io.deq.bits.should_cache,io.cached_inst.data_ok,io.uncached_inst.data_ok)
   io.inst.rdata := Mux(queue.io.deq.bits.should_cache,io.cached_inst.rdata,io.uncached_inst.rdata)
   io.inst.inst_valid := Mux(queue.io.deq.bits.should_cache,io.cached_inst.inst_valid,io.uncached_inst.inst_valid)
   io.inst.inst_pc := queue.io.deq.bits.addr
   queue.io.deq.ready := io.inst.data_ok
+
+
+
+  def physical_addr(virtual_addr:UInt):UInt={
+    val physical_addr: UInt = Wire(UInt(32.W))
+    when(io.inst.addr >= "h8000_0000".U && io.inst.addr <= "hbfff_ffff".U){
+      physical_addr := virtual_addr  & "h1fff_ffff".U
+    }.otherwise{
+      physical_addr := virtual_addr
+    }
+    physical_addr
+  }
 }
