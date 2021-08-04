@@ -128,7 +128,7 @@ class InsExecuteBundle extends WithAllowin {
   val id_ex_in               : Vec[DecodeExecuteBundle] = Input(Vec(2, new DecodeExecuteBundle))
   val cp0_hazard_bypass_ms_ex: Vec[CP0HazardBypass]     = Input(Vec(2, new CP0HazardBypass))
   val cp0_hazard_bypass_wb_ex: Vec[CP0HazardBypass]     = Input(Vec(2, new CP0HazardBypass))
-  val ex_ram_out             : Vec[ExecuteRamBundle]    = Vec(2, new ExecuteRamBundle)
+  val ex_ram_out             : ExecuteRamBundle         = new ExecuteRamBundle
   val ex_ms_out              : Vec[ExecuteMemoryBundle] = Output(Vec(2, new ExecuteMemoryBundle))
   val ex_cp0_out             : ExecuteCP0Bundle         = Output(new ExecuteCP0Bundle)
   val bypass_ex_id           : Vec[BypassMsgBundle]     = Output(Vec(2, new BypassMsgBundle))
@@ -136,7 +136,7 @@ class InsExecuteBundle extends WithAllowin {
   val ex_hilo                : ExecuteHILOBundle        = new ExecuteHILOBundle
   val ex_pf_out              : ExecutePrefetchBundle    = Output(new ExecutePrefetchBundle)
   val pipeline_flush         : Bool                     = Output(Bool())
-  val data_ram_state         : Vec[RamState.Type]       = Input(Vec(2, RamState()))
+  val data_ram_addr_ok       : Bool                     = Input(Bool())
   // 执行阶段是否*至少*完成了其应该完成的任务
   val ready_go               : Bool                     = Output(Bool())
 }
@@ -170,8 +170,8 @@ class InsExecute extends Module {
   val exception_on_inst1          : Bool             = (interrupt_occur && interrupt_available) ||
     (exception_occur(1) && exception_index === 1.U)
   // 内存请求状态寄存器，当ex阶段需要发起内存请求并且已经发送了请求之后才能继续前进
-  val mem_req_sent_reg            : Vec[Bool]        = RegInit(VecInit(Seq(0.B, 0.B)))
 
+  val data_ram_index: UInt = Mux(io.id_ex_in(0).bus_valid && io.id_ex_in(0).mem_en_id_ex, 0.U, 1.U)
   // 后方流水线是否写cp0
   val ms_cp0_hazard : Bool = (io.cp0_hazard_bypass_ms_ex(0).bus_valid && io.cp0_hazard_bypass_ms_ex(0).cp0_en) ||
     (io.cp0_hazard_bypass_ms_ex(1).bus_valid && io.cp0_hazard_bypass_ms_ex(1).cp0_en)
@@ -188,11 +188,10 @@ class InsExecute extends Module {
     Mux(io.id_ex_in(1).bus_valid && !exceptionShielded(1), alu(1.U ^ order_flipped).out.out_valid, 1.B) &&
     Mux(exception_occur(exception_index) || (interrupt_occur && interrupt_available),
       !ms_cp0_hazard && !wb_cp0_hazard, 1.B) &&
-    // 由于可能存在同时两条访存指令，可能当一个指令返回了addr_ok和data_ok后另一条指令还没返回addr_ok
-    Mux(io.id_ex_in(0).bus_valid && io.id_ex_in(0).mem_en_id_ex && !exception_on_inst0,
-      (io.data_ram_state(0) === RamState.waiting_for_response || io.data_ram_state(0) === RamState.waiting_for_read) && mem_req_sent_reg(0), 1.B) &&
-    Mux(io.id_ex_in(1).bus_valid && io.id_ex_in(1).mem_en_id_ex && !exception_on_inst0 && !exception_on_inst1,
-      (io.data_ram_state(1) === RamState.waiting_for_response || io.data_ram_state(1) === RamState.waiting_for_read) && mem_req_sent_reg(1), 1.B)
+    // 当一条指令返回了addr_ok之后即可以进入下一个阶段
+    Mux(io.id_ex_in(data_ram_index).bus_valid && io.id_ex_in(data_ram_index).mem_en_id_ex &&
+      Mux(data_ram_index === 0.U, !exception_on_inst0, !exception_on_inst0 && !exception_on_inst1),
+      io.data_ram_addr_ok, 1.B)
 
   val in_bus_valid: Bool = io.id_ex_in(0).bus_valid && !reset.asBool() && (!flush || eret_occur)
   for (i_alu <- 0 to 1) {
@@ -239,23 +238,20 @@ class InsExecute extends Module {
 
   }
   // dram操作
-  for (i <- 0 to 1) {
-    io.ex_ram_out(i).mem_en := io.id_ex_in(i).bus_valid && io.next_allowin &&
-      io.id_ex_in(i).mem_en_id_ex && !exceptionShielded(i) &&
-      (io.data_ram_state(i) === RamState.waiting_for_request || io.data_ram_state(i) === RamState.requesting)
-    io.ex_ram_out(i).mem_addr := alu_out(i).alu_sum
-    io.ex_ram_out(i).mem_size := MuxCase(0.U, Seq(
-      (io.id_ex_in(i).mem_data_sel_id_ex === MemDataSel.word) -> 2.U,
-      (io.id_ex_in(i).mem_data_sel_id_ex === MemDataSel.hword) -> 1.U,
-      (io.id_ex_in(i).mem_data_sel_id_ex === MemDataSel.byte) -> 0.U
-    ))
-    val wdata_offset: UInt = Wire(UInt(5.W))
-    wdata_offset := alu_out(i).alu_sum(1, 0) << 3.U
-    // 实际写入数据与size、addr相关，并非永远都选择低位有效
-    io.ex_ram_out(i).mem_wdata := io.id_ex_in(i).mem_wdata_id_ex << wdata_offset
-    io.ex_ram_out(i).mem_wen := io.id_ex_in(i).mem_wen_id_ex &&
-      !exceptionShielded(i) && io.id_ex_in(i).bus_valid
-  }
+  io.ex_ram_out.mem_en := io.id_ex_in(data_ram_index).bus_valid &&
+    io.id_ex_in(data_ram_index).mem_en_id_ex && !exceptionShielded(data_ram_index)
+  io.ex_ram_out.mem_addr := alu_out(data_ram_index).alu_sum
+  io.ex_ram_out.mem_size := MuxCase(0.U, Seq(
+    (io.id_ex_in(data_ram_index).mem_data_sel_id_ex === MemDataSel.word) -> 2.U,
+    (io.id_ex_in(data_ram_index).mem_data_sel_id_ex === MemDataSel.hword) -> 1.U,
+    (io.id_ex_in(data_ram_index).mem_data_sel_id_ex === MemDataSel.byte) -> 0.U
+  ))
+  val wdata_offset: UInt = Wire(UInt(5.W))
+  wdata_offset := alu_out(data_ram_index).alu_sum(1, 0) << 3.U
+  // 实际写入数据与size、addr相关，并非永远都选择低位有效
+  io.ex_ram_out.mem_wdata := io.id_ex_in(data_ram_index).mem_wdata_id_ex << wdata_offset
+  io.ex_ram_out.mem_wen := io.id_ex_in(data_ram_index).mem_wen_id_ex &&
+    !exceptionShielded(data_ram_index) && io.id_ex_in(data_ram_index).bus_valid
 
   // 送给memory阶段的输出
   for (i <- 0 to 1) {
@@ -347,14 +343,6 @@ class InsExecute extends Module {
   this_allowin := io.next_allowin && !reset.asBool() && ready_go
   io.this_allowin := this_allowin
 
-  for (i <- 0 to 1) {
-    when(this_allowin || exceptionShielded(i)) {
-      mem_req_sent_reg(i) := 0.B
-    }.elsewhen(io.id_ex_in(i).bus_valid && io.id_ex_in(i).mem_en_id_ex && io.data_ram_state(i) === RamState.waiting_for_request) {
-      // 每个需要访存的指令只有将其请求发送之后才能继续推进
-      mem_req_sent_reg(i) := 1.B
-    }
-  }
 }
 
 object InsExecute extends App {

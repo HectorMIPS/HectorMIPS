@@ -57,7 +57,7 @@ class Issuer extends Module {
     (io.in_decoder1.hilo_sel === io.in_decoder2.hilo_sel)
   // 如果第一条不是跳转指令，则只发射一条指令
   // 如果第一条指令是跳转指令，则强制发射两条
-  val has_waw_ram_hazard : Bool = (io.in_decoder1.ram_en || (!io.in_decoder1.is_jump && io.in_decoder2.ram_en)) &&
+  val has_ram_access     : Bool = (io.in_decoder1.ram_en || (!io.in_decoder1.is_jump && io.in_decoder2.ram_en)) &&
     io.in_decoder1.is_valid && io.in_decoder2.is_valid
 
   has_raw_hazard := has_raw_regfile_hazard || has_raw_cp0_hazard || has_raw_hilo_hazard
@@ -67,7 +67,7 @@ class Issuer extends Module {
   // 有冲突或者只有一条指令的时候只发射一条
   // 当一条指令为eret的时候也只发射一条
   // 存在内存写后写冲突时，由于不一定是对齐访存，因此同样需要禁止发射
-  io.out.issue_count := Mux(has_raw_hazard || has_device_hazard || has_waw_ram_hazard ||
+  io.out.issue_count := Mux(has_raw_hazard || has_device_hazard || has_ram_access ||
     io.in_decoder1.is_eret || io.in_decoder2.is_eret || is_decoder2_jump || !io.in_decoder2.is_valid, 1.U, 2.U)
   io.out.waw_hazard := Mux(io.in_decoder2.is_valid, has_waw_hazard, 0.B)
 

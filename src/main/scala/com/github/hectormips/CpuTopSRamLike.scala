@@ -7,7 +7,7 @@ import chisel3.util.experimental.forceName
 import com.github.hectormips.pipeline._
 import com.github.hectormips.pipeline.cp0.{CP0, ExecuteCP0Bundle}
 import com.github.hectormips.pipeline.issue.InstFIFO
-import com.github.hectormips.predict.{BHT, BTB}
+import com.github.hectormips.predict.{BHT, BTB, BTBTrue}
 import com.github.hectormips.utils.{RegAutoFlip, RegDualAutoFlip}
 
 class CpuTopSRamLikeBundle extends Bundle {
@@ -70,7 +70,7 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   val branch_state                 : BranchState.Type            = RegInit(BranchState.no_branch)
   val fetch_force_cancel           : Bool                        = feedback_flipper || branch_state === BranchState.flushing
 
-  val predictor: BTB = Module(new BTB(64, 8))
+  val predictor: BTB = Module(new BTB(16, 4))
   when(feedback_flipper === 1.B) {
     feedback_flipper := 0.B
   }.elsewhen(to_epc_en_ex_pf || to_exception_service_en_ex_pf || pipeline_flush_ex) {
@@ -279,8 +279,6 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
 
   val ex_module: InsExecute = Module(new InsExecute)
 
-  val data_sram_state_reg : Vec[RamState.Type] = RegInit(init = VecInit(Seq.fill(2)(RamState.waiting_for_request)))
-  val data_sram_buffer_reg: Vec[UInt]          = RegInit(init = VecInit(Seq.fill(2)(0.U(32.W))))
 
   // 直接接入ram的通路
   ex_module.io.id_ex_in := ex_reg
@@ -290,40 +288,18 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   ex_module.io.cp0_hazard_bypass_wb_ex := cp0_hazard_bypass_wb_ex
   ex_module.io.cp0_ex_in.cp0_cause_ip := cp0_cause_ip
   ex_module.io.cp0_ex_in.cp0_status_im := cp0_status_im
-  ex_module.io.data_ram_state := data_sram_state_reg
   for (i <- 0 to 1) {
-    io.data_sram_like_io(i).req := ex_module.io.ex_ram_out(i).mem_en
-    io.data_sram_like_io(i).wr := ex_module.io.ex_ram_out(i).mem_wen
-    io.data_sram_like_io(i).addr := ex_module.io.ex_ram_out(i).mem_addr
-    io.data_sram_like_io(i).size := ex_module.io.ex_ram_out(i).mem_size
-    io.data_sram_like_io(i).wdata := ex_module.io.ex_ram_out(i).mem_wdata
+    ex_module.io.data_ram_addr_ok := io.data_sram_like_io(i).addr_ok
   }
+  io.data_sram_like_io(0).req := ex_module.io.ex_ram_out.mem_en
+  io.data_sram_like_io(0).wr := ex_module.io.ex_ram_out.mem_wen
+  io.data_sram_like_io(0).addr := ex_module.io.ex_ram_out.mem_addr
+  io.data_sram_like_io(0).size := ex_module.io.ex_ram_out.mem_size
+  io.data_sram_like_io(0).wdata := ex_module.io.ex_ram_out.mem_wdata
+  io.data_sram_like_io(1) := DontCare
   val ms_ready_go: Bool      = Wire(Bool())
   val ms_ram_wen : Vec[Bool] = Wire(Vec(2, Bool()))
-  // 在flush的时候，当前指令会被取消，对后面的访存指令不要做其他操作
-  for (i <- 0 to 1) {
-    when(data_sram_state_reg(i) === RamState.waiting_for_request && ex_module.io.ex_ram_out(i).mem_en &&
-      ex_module.io.id_ex_in(i).bus_valid && !io.data_sram_like_io(i).addr_ok) {
-      data_sram_state_reg(i) := RamState.requesting
-    }.elsewhen((data_sram_state_reg(i) === RamState.requesting ||
-      (data_sram_state_reg(i) === RamState.waiting_for_request && ex_module.io.ex_ram_out(i).mem_en &&
-        ex_module.io.id_ex_in(i).bus_valid)) &&
-      io.data_sram_like_io(i).addr_ok) {
-      when(ex_module.io.ex_ram_out(i).mem_wen === 0.U) {
-        data_sram_state_reg(i) := RamState.waiting_for_response
-      }.otherwise {
-        data_sram_state_reg(i) := RamState.waiting_for_read
-      }
-    }.elsewhen(data_sram_state_reg(i) === RamState.waiting_for_response && io.data_sram_like_io(i).data_ok) {
-      data_sram_state_reg(i) := RamState.waiting_for_read
-      data_sram_buffer_reg(i) := io.data_sram_like_io(i).rdata
-    }.elsewhen(data_sram_state_reg(i) === RamState.waiting_for_read) {
-      // 如果是写请求，则无需等待ms读出内容
-      when(ms_ram_wen(i) =/= 0.U || (ms_ram_wen(i) === 0.U && ms_ready_go)) {
-        data_sram_state_reg(i) := RamState.waiting_for_request
-      }
-    }
-  }
+
 
   ex_ms_bus := ex_module.io.ex_ms_out
   ex_allowin := ex_module.io.this_allowin
@@ -348,8 +324,8 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
 
   val ms_module: InsMemory = Module(new InsMemory)
   ms_module.io.ex_ms_in := ms_reg
-  ms_module.io.mem_rdata := data_sram_buffer_reg
-  ms_module.io.data_ram_state := data_sram_state_reg
+  ms_module.io.mem_rdata := io.data_sram_like_io(0).rdata
+  ms_module.io.data_ram_data_ok := io.data_sram_like_io(0).data_ok
   ms_wb_bus := ms_module.io.ms_wb_out
   ms_allowin := ms_module.io.this_allowin
   for (i <- 0 to 1) {

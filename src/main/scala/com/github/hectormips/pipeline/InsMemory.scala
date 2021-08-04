@@ -58,14 +58,14 @@ class ExecuteMemoryBundle extends WithVEI {
 }
 
 class InsMemoryBundle extends WithAllowin {
-  val mem_rdata     : Vec[UInt]                  = Input(Vec(2, UInt(32.W)))
-  val ex_ms_in      : Vec[ExecuteMemoryBundle]   = Input(Vec(2, new ExecuteMemoryBundle))
-  val data_ram_state: Vec[RamState.Type]         = Input(Vec(2, RamState()))
-  val ms_wb_out     : Vec[MemoryWriteBackBundle] = Output(Vec(2, new MemoryWriteBackBundle))
+  val mem_rdata: UInt                       = Input(UInt(32.W))
+  val ex_ms_in : Vec[ExecuteMemoryBundle]   = Input(Vec(2, new ExecuteMemoryBundle))
+  val ms_wb_out: Vec[MemoryWriteBackBundle] = Output(Vec(2, new MemoryWriteBackBundle))
 
   val bypass_ms_id           : Vec[BypassMsgBundle] = Output(Vec(2, new BypassMsgBundle))
   val cp0_hazard_bypass_ms_ex: Vec[CP0HazardBypass] = Output(Vec(2, new CP0HazardBypass))
   val ram_access_done        : Bool                 = Output(Bool())
+  val data_ram_data_ok       : Bool                 = Input(Bool())
 }
 
 
@@ -73,11 +73,10 @@ class InsMemory extends Module {
   val io: InsMemoryBundle = IO(new InsMemoryBundle)
 
 
-  // 如果有需要请求数据ram的指令则需要等待其访问完毕两条指令才能继续向下行进
-  val ready_go: Bool = Mux(io.ex_ms_in(0).mem_req && !io.ex_ms_in(0).mem_wen && io.ex_ms_in(0).bus_valid,
-    io.data_ram_state(0) === RamState.waiting_for_read, 1.B) &&
-    Mux(io.ex_ms_in(1).mem_req && !io.ex_ms_in(0).mem_wen && io.ex_ms_in(1).bus_valid,
-      io.data_ram_state(1) === RamState.waiting_for_read, 1.B)
+  val data_ram_index: UInt = Mux(io.ex_ms_in(0).bus_valid && io.ex_ms_in(0).mem_req, 0.U, 1.U)
+  // 如果有访问data_ram的指令需要等待data_ok后继续前进
+  val ready_go      : Bool = Mux(io.ex_ms_in(data_ram_index).mem_req && io.ex_ms_in(data_ram_index).bus_valid,
+    io.data_ram_data_ok, 1.B)
   io.this_allowin := io.next_allowin && !reset.asBool() && ready_go
 
   io.ram_access_done := io.ex_ms_in(0).bus_valid && ready_go
@@ -95,7 +94,7 @@ class InsMemory extends Module {
     val mem_rdata_offset_byte: UInt = Wire(UInt(5.W))
     // 以字节为单位进行位移操作
     mem_rdata_offset_byte := io.ex_ms_in(i).mem_rdata_offset << 3.U
-    mem_rdata_fixed := (io.mem_rdata(i) >> mem_rdata_offset_byte).asUInt()
+    mem_rdata_fixed := (io.mem_rdata >> mem_rdata_offset_byte).asUInt()
     val mem_rdata_out: UInt = Wire(UInt(32.W))
 
     def extendBySignFlag(sign_bit: Bool, width: Int): UInt = {
@@ -119,7 +118,7 @@ class InsMemory extends Module {
 
     io.bypass_ms_id(i).bus_valid := bypass_bus_valid
     io.bypass_ms_id(i).data_valid := io.ex_ms_in(i).bus_valid && !reset.asBool() && ready_go && io.ex_ms_in(i).regfile_we_ex_ms &&
-      Mux(io.ex_ms_in(i).regfile_wsrc_sel_ex_ms, io.data_ram_state(i) === RamState.waiting_for_read, 1.B) &&
+      Mux(io.ex_ms_in(i).regfile_wsrc_sel_ex_ms, io.data_ram_data_ok, 1.B) &&
       !io.ex_ms_in(i).regfile_wdata_from_cp0_ex_ms
     io.bypass_ms_id(i).reg_data := Mux(io.ex_ms_in(i).regfile_wsrc_sel_ex_ms, mem_rdata_out, io.ex_ms_in(i).alu_val_ex_ms)
     io.bypass_ms_id(i).reg_addr := MuxCase(0.U, Seq(
