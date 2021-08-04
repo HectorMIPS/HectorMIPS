@@ -12,30 +12,18 @@ class AluEx extends Module {
 
   val src1             : UInt = io.in.src1
   val src2             : UInt = io.in.src2
-  val src_1_e          : UInt = Wire(UInt(33.W))
-  val src_2_e          : UInt = Wire(UInt(33.W))
   val alu_out          : UInt = Wire(UInt(64.W))
-  val overflow_occurred: Bool = Wire(Bool())
   val div_mult_buffer  : UInt = RegInit(init = 0.U(64.W))
-  overflow_occurred := 0.B
   alu_out := 0.U
 
-  src_1_e := Cat(src1(31), src1)
-  src_2_e := Cat(src2(31), src2)
 
 
   switch(io.in.alu_op) {
     is(AluOp.op_add) {
-      val alu_out_e = src_1_e + src_2_e
-      overflow_occurred := alu_out_e(32) ^ alu_out_e(31)
-      alu_out := alu_out_e(31, 0)
+      alu_out := src1 + src2
     }
     is(AluOp.op_sub) {
-      val src2_neg: UInt = -src2
-      src_2_e := Cat(src2_neg(31), src2_neg)
-      val alu_out_e = src_1_e + src_2_e
-      overflow_occurred := (alu_out_e(32) ^ alu_out_e(31))
-      alu_out := alu_out_e(31, 0)
+      alu_out := src1 - src2
     }
     is(AluOp.op_slt) {
       alu_out := src1.asSInt() < src2.asSInt()
@@ -138,7 +126,6 @@ class AluEx extends Module {
 
   io.out.alu_res := alu_out
   io.out.alu_sum := src1 + src2
-  io.out.overflow_flag := overflow_occurred
   io.out.out_valid := MuxCase(1.B, Seq(
     divider_required -> ((ex_divider_state_reg === DividerState.calculating && divider_out_valid) || calc_done),
     multiplier_required -> (multiplier.io.res_valid || calc_done)

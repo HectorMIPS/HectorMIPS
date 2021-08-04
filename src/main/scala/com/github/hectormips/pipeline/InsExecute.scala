@@ -227,7 +227,6 @@ class InsExecute extends Module {
     eret_occur) && ready_go && io.id_ex_in(exception_index).bus_valid
   for (i <- 0 to 1) {
     exception_flags(i) := io.id_ex_in(i).exception_flags |
-      Mux(alu_out(i).overflow_flag && io.id_ex_in(i).overflow_detection_en, ExceptionConst.EXCEPTION_INT_OVERFLOW, 0.U) |
       Mux(io.id_ex_in(i).mem_en_id_ex &&
         ((io.id_ex_in(i).mem_data_sel_id_ex === MemDataSel.word && alu_out(i).alu_sum(1, 0) =/= 0.U) ||
           io.id_ex_in(i).mem_data_sel_id_ex === MemDataSel.hword && alu_out(i).alu_sum(0) =/= 0.U),
