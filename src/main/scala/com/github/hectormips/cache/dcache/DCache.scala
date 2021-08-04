@@ -86,18 +86,23 @@ class DCache(val config: CacheConfig)
   storeBuffer.io.cpu_req := false.B
   storeBuffer.io.cpu_addr := 0.U
   storeBuffer.io.cpu_size := 0.U
-
+  storeBuffer.io.cpu_port := 0.U
   when(io.wr(0) && io.addr_ok(0) && io.valid(0)) {
     storeBuffer.io.cpu_req := true.B
     storeBuffer.io.cpu_size := io.size(0)
     storeBuffer.io.cpu_addr := io.addr(0)
     storeBuffer.io.cpu_wdata := io.wdata(0)
+    storeBuffer.io.cpu_port := 0.U
   }
   when(io.wr(1) && io.addr_ok(1) && io.valid(1)) {
     storeBuffer.io.cpu_req := true.B
     storeBuffer.io.cpu_size := io.size(1)
     storeBuffer.io.cpu_addr := io.addr(1)
     storeBuffer.io.cpu_wdata := io.wdata(1)
+    storeBuffer.io.cpu_port := 1.U
+  }
+  when(storeBuffer.io.data_ok){
+    io.data_ok(storeBuffer.io.data_ok_port) := true.B
   }
 
   /**
@@ -592,76 +597,6 @@ class DCache(val config: CacheConfig)
   //  victim.io.waddr := DontCare
 }
 
-//class QueueItem extends Bundle {
-//  val valid = Bool()
-//  val addr = UInt(32.W)
-//  val port = UInt(1.W)
-//  val size = UInt(3.W)
-//}
-//
-//class DcacheQueue(length: Int) extends Module {
-//  val io = IO(new Bundle {
-//    val empty = Output(Bool())
-//    val full = Output(Bool())
-//
-//    val enq = Input(Bool())
-//    val in_port = Input(UInt(1.W))
-//    val in_addr = Input(UInt(32.W))
-//    val in_size = Input(UInt(3.W))
-//
-//    val deq = Input(Bool())
-//    val out_port = Output(UInt(1.W))
-//    val out_addr = Output(UInt(32.W))
-//    val out_size = Output(UInt(3.W))
-//  })
-//
-//  val data = RegInit(VecInit(Seq.fill(length + 1)({
-//    val item = Wire(new QueueItem)
-//    item.valid := false.B
-//    item.port := 0.U
-//    item.addr := 0.U
-//    item.size := 0.U
-//    item
-//  })))
-//  val enq_ptr = RegInit(0.U(log2Ceil(length + 1).W))
-//  val deq_ptr = RegInit(0.U(log2Ceil(length + 1).W))
-//
-//
-//  io.empty := enq_ptr === deq_ptr
-//  io.full := enq_ptr === deq_ptr - 1.U
-//  when(io.enq && !io.full) {
-//    enq_data().valid := true.B
-//    enq_data().addr := io.in_addr
-//    enq_data().port := io.in_port
-//    enq_data().size := io.in_size
-//    when(enq_ptr === length.U) {
-//      enq_ptr := 0.U
-//    }.otherwise {
-//      enq_ptr := enq_ptr + 1.U
-//    }
-//  }
-//  io.out_size := deq_data().size
-//  io.out_port := deq_data().port
-//  io.out_addr := deq_data().addr
-//
-//  when(io.deq && !io.empty) {
-//    deq_data().valid := false.B
-//    when(deq_ptr === length.U) {
-//      deq_ptr := 0.U
-//    }.otherwise {
-//      deq_ptr := deq_ptr + 1.U
-//
-//    }
-//  }
-//
-//  def enq_data(): QueueItem = {
-//    data(enq_ptr)
-//  }
-//
-//  def deq_data(): QueueItem = {
-//    data(deq_ptr)
-//  }
-//}
 
 object DCache extends App {
   new ChiselStage execute(args, Seq(ChiselGeneratorAnnotation(

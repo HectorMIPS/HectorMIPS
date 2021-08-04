@@ -14,8 +14,11 @@ class StoreBuffer(length:Int) extends Module{
     val cpu_size = Input(UInt(3.W))
     val cpu_addr = Input(UInt(32.W))
     val cpu_wdata = Input(UInt(32.W))
-//    val cpu_port  = Input(UInt(1.W))
+    val cpu_port  = Input(UInt(1.W))
+
     val cpu_ok   = Output(Bool())
+    val data_ok = Output(Bool())
+    val data_ok_port =Output(UInt(1.W))
     // 与cache交互
     // 向端口插入数据
 //    val cache_write_ready = Input(Bool())
@@ -47,7 +50,7 @@ class StoreBuffer(length:Int) extends Module{
   val tmp_addr = Reg(UInt(32.W))
   val tmp_wdata = Reg(UInt(32.W))
   val tmp_valid = RegInit(false.B)
-
+  val tmp_port  = RegInit(0.U)
   wstrb.io.size := tmp_size
   wstrb.io.offset := tmp_addr(1,0)
   /**
@@ -76,13 +79,15 @@ class StoreBuffer(length:Int) extends Module{
    */
 
   io.cpu_ok := !buffer.full()
-
+  io.data_ok_port := 0.U
   when(io.cpu_req && io.cpu_ok){
     tmp_size  := io.cpu_size
     tmp_addr  := io.cpu_addr
     tmp_wdata := io.cpu_wdata
+    tmp_port := io.cpu_port
     tmp_valid := true.B
   }
+  io.data_ok := false.B
   when(tmp_valid){
     when(cpu_is_hit_queue){
       // 合并同类项
@@ -94,10 +99,12 @@ class StoreBuffer(length:Int) extends Module{
       buffer.enq_data().addr := tmp_addr
       buffer.enq_data().wdata := tmp_wdata
       buffer.enq_data().valid := true.B
-      //    buffer.enq_data().port := io.cpu_port
+//          buffer.enq_data().port := io.cpu_port
       buffer.enq()
     }
     tmp_valid := false.B
+    io.data_ok := true.B
+    io.data_ok_port := tmp_port
   }
 
   /**
@@ -148,6 +155,7 @@ class Buffer(length:Int) extends  Bundle{
     bundle.addr := 0.U
     bundle.wstrb := 0.U
     bundle.wdata := 0.U
+//    bundle.port := 0.U
     bundle
   })))
   val enq_ptr = RegInit(0.U(log2Ceil(length).W))
