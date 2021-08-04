@@ -12,7 +12,7 @@ HectorMIPS完全使用Chisel3编写，再通过Chisel3编译到Verilog导入到v
 
 ### 设计框架
 
-HectorMIPS中的CPU采用顺序双发射伪六级流水线架构，实现了包括除4条非对齐指令外的所有MIPS I指令、MIPS32中的ERET指令以及MUL指令，共58条指令，5个CP0 寄存器，3个中断，7种例外。CPU对外的访存通信通过四个接口，分别是Uncached属性指令接口、Cached属性指令接口、Uncached属性数据接口、Cached属性数据接口。四个接口通过AXI3协议，经过AXI Crossbar整合成为一个接口与外设交互。
+HectorMIPS中的CPU采用顺序双发射伪六级流水线架构，实现了包括除4条非对齐指令外的所有MIPS I指令、MIPS32中的ERET指令以及MUL指令，共58条指令，6个CP0 寄存器，3个中断，7种例外。CPU对外的访存通信通过四个接口，分别是Uncached属性指令接口、Cached属性指令接口、Uncached属性数据接口、Cached属性数据接口。四个接口通过AXI3协议，经过AXI Crossbar整合成为一个接口与外设交互。
 
 HectorMIPS实现了指令缓存(I-Cache)与数据缓存(D-Cache)，响应CPU的取指与访存请求。I-Cache与D-Cache大小均为16K（#TODO确认大小），在连续命中时，能够实现不间断地流水返回数据。I-Cache与D-Cache分别引出一个AXI接口。D-Cache能够缓冲 CPU的写请求，并且实现了一个写回缓存 (Victim Cache)，兼具了缓存与写回队列的功能。
 
@@ -22,39 +22,28 @@ HectorMIPS实现了指令缓存(I-Cache)与数据缓存(D-Cache)，响应CPU的�
 
 #TODO
 
-### 指令集(＃TODO确认指令)
+### 指令集
 
-CPU 在大赛要求的 57 条指令基础之上，增加了部分指令以启动操作系统。实现的所 有指令如下： 
+CPU 完成了大赛要求的57条指令以及系统测试需要用到的MUL指令：
 
-* **算术运算指令** ADD, ADDU, SUB, SUBU, ADDI, ADDIU, SLT, SLTU, SLTI, SLTIU, MUL, MULT, MULTU, DIV, DIVU, MADD, MADDU, MSUB, MSUBU, CLO, CLZ
+* **算术运算指令** ADD, ADDU, SUB, SUBU, ADDI, ADDIU, SLT, SLTU, SLTI, SLTIU, MUL, MULT, MULTU, DIV, DIVU
 * **逻辑运算指令** AND, OR, XOR, ANDI, ORI, XORI, NOR, LUI
 * **移位指令** SLL, SRL, SRA, SLLV, SRLV, SRAV
-* **访存指令** SB, SH, SW, SWL, SWR, LB, LBU, LH, LHU, LW, LWL, LWR
+* **访存指令** SB, SH, SW, LB, LBU, LH, LHU, LW
 * **分支跳转指令** BEQ, BNE, BGEZ, BGTZ, BLEZ, BLTZ, BGEZAL, BLTZAL, J, JAL, JR, JALR
-* **数据移动指令** MFHI, MFLO, MTHI, MTLO, MOVZ, MOVN
-* **特权指令** CACHE（实现为空）, SYSCALL, BREAK, TLBR, TLBWR, TLBWI, TLBP, ERET, MTC0, MFC0, PREF（实现为空）, SYNC（实现为空）, WAIT（实现为空）
+* **数据移动指令** MFHI, MFLO, MTHI, MTLO
+* **特权指令** SYSCALL, BREAK, ERET, MTC0, MFC0
 
-### 协处理器 0(＃TODO确认寄存器)
+### 协处理器 0
 
-CPU实现了MIPS 32 Rev 1规范中协处理器0中的大部分寄存器，同时为了启动操作系统，实现了MIPS 32 Rev 2规范中的EBase寄存器。所有寄存器如下，名称摘录自参考资料3：
+CPU实现了大赛规定的协处理器0中的6个寄存器，所有寄存器如下：
 
-* Index Register (CP0 Register 0, Select 0)
-* Random Register (CP0 Register 1, Select 0)
-* EntryLo0, EntryLo1 (CP0 Registers 2 and 3, Select 0)
-* Context Register (CP0 Register 4, Select 0)
-* PageMask Register (CP0 Register 5, Select 0)
-* Wired Register (CP0 Register 6, Select 0)
 * BadVAddr Register (CP0 Register 8, Select 0)
 * Count Register (CP0 Register 9, Select 0)
-* EntryHi Register (CP0 Register 10, Select 0)
 * Compare Register (CP0 Register 11, Select 0)
 * Status Register (CP Register 12, Select 0)
 * Cause Register (CP0 Register 13, Select 0)
 * Exception Program Counter (CP0 Register 14, Select 0)
-* Processor Identication (CP0 Register 15, Select 0)
-* EBase Register (CP0 Register 15, Select 1) 
-* Conguration Register (CP0 Register 16, Select 0)
-* Conguration Register 1 (CP0 Register 16, Select 1)
 
 ### Cache
 #### overview
