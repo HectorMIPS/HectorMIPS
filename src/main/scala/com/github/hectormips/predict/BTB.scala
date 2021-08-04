@@ -3,7 +3,7 @@ package com.github.hectormips.predict
 import chisel3._
 import chisel3.util._
 import chisel3.stage.{ChiselGeneratorAnnotation, ChiselStage}
-import com.github.hectormips.utils.Lru
+import com.github.hectormips.utils._
 
 class BTB(size: Int, BHT_size: Int) extends Module {
   require(isPow2(size))
@@ -84,21 +84,21 @@ class BTB(size: Int, BHT_size: Int) extends Module {
   // valid表，用于记录每个pc是否可用
   val valid_table: Vec[Bool] = RegInit(VecInit(Seq.fill(size)(0.B)))
 
-  
+  val BHT_result: Vec[Bool] = Wire(Vec(size, Bool()))
+
+  for (i <- 0 until size) {
+    BHT_result(i):= BHT_table(i)(pattern_table(i))
+  }
 
   for (i <- 0 until predict_size){
     // 译码段 pc查找结果
     val find_index: LookUpResult = Wire(new LookUpResult)
     find_index := get_index(io.predicts(i).pc)
 
-    // 译码段，pattern查找结果
-    val pattern: UInt = Wire(UInt(bht_len.W))
-    pattern := pattern_table(find_index.result)
-
     // 预测值
     io.predicts(i).target := target_table(find_index.result)
     // 预测是否成功
-    io.predicts(i).predict := find_index.is_find & BHT_table(find_index.result)(pattern)
+    io.predicts(i).predict := find_index.is_find & BHT_result(find_index.result)
   }
 
   // ex段 pc查找结果
@@ -132,7 +132,7 @@ class BTB(size: Int, BHT_size: Int) extends Module {
     }.otherwise {
       location_table(lru_result) := io.ex_pc
       target_table(lru_result) := io.ex_target
-      pattern_table(lru_result) := io.ex_success
+      pattern_table(lru_result) := Mux(io.ex_success, fill1(bht_len), 0.U)
       valid_table(lru_result) := 1.B
     }
   }
@@ -140,7 +140,7 @@ class BTB(size: Int, BHT_size: Int) extends Module {
   // 设置BHT
   for (i <- 0 until size) {
     for (j <- 0 until BHT_size) {
-      val is_this_bht = ex_index.result === i.U(len.W) & ex_pattern_next === j.U(bht_len.W)
+      val is_this_bht = ex_index.result === i.U(len.W) & ex_pattern === j.U(bht_len.W)
       val is_this_next = lru_result === i.U(len.W)
       withReset(reset.asBool() | ((~ex_index.is_find).asBool() & is_this_next)) {
         val bht = Module(new BHT)

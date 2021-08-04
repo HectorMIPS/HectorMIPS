@@ -71,7 +71,7 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   val branch_state                 : BranchState.Type            = RegInit(BranchState.no_branch)
   val fetch_force_cancel           : Bool                        = feedback_flipper || branch_state === BranchState.flushing
 
-  val predictor: BTB = Module(new BTB(16, 4))
+  val predictor: BTB = Module(new BTB(128, 4))
   when(feedback_flipper === 1.B) {
     feedback_flipper := 0.B
   }.elsewhen(to_epc_en_ex_pf || to_exception_service_en_ex_pf || pipeline_flush_ex) {
