@@ -12,7 +12,7 @@ HectorMIPS完全使用Chisel3编写，再通过Chisel3编译到Verilog导入到v
 
 ### 设计框架
 
-HectorMIPS中的CPU采用顺序双发射五级流水线（#TODO是五级吧）架构，实现了MIPS32 Rev 1 的 78（#TODO是78吧）条指令，18个CP0 寄存器，8个中断，9种例外，8项转换检测缓冲区，固定页大小为4KB（请#TODO确认数据）。CPU对外的访存通信通过四个接口，分别是Uncached属性指令接口、Cached属性指令接口、Uncached属性数据接口、Cached属性数据接口。四个接口通过AXI3协议，经过AXI Crossbar整合成为一个接口与外设交互。
+HectorMIPS中的CPU采用顺序双发射伪六级流水线架构，实现了包括除4条非对齐指令外的所有MIPS I指令、MIPS32中的ERET指令以及MUL指令，共58条指令，5个CP0 寄存器，3个中断，7种例外。CPU对外的访存通信通过四个接口，分别是Uncached属性指令接口、Cached属性指令接口、Uncached属性数据接口、Cached属性数据接口。四个接口通过AXI3协议，经过AXI Crossbar整合成为一个接口与外设交互。
 
 HectorMIPS实现了指令缓存(I-Cache)与数据缓存(D-Cache)，响应CPU的取指与访存请求。I-Cache与D-Cache大小均为16K（#TODO确认大小），在连续命中时，能够实现不间断地流水返回数据。I-Cache与D-Cache分别引出一个AXI接口。D-Cache能够缓冲 CPU的写请求，并且实现了一个写回缓存 (Victim Cache)，兼具了缓存与写回队列的功能。
 
