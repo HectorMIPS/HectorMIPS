@@ -46,7 +46,7 @@ class DCache(val config: CacheConfig)
   })
   val sIDLE :: sLOOKUP :: sREPLACE :: sREFILL :: sWaiting :: sEviction :: sEvictionWaiting :: Nil = Enum(7)
   val state = RegInit(VecInit(Seq.fill(2)(0.U(3.W))))
-
+  val is_hitWay = Wire(Vec(2, Bool()))
   val queue = Module(new Queue(new QueueItem, 3))
 //  val port_valid = RegInit(VecInit(Seq.fill(2)(true.B)))
   val storeBuffer = Module(new StoreBuffer(7))
@@ -60,8 +60,8 @@ class DCache(val config: CacheConfig)
   io.rdata(0) := 0.U
 //  val polling = RegInit(false.B)
 //  polling := ~polling
-  io.addr_ok(0) := storeBuffer.io.cpu_ok && !doWrite && queue.io.count===0.U //读写都准备完成
-  io.addr_ok(1) := storeBuffer.io.cpu_ok && !doWrite && queue.io.count===0.U
+  io.addr_ok(0) := storeBuffer.io.cpu_ok && !doWrite && (queue.io.count===0.U || (state(0)===sLOOKUP && is_hitWay(0)) )//读写都准备完成
+  io.addr_ok(1) := storeBuffer.io.cpu_ok && !doWrite && (queue.io.count===0.U || (state(0)===sLOOKUP && is_hitWay(0)) )
 
   when(queue.io.enq.ready) {
     when(io.valid(0) && io.addr_ok(0) && !io.wr(0)) {
@@ -156,7 +156,6 @@ class DCache(val config: CacheConfig)
   val bDataWtBank = RegInit(VecInit(Seq.fill(2)((0.U((config.offsetWidth - 2).W)))))
   //  val AXI_readyReg = RegInit(VecInit(Seq.fill(2)((false.B))))
 
-  val is_hitWay = Wire(Vec(2, Bool()))
   //  val addrokReg = RegInit(false.B)
   val index = Wire(Vec(2, UInt(config.indexWidth.W)))
   val bankIndex = Wire(Vec(2, UInt((config.offsetWidth - 2).W)))
@@ -476,7 +475,6 @@ class DCache(val config: CacheConfig)
           //          wr_r := io.wr
           //          wdata_r := io.wdata
           //        }.otherwise {
-          //
           //        }
           when(worker.U === 0.U) {
             io.data_ok(port_r) := true.B
