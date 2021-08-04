@@ -117,10 +117,10 @@ class InsMemory extends Module {
     val bypass_bus_valid: Bool = io.ex_ms_in(i).bus_valid
 
     io.bypass_ms_id(i).bus_valid := bypass_bus_valid
-    io.bypass_ms_id(i).data_valid := io.ex_ms_in(i).bus_valid && !reset.asBool() && ready_go && io.ex_ms_in(i).regfile_we_ex_ms &&
-      Mux(io.ex_ms_in(i).regfile_wsrc_sel_ex_ms, io.data_ram_data_ok, 1.B) &&
-      !io.ex_ms_in(i).regfile_wdata_from_cp0_ex_ms
-    io.bypass_ms_id(i).reg_data := Mux(io.ex_ms_in(i).regfile_wsrc_sel_ex_ms, mem_rdata_out, io.ex_ms_in(i).alu_val_ex_ms)
+    // 如果是需要从内存中加载的数据，等待wb级进行前递
+    io.bypass_ms_id(i).data_valid := io.ex_ms_in(i).bus_valid && !reset.asBool() && io.ex_ms_in(i).regfile_we_ex_ms &&
+      !io.ex_ms_in(i).regfile_wsrc_sel_ex_ms && !io.ex_ms_in(i).regfile_wdata_from_cp0_ex_ms
+    io.bypass_ms_id(i).reg_data := io.ex_ms_in(i).alu_val_ex_ms
     io.bypass_ms_id(i).reg_addr := MuxCase(0.U, Seq(
       (io.ex_ms_in(i).regfile_waddr_sel_ex_ms === RegFileWAddrSel.inst_rd) -> io.ex_ms_in(i).inst_rd_ex_ms,
       (io.ex_ms_in(i).regfile_waddr_sel_ex_ms === RegFileWAddrSel.inst_rt) -> io.ex_ms_in(i).inst_rt_ex_ms,
