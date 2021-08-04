@@ -20,6 +20,8 @@ class SocTopSRamLikeBundle extends Bundle {
   forceName(debug.debug_wb_rf_wnum, "debug_wb_rf_wnum")
   forceName(debug.debug_wb_rf_wdata, "debug_wb_rf_wdata")
   forceName(debug.debug_flush, "debug_fifo_flush")
+  forceName(debug.debug_predict_success, "debug_predict_success")
+  forceName(debug.debug_predict_fail, "debug_predict_fail")
 }
 
 
@@ -49,6 +51,7 @@ class SocTopAXI extends Module {
     mem_judge.io.inst.inst_predict_jump_target_out := cpu_top.io.inst_sram_like_io.inst_predict_jump_target_out
     cpu_top.io.inst_sram_like_io.inst_predict_jump_in := mem_judge.io.inst.inst_predict_jump_in
     cpu_top.io.inst_sram_like_io.inst_predict_jump_target_in := mem_judge.io.inst.inst_predict_jump_target_in
+
 
     cpu_top.io.inst_sram_like_io.addr_ok := mem_judge.io.inst.addr_ok
     cpu_top.io.inst_sram_like_io.data_ok := mem_judge.io.inst.data_ok

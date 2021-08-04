@@ -47,6 +47,7 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   val ms_wb_bus                    : Vec[MemoryWriteBackBundle]  = Wire(Vec(2, new MemoryWriteBackBundle))
   val id_pf_bus                    : DecodePreFetchBundle        = Wire(new DecodePreFetchBundle)
   val if_allowin                   : Bool                        = Wire(Bool())
+  val inst_fifo_allowin            : Bool                        = Wire(Bool())
   val id_allowin                   : Bool                        = Wire(Bool())
   val ex_allowin                   : Bool                        = Wire(Bool())
   val ms_allowin                   : Bool                        = Wire(Bool())
@@ -209,7 +210,7 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   // 由于是伪阶段，不需要寄存器来存储延迟槽指令pc
   if_module.io.ins_ram_data := io.inst_sram_like_io.rdata
   if_module.io.pc_debug_pf_if := io.inst_sram_like_io.inst_pc
-  if_module.io.next_allowin := id_allowin
+  if_module.io.next_allowin := inst_fifo_allowin
   if_module.io.flush := fetch_force_cancel
   if_module.io.ins_ram_data_ok := io.inst_sram_like_io.data_ok
   if_module.io.ins_ram_data_valid := io.inst_sram_like_io.inst_valid
@@ -225,6 +226,7 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   inst_fifo.io.in.bits.inst_bundle.inst := if_fifo_bus.ins_if_id
   inst_fifo.io.in.bits.inst_bundle.pc := if_fifo_bus.pc_debug_if_id
   inst_fifo.io.in.bits.inst_bundle.inst_valid := if_fifo_bus.ins_valid_if_id
+  inst_fifo_allowin := inst_fifo.io.in.ready
   for (i <- 0 to 1) {
     inst_fifo.io.in.bits.inst_bundle.pred_jump_target(i) := predictor.io.predicts(i).target
     inst_fifo.io.in.bits.inst_bundle.pred_jump_taken(i) := predictor.io.predicts(i).predict
@@ -258,6 +260,8 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   id_module.io.regfile_read2 := regfile.io.rdata2
   id_module.io.bypass_bus := bypass_bus
   id_module.io.flush := pipeline_flush_ex
+  io.debug.debug_predict_fail := id_module.io.debug_predict_fail
+  io.debug.debug_predict_success := id_module.io.debug_predict_success
   decoder_predictor := id_module.io.id_pred_out
   // 回馈给预取阶段的输出
   id_pf_bus := id_module.io.id_pf_out
@@ -288,9 +292,7 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   ex_module.io.cp0_hazard_bypass_wb_ex := cp0_hazard_bypass_wb_ex
   ex_module.io.cp0_ex_in.cp0_cause_ip := cp0_cause_ip
   ex_module.io.cp0_ex_in.cp0_status_im := cp0_status_im
-  for (i <- 0 to 1) {
-    ex_module.io.data_ram_addr_ok := io.data_sram_like_io(i).addr_ok
-  }
+  ex_module.io.data_ram_addr_ok := io.data_sram_like_io(0).addr_ok
   io.data_sram_like_io(0).req := ex_module.io.ex_ram_out.mem_en
   io.data_sram_like_io(0).wr := ex_module.io.ex_ram_out.mem_wen
   io.data_sram_like_io(0).addr := ex_module.io.ex_ram_out.mem_addr

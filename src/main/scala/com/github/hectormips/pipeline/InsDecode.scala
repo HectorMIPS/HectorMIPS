@@ -80,9 +80,11 @@ class InsDecodeBundle extends WithAllowin {
 
   val id_pf_out: DecodePreFetchBundle = Output(new DecodePreFetchBundle)
 
-  val id_ex_out  : Vec[DecodeExecuteBundle] = Output(Vec(2, new DecodeExecuteBundle))
-  val id_pred_out: DecoderPredictorBundle   = Output(new DecoderPredictorBundle)
-  val flush      : Bool                     = Input(Bool())
+  val id_ex_out            : Vec[DecodeExecuteBundle] = Output(Vec(2, new DecodeExecuteBundle))
+  val id_pred_out          : DecoderPredictorBundle   = Output(new DecoderPredictorBundle)
+  val flush                : Bool                     = Input(Bool())
+  val debug_predict_success: Bool                     = Output(Bool())
+  val debug_predict_fail   : Bool                     = Output(Bool())
 
 }
 
@@ -239,6 +241,8 @@ class InsDecode extends Module {
   // 3. 跳转指令的结果和延迟槽指令的预测结果不一致
   // 时才对pf进行控制
   io.id_pf_out.bus_valid := jump_bus_valid && decoders(0).out_branch.predict_fail
+  io.debug_predict_fail := jump_bus_valid && decoders(0).out_branch.predict_fail
+  io.debug_predict_success := jump_bus_valid && !decoders(0).out_branch.predict_fail
   io.id_pf_out.jump_taken := jump_taken
   io.id_pred_out.en_ex := jump_bus_valid
   io.id_pred_out.ex_success := jump_taken

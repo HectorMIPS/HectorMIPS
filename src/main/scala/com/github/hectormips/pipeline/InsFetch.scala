@@ -133,8 +133,8 @@ class InsPreFetch extends Module {
   io.pf_pred_out(1).pc := seq_pc_4
 
   when(!io.id_pf_in.bus_valid && !io.to_exception_service_en_ex_pf && !io.to_epc_en_ex_pf) {
-    when((io.pred_pf_in(0).predict && !io.inst_sram_ins_valid(1)) ||
-      (io.inst_sram_ins_valid(1) && io.pred_pf_in(1).predict) && req &&
+    when(((io.pred_pf_in(0).predict && !io.inst_sram_ins_valid(1)) ||
+      (io.inst_sram_ins_valid(1) && io.pred_pf_in(1).predict)) && req &&
         io.addr_ok && !branch_predict_target_buffer_valid) {
       // 当需要等待延迟槽指令并且请求已经被发出的时候将buffer置为valid
       branch_predict_target_buffer_valid := 1.B

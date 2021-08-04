@@ -130,7 +130,7 @@ class StoreBuffer(length:Int) extends Module{
     io.cache_write_wdata := 0.U
   }
   when(io.cache_response){
-    when(io.cpu_addr(31,2) === buffer.deq_data().addr(31,2)){
+    when(tmp_addr(31,2) === buffer.deq_data().addr(31,2)){
       //多沿一个事务
       buffer.deq_data().valid := true.B
     }.otherwise{
