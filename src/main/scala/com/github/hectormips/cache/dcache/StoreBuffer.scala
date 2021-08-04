@@ -99,10 +99,17 @@ class StoreBuffer(length:Int) extends Module{
       buffer.enq_data().addr := tmp_addr
       buffer.enq_data().wdata := tmp_wdata
       buffer.enq_data().valid := true.B
-//          buffer.enq_data().port := io.cpu_port
       buffer.enq()
     }
-    tmp_valid := false.B
+    when(io.cpu_req && io.cpu_ok){
+      tmp_size  := io.cpu_size
+      tmp_addr  := io.cpu_addr
+      tmp_wdata := io.cpu_wdata
+      tmp_port := io.cpu_port
+      tmp_valid := true.B
+    }.otherwise{
+      tmp_valid := false.B
+    }
     io.data_ok := true.B
     io.data_ok_port := tmp_port
   }
@@ -164,7 +171,7 @@ class Buffer(length:Int) extends  Bundle{
     enq_ptr === deq_ptr
   }
   def full():Bool={
-    enq_ptr === deq_ptr - 1.U
+    enq_ptr === deq_ptr - 2.U
   }
 
 
