@@ -465,7 +465,7 @@ class Decoder extends Module {
   }
   io.out_regular.alu_src1 := alu_src1
   io.out_regular.alu_src2 := alu_src2
-  io.out_regular.alu_op := MuxCase(AluOp.nop, Seq(
+  val alu_op: AluOp.Type = MuxCase(AluOp.nop, Seq(
     (ins_addu | ins_add | ins_addiu | ins_addi | ins_lw | ins_lb |
       ins_lbu | ins_lh | ins_lhu | ins_sw | ins_sh | ins_sb |
       ins_jal | ins_bltzal | ins_bgezal | ins_jalr | ins_mtc0 | ins_mflo | ins_mfhi) -> AluOp.op_add,
@@ -485,6 +485,7 @@ class Decoder extends Module {
     ins_div -> AluOp.op_div,
     ins_divu -> AluOp.op_divu
   ))
+  io.out_regular.alu_op := alu_op
   val rf_wen     : Bool                 = ins_addu | ins_add | ins_addiu | ins_addi | ins_subu | ins_sub |
     ins_lw | ins_lb | ins_mul |
     ins_lbu | ins_lh | ins_lhu | ins_jal | ins_bgezal | ins_bltzal | ins_slt | ins_sltu | ins_sll | ins_srl | ins_sra |
@@ -604,15 +605,21 @@ class Decoder extends Module {
     ins_eret
 
   io.out_regular.is_delay_slot := io.in.is_delay_slot
-  io.out_regular.overflow_detection_en := ins_add | ins_addi | ins_sub
+  val overflow_detection_en: Bool = ins_add | ins_addi | ins_sub
+  io.out_regular.overflow_detection_en := overflow_detection_en
   io.out_regular.ins_eret := ins_eret
   io.out_regular.src_use_hilo := ins_mfhi | ins_mflo
-
+  val src_1_e      : UInt = Cat(alu_src1(31), alu_src1)
+  val src_2_e      : UInt = Cat(alu_src2(31), alu_src2)
+  val alu_quick_res: UInt = Mux(alu_op === AluOp.op_add, src_1_e + src_2_e, src_1_e - src_2_e)
+  val overflow_flag: Bool = alu_quick_res(32) ^ alu_quick_res(31)
   io.out_regular.exception_flags := Mux(pc(1, 0) === 0.U,
     0.U, ExceptionConst.EXCEPTION_FETCH_ADDR) |
     Mux(ins_valid, 0.U, ExceptionConst.EXCEPTION_RESERVE_INST) |
     Mux(ins_syscall, ExceptionConst.EXCEPTION_SYSCALL, 0.U) |
-    Mux(ins_break, ExceptionConst.EXCEPTION_TRAP, 0.U)
+    Mux(ins_break, ExceptionConst.EXCEPTION_TRAP, 0.U) |
+    Mux(overflow_flag && overflow_detection_en, ExceptionConst.EXCEPTION_INT_OVERFLOW, 0.U)
+
   io.out_regular.ins_valid := io.in.ins_valid
 
   io.out_issue.op1_rf_num := Mux(src1_sel === AluSrc1Sel.regfile_read1, rs, 0.U)
