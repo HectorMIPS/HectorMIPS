@@ -56,10 +56,31 @@ CPU实现了MIPS 32 Rev 1规范中协处理器0中的大部分寄存器，同时
 * Conguration Register (CP0 Register 16, Select 0)
 * Conguration Register 1 (CP0 Register 16, Select 1)
 
-### 内存管理
-
-＃TODO
-
+### Cache
+#### overview
+![overview](./asset/svg/cache_overview.svg)
+* MemAccessLogic 负责判断地址是否是cache的数据；  
+  同时，将虚拟地址转换为物理地址
+* icache 和 dcache 分别缓存指令和数据；  
+  对于uncache的数据和指令，不进行其他处理，直接访问AXI总线
+#### icache
+![icache](./asset/svg/icache.svg)
+* 2路组相连
+* 每路256行，每行64Byte，共32KB
+* LRU 替换
+* 每次返回2条指令，即8字节
+* N+1 预取
+* 关键字优先
+#### dcache
+![dcache](./asset/svg/dcache.svg)
+* 2路组相连
+* 每路256行，每行32Byte，共16KB
+* LRU替换
+* store buffer 非阻塞写
+* 读口与写口分离
+* 写回、写分配
+* 关键字优先
+* 支持同时驱逐和写入新行
 ### 中断和异常
 
 ＃TODO
