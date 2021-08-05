@@ -58,7 +58,7 @@ class DCache(val config: CacheConfig)
   io.rdata(1) := 0.U
   io.rdata(0) := 0.U
 
-  io.addr_ok(0) := !doWrite && storeBuffer.io.cpu_ok && state(0)===sIDLE //读写都准备完成
+  io.addr_ok(0) := !doWrite && storeBuffer.io.cpu_ok && (state(0)===sIDLE || state(0)===sLOOKUP && is_hitWay(0)) //读写都准备完成
   io.addr_ok(1) := false.B
 
 //  when(queue.io.enq.ready) {
@@ -169,8 +169,9 @@ class DCache(val config: CacheConfig)
     state(i) := sIDLE
     index(i) := config.getIndex(addr_r(i))
     bankIndex(i) := config.getBankIndex(addr_r(i))
-    tag(i) := config.getTag(addr_r(i))
   }
+  tag(0) := config.getTag(addr_r_0)
+  tag(1) := config.getTag(addr_r(1))
 
   /**
    * 初始化 ram
@@ -459,6 +460,19 @@ class DCache(val config: CacheConfig)
             addr_r_0 := 0.U
             io.rdata(port_r) := (bData.read(0)(cache_hit_way(0))(bankIndex(0)) & storeBuffer_reverse_mask) |
               (storeBuffer.io.cache_query_data & storeBuffer.io.cache_query_mask)
+            when(io.valid(0) && io.addr_ok(0) && !io.wr(0)) {
+              when(index(0) === index(1)) {
+                when(state(1) === sIDLE) {
+                  state(0) := sLOOKUP
+                }.otherwise {
+                  state(0) := sWaiting // 阻塞状态
+                }
+              }.otherwise {
+                state(0) := sLOOKUP
+              }
+            }.otherwise {
+              state(0) := sIDLE
+            }
           }.elsewhen(worker.U === 1.U) {
             storeBuffer.io.cache_response := true.B
           }

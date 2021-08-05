@@ -32,7 +32,7 @@ class SocTopAXI extends Module {
     val cpu_top  : CpuTopSRamLike   = Module(new CpuTopSRamLike(0xbfbffffcL, 0))
     val cache    : Cache            = Module(new Cache(new CacheConfig()))
     val crossbar : axi_crossbar_2x1 = Module(new axi_crossbar_2x1)
-    val mem_judge: MemAccessJudge   = Module(new MemAccessJudge(true.B))
+    val mem_judge: MemAccessJudge   = Module(new MemAccessJudge(false.B))
 
 
     io.axi_io.force_name()
@@ -81,7 +81,7 @@ class SocTopAXI extends Module {
   forceName(clock, "aclk")
   forceName(reset, "aresetn")
   forceName(io.interrupt, "ext_int")
-  override val desiredName = s"mycpu_top"
+  override val desiredName = s"mycpu_top_1"
 }
 
 object SocTopAXI extends App {
