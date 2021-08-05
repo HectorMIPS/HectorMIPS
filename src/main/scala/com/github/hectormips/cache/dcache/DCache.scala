@@ -52,13 +52,13 @@ class DCache(val config: CacheConfig)
 
   //  val read_can_fire = Wire(Bool()) //允许读 且 有读请求
   //  read_can_fire := io.valid(0) && io.addr_ok(0) && !io.wr(0) || io.valid(1) && io.addr_ok(1) && !io.wr(1)
-  //  val doWrite = RegInit(false.B)
+    val doWrite = RegInit(false.B)
   io.data_ok(1) := false.B
   io.data_ok(0) := false.B
   io.rdata(1) := 0.U
   io.rdata(0) := 0.U
 
-  io.addr_ok(0) := storeBuffer.io.cpu_ok && state(0)===sIDLE //读写都准备完成
+  io.addr_ok(0) := !doWrite && storeBuffer.io.cpu_ok && state(0)===sIDLE //读写都准备完成
   io.addr_ok(1) := false.B
 
 //  when(queue.io.enq.ready) {
@@ -92,7 +92,7 @@ class DCache(val config: CacheConfig)
     storeBuffer.io.cpu_addr := io.addr(0)
     storeBuffer.io.cpu_wdata := io.wdata(0)
     storeBuffer.io.cpu_port := 0.U
-    //    doWrite := true.B
+    doWrite := true.B
   }
   when(io.wr(1) && io.addr_ok(1) && io.valid(1)) {
     storeBuffer.io.cpu_req := true.B
@@ -100,11 +100,11 @@ class DCache(val config: CacheConfig)
     storeBuffer.io.cpu_addr := io.addr(1)
     storeBuffer.io.cpu_wdata := io.wdata(1)
     storeBuffer.io.cpu_port := 1.U
-    //    doWrite := true.B
+    doWrite := true.B
   }
   when(storeBuffer.io.data_ok) {
     io.data_ok(storeBuffer.io.data_ok_port) := true.B
-    //    doWrite := false.B
+    doWrite := false.B
   }
 
   /**
