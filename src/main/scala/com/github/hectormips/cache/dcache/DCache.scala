@@ -167,9 +167,11 @@ class DCache(val config: CacheConfig)
   for (i <- 0 to 1) {
     is_hitWay(i) := cache_hit_onehot(i).asUInt().orR() // 判断是否命中cache
     state(i) := sIDLE
-    index(i) := config.getIndex(addr_r(i))
-    bankIndex(i) := config.getBankIndex(addr_r(i))
   }
+  index(1) := config.getIndex(addr_r(1))
+  index(0) := config.getIndex(addr_r_0)
+  bankIndex(0) := config.getBankIndex(addr_r_0)
+  bankIndex(1) := config.getBankIndex(addr_r(1))
   tag(0) := config.getTag(addr_r_0)
   tag(1) := config.getTag(addr_r(1))
 
@@ -457,7 +459,7 @@ class DCache(val config: CacheConfig)
           //        }
           when(worker.U === 0.U) {
             io.data_ok(port_r) := true.B
-            addr_r_0 := 0.U
+//            addr_r_0 := 0.U
             io.rdata(port_r) := (bData.read(0)(cache_hit_way(0))(bankIndex(0)) & storeBuffer_reverse_mask) |
               (storeBuffer.io.cache_query_data & storeBuffer.io.cache_query_mask)
             when(io.valid(0) && io.addr_ok(0) && !io.wr(0)) {
@@ -480,7 +482,7 @@ class DCache(val config: CacheConfig)
           // store buffer hit
 //          queue.io.deq.ready := true.B
           state(worker) := sIDLE
-          addr_r_0 := 0.U
+//          addr_r_0 := 0.U
           io.data_ok(port_r) := true.B
           io.rdata(port_r) := storeBuffer.io.cache_query_data
         }.otherwise {
