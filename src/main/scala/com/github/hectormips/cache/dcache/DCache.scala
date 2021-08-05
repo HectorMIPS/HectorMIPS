@@ -46,7 +46,7 @@ class DCache(val config: CacheConfig)
   val sIDLE :: sLOOKUP :: sREPLACE :: sREFILL :: sWaiting :: sEviction :: sEvictionWaiting :: Nil = Enum(7)
   val state = RegInit(VecInit(Seq.fill(2)(0.U(3.W))))
   val is_hitWay = Wire(Vec(2, Bool()))
-  val queue = Module(new Queue(new QueueItem, 3))
+//  val queue = Module(new Queue(new QueueItem, 3))
   //  val port_valid = RegInit(VecInit(Seq.fill(2)(true.B)))
   val storeBuffer = Module(new StoreBuffer(7))
 
@@ -58,29 +58,29 @@ class DCache(val config: CacheConfig)
   io.rdata(1) := 0.U
   io.rdata(0) := 0.U
 
-  io.addr_ok(0) := storeBuffer.io.cpu_ok && (queue.io.count === 0.U) //读写都准备完成
-  io.addr_ok(1) := storeBuffer.io.cpu_ok && (queue.io.count === 0.U)
+  io.addr_ok(0) := storeBuffer.io.cpu_ok && state(0)===sIDLE //读写都准备完成
+  io.addr_ok(1) := false.B
 
-  when(queue.io.enq.ready) {
-    when(io.valid(0) && io.addr_ok(0) && !io.wr(0)) {
-      queue.io.enq.valid := true.B
-      queue.io.enq.bits.addr := io.addr(0)
-      queue.io.enq.bits.port := 0.U
-    }.elsewhen(io.valid(1) && io.addr_ok(1) && !io.wr(1)) {
-      queue.io.enq.valid := true.B
-      queue.io.enq.bits.addr := io.addr(1)
-      queue.io.enq.bits.port := 1.U
-    }.otherwise {
-      queue.io.enq.valid := false.B
-      queue.io.enq.bits.addr := 0.U
-      queue.io.enq.bits.port := 0.U
-    }
-  }.otherwise {
-    queue.io.enq.valid := false.B
-    queue.io.enq.bits.addr := 0.U
-    queue.io.enq.bits.port := 0.U
-  }
-  queue.io.deq.ready := false.B
+//  when(queue.io.enq.ready) {
+//    when(io.valid(0) && io.addr_ok(0) && !io.wr(0)) {
+//      queue.io.enq.valid := true.B
+//      queue.io.enq.bits.addr := io.addr(0)
+//      queue.io.enq.bits.port := 0.U
+//    }.elsewhen(io.valid(1) && io.addr_ok(1) && !io.wr(1)) {
+//      queue.io.enq.valid := true.B
+//      queue.io.enq.bits.addr := io.addr(1)
+//      queue.io.enq.bits.port := 1.U
+//    }.otherwise {
+//      queue.io.enq.valid := false.B
+//      queue.io.enq.bits.addr := 0.U
+//      queue.io.enq.bits.port := 0.U
+//    }
+//  }.otherwise {
+//    queue.io.enq.valid := false.B
+//    queue.io.enq.bits.addr := 0.U
+//    queue.io.enq.bits.port := 0.U
+//  }
+//  queue.io.deq.ready := false.B
   storeBuffer.io.cpu_wdata := 0.U
   storeBuffer.io.cpu_req := false.B
   storeBuffer.io.cpu_addr := 0.U
@@ -134,17 +134,19 @@ class DCache(val config: CacheConfig)
   val cache_hit_way = Wire(Vec(2, UInt(config.wayNumWidth.W)))
 
   //  val addr_r = RegInit(0.U(32.W)) //地址寄存器
-  //  val addr_r_0 = Reg(UInt(32.W)) //地址寄存器
+  val addr_r_0 = Reg(UInt(32.W)) //地址寄存器
   val addr_r = Wire(Vec(2, UInt(32.W))) //地址寄存器
-  addr_r(0) := Mux(io.valid(0) && io.addr_ok(0), io.addr(0), queue.io.deq.bits.addr)
+  addr_r(0) := Mux(io.valid(0) && io.addr_ok(0), io.addr(0), addr_r_0)
   addr_r(1) := storeBuffer.io.cache_write_addr
-
+  when(io.addr_ok(0) && io.valid(0) && !io.wr(0)){
+    addr_r_0 := io.addr(0)
+  }
   val wdata_r = Wire(UInt(32.W))
   //  wdata_r(0) := queue.io.deq.bits.wdata
   wdata_r := storeBuffer.io.cache_write_wdata
 
   val port_r = Wire(UInt(1.W))
-  port_r := queue.io.deq.bits.port
+  port_r := 0.U
 
   val bData = new BankData(config)
   val tagvData = new TAGVData(config)
@@ -411,7 +413,7 @@ class DCache(val config: CacheConfig)
     switch(state(worker)) {
       is(sIDLE) {
         when(worker.U === 0.U) {
-          when(queue.io.count =/= 0.U || io.valid(0) && io.addr_ok(0)) {
+          when(io.valid(0) && io.addr_ok(0) && !io.wr(0)) {
             when(index(0) === index(1)) {
               when(state(1) === sIDLE) {
                 state(0) := sLOOKUP
@@ -426,7 +428,7 @@ class DCache(val config: CacheConfig)
           }
         }.elsewhen(worker.U === 1.U) {
           when(storeBuffer.io.cache_write_valid) {
-            when(index(0) === index(1) && (io.valid(0) && io.addr_ok(0) || queue.io.count =/= 0.U || state(0) === sWaiting)) {
+            when(index(0) === index(1) && (io.valid(0) && io.addr_ok(0) && !io.wr(0) || state(0) === sWaiting)) {
               // 等待直到读端口进入空状态
               state(1) := sIDLE
             }.otherwise {
@@ -454,7 +456,7 @@ class DCache(val config: CacheConfig)
           //        }
           when(worker.U === 0.U) {
             io.data_ok(port_r) := true.B
-            queue.io.deq.ready := true.B
+            addr_r_0 := 0.U
             io.rdata(port_r) := (bData.read(0)(cache_hit_way(0))(bankIndex(0)) & storeBuffer_reverse_mask) |
               (storeBuffer.io.cache_query_data & storeBuffer.io.cache_query_mask)
           }.elsewhen(worker.U === 1.U) {
@@ -462,7 +464,9 @@ class DCache(val config: CacheConfig)
           }
         }.elsewhen(worker.U === 0.U && storeBuffer.io.cache_query_mask === "hffff_ffff".U) {
           // store buffer hit
-          queue.io.deq.ready := true.B
+//          queue.io.deq.ready := true.B
+          state(worker) := sIDLE
+          addr_r_0 := 0.U
           io.data_ok(port_r) := true.B
           io.rdata(port_r) := storeBuffer.io.cache_query_data
         }.otherwise {
@@ -528,7 +532,8 @@ class DCache(val config: CacheConfig)
           when(io.axi.readData.bits.last) {
             state(worker) := sIDLE
             when(worker.U === 0.U) {
-              queue.io.deq.ready := true.B
+              addr_r_0 := 0.U
+              //              queue.io.deq.ready := true.B
             }.otherwise {
               storeBuffer.io.cache_response := true.B
             }
