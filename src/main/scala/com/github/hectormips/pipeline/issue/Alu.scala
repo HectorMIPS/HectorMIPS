@@ -17,7 +17,6 @@ class AluIn extends Bundle {
 
 class AluOut extends Bundle {
   val alu_res      : UInt = UInt(64.W)
-  val alu_sum      : UInt = UInt(32.W)
   val out_valid    : Bool = Bool()
 }
 
@@ -81,6 +80,5 @@ class Alu extends Module {
 
 
   io.out.alu_res := alu_out
-  io.out.alu_sum := src1 + src2
   io.out.out_valid := 1.B
 }

@@ -24,6 +24,7 @@ class DecoderRegularOut extends Bundle {
   val imm_32                    : UInt                 = UInt(32.W)
   val alu_src1                  : UInt                 = UInt(32.W)
   val alu_src2                  : UInt                 = UInt(32.W)
+  val src_sum                   : UInt                 = UInt(32.W)
   val mem_en                    : Bool                 = Bool()
   val mem_wen                   : Bool                 = Bool()
   val regfile_wsrc_sel          : Bool                 = Bool()
@@ -619,7 +620,7 @@ class Decoder extends Module {
     Mux(ins_syscall, ExceptionConst.EXCEPTION_SYSCALL, 0.U) |
     Mux(ins_break, ExceptionConst.EXCEPTION_TRAP, 0.U) |
     Mux(overflow_flag && overflow_detection_en, ExceptionConst.EXCEPTION_INT_OVERFLOW, 0.U)
-
+  io.out_regular.src_sum := (src_1_e + src_2_e)(31, 0)
   io.out_regular.ins_valid := io.in.ins_valid
 
   io.out_issue.op1_rf_num := Mux(src1_sel === AluSrc1Sel.regfile_read1, rs, 0.U)

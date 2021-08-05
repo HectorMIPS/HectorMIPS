@@ -125,7 +125,6 @@ class AluEx extends Module {
   }
 
   io.out.alu_res := alu_out
-  io.out.alu_sum := src1 + src2
   io.out.out_valid := MuxCase(1.B, Seq(
     divider_required -> ((ex_divider_state_reg === DividerState.calculating && divider_out_valid) || calc_done),
     multiplier_required -> (multiplier.io.res_valid || calc_done)

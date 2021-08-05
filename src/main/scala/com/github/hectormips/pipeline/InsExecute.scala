@@ -18,6 +18,7 @@ class DecodeExecuteBundle extends WithVEI {
 
   val alu_src1_id_ex                  : UInt                 = UInt(32.W)
   val alu_src2_id_ex                  : UInt                 = UInt(32.W)
+  val src_sum                         : UInt                 = UInt(32.W)
   // 直传id_ex_ms
   val mem_en_id_ex                    : Bool                 = Bool()
   val mem_wen_id_ex                   : Bool                 = Bool()
@@ -79,6 +80,7 @@ class DecodeExecuteBundle extends WithVEI {
     ins_eret := 0.B
     is_delay_slot := 0.B
     src_use_hilo := 0.B
+    src_sum := 0.U
     super.defaults()
   }
 }
@@ -228,8 +230,8 @@ class InsExecute extends Module {
   for (i <- 0 to 1) {
     exception_flags(i) := io.id_ex_in(i).exception_flags |
       Mux(io.id_ex_in(i).mem_en_id_ex &&
-        ((io.id_ex_in(i).mem_data_sel_id_ex === MemDataSel.word && alu_out(i).alu_sum(1, 0) =/= 0.U) ||
-          io.id_ex_in(i).mem_data_sel_id_ex === MemDataSel.hword && alu_out(i).alu_sum(0) =/= 0.U),
+        ((io.id_ex_in(i).mem_data_sel_id_ex === MemDataSel.word && io.id_ex_in(i).src_sum(1, 0) =/= 0.U) ||
+          io.id_ex_in(i).mem_data_sel_id_ex === MemDataSel.hword && io.id_ex_in(i).src_sum(0) =/= 0.U),
         // 写使能非零说明是写地址异常
         Mux(io.id_ex_in(i).mem_wen_id_ex =/= 0.U, ExceptionConst.EXCEPTION_BAD_RAM_ADDR_WRITE,
           ExceptionConst.EXCEPTION_BAD_RAM_ADDR_READ), 0.U)
@@ -239,14 +241,14 @@ class InsExecute extends Module {
   // dram操作
   io.ex_ram_out.mem_en := io.id_ex_in(data_ram_index).bus_valid &&
     io.id_ex_in(data_ram_index).mem_en_id_ex && !exceptionShielded(data_ram_index)
-  io.ex_ram_out.mem_addr := alu_out(data_ram_index).alu_sum
+  io.ex_ram_out.mem_addr := io.id_ex_in(data_ram_index).src_sum
   io.ex_ram_out.mem_size := MuxCase(0.U, Seq(
     (io.id_ex_in(data_ram_index).mem_data_sel_id_ex === MemDataSel.word) -> 2.U,
     (io.id_ex_in(data_ram_index).mem_data_sel_id_ex === MemDataSel.hword) -> 1.U,
     (io.id_ex_in(data_ram_index).mem_data_sel_id_ex === MemDataSel.byte) -> 0.U
   ))
   val wdata_offset: UInt = Wire(UInt(5.W))
-  wdata_offset := alu_out(data_ram_index).alu_sum(1, 0) << 3.U
+  wdata_offset := io.id_ex_in(data_ram_index).src_sum(1, 0) << 3.U
   // 实际写入数据与size、addr相关，并非永远都选择低位有效
   io.ex_ram_out.mem_wdata := io.id_ex_in(data_ram_index).mem_wdata_id_ex << wdata_offset
   io.ex_ram_out.mem_wen := io.id_ex_in(data_ram_index).mem_wen_id_ex &&
@@ -261,7 +263,7 @@ class InsExecute extends Module {
     io.ex_ms_out(i).inst_rt_ex_ms := io.id_ex_in(i).inst_rt_id_ex
     io.ex_ms_out(i).regfile_we_ex_ms := io.id_ex_in(i).regfile_we_id_ex
     io.ex_ms_out(i).pc_ex_ms_debug := io.id_ex_in(i).pc_id_ex_debug
-    io.ex_ms_out(i).mem_rdata_offset := alu_out(i).alu_sum(1, 0)
+    io.ex_ms_out(i).mem_rdata_offset := io.id_ex_in(i).src_sum(1, 0)
     io.ex_ms_out(i).mem_rdata_sel_ex_ms := io.id_ex_in(i).mem_data_sel_id_ex
     io.ex_ms_out(i).mem_rdata_extend_is_signed_ex_ms := io.id_ex_in(i).mem_rdata_extend_is_signed_id_ex
     io.ex_ms_out(i).cp0_addr_ex_ms := io.id_ex_in(i).cp0_addr_id_ex
@@ -291,7 +293,7 @@ class InsExecute extends Module {
     (exception_flags(exception_index)(0) || exception_flags(exception_index)(1) || exception_flags(exception_index)(2) ||
       exception_flags(exception_index)(3) || exception_flags(exception_index)(4)) -> io.id_ex_in(exception_index).pc_id_ex_debug,
     // 只有当内存地址取值出错的时候，badvaddr返回的是内存对应的地址而不是指令地址
-    (exception_flags(exception_index)(5) || exception_flags(exception_index)(6)) -> alu_out(exception_index).alu_sum
+    (exception_flags(exception_index)(5) || exception_flags(exception_index)(6)) -> io.id_ex_in(exception_index).src_sum
   ))
   io.ex_cp0_out.eret_occur := eret_occur && ready_go
   io.ex_cp0_out.exc_code := MuxCase(0.U, Seq(
