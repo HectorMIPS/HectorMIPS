@@ -11,6 +11,8 @@ class DecoderPredictorBundle extends Bundle {
   val ex_success: Bool = Bool()
   // 分支的目的地址
   val ex_target : UInt = UInt(32.W)
+  // 是否为无条件跳转
+  val ex_always_jump: UInt = UInt(32.W)
 
 }
 

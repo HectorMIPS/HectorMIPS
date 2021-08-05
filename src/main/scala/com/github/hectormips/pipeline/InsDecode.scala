@@ -248,6 +248,7 @@ class InsDecode extends Module {
   io.id_pred_out.ex_success := jump_taken
   io.id_pred_out.ex_target := jump_target
   io.id_pred_out.ex_pc := decoders(0).out_regular.pc_debug
+  io.id_pred_out.ex_always_jump := decoders(0).out_branch.always_jump
 
   io.id_pf_out.stall_id_pf := decoders(0).out_regular.ins_valid && decoders(0).out_branch.is_jump &&
     decoders(1).out_regular.ins_valid && (decoders(0).out_hazard.load_to_branch || decoders(1).out_hazard.ex_to_branch)

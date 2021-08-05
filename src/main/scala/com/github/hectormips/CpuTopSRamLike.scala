@@ -81,6 +81,7 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   predictor.io.ex_pc := decoder_predictor.ex_pc
   predictor.io.ex_success := decoder_predictor.ex_success
   predictor.io.ex_target := decoder_predictor.ex_target
+  predictor.io.ex_is_always_true := decoder_predictor.ex_always_jump
 
   for (i <- 0 to 1) {
     predictor_fetcher(i).predict := predictor.io.predicts(i).predict
