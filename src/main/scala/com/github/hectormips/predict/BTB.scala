@@ -32,8 +32,11 @@ class BTB(size: Int, BHT_size: Int) extends Module {
     val ex_pc: UInt = Input(UInt(32.W))
     // 分支是否成功
     val ex_success: Bool = Input(Bool())
+    // 分支是否是无条件
+    val ex_is_always_true: Bool = Input(Bool())
     // 分支的目的地址
     val ex_target: UInt = Input(UInt(32.W))
+
   }
 
   class LookUpResult extends Bundle {
@@ -80,6 +83,9 @@ class BTB(size: Int, BHT_size: Int) extends Module {
 
   // BHT 用于存储每个BHT的结果
   val BHT_table: Vec[Vec[Bool]] = Wire(Vec(size, Vec(BHT_size, Bool())))
+  
+  // true表，用于记录每个pc是否是无条件跳转
+  val true_table: Vec[Bool] = RegInit(VecInit(Seq.fill(size)(0.B)))
 
   // valid表，用于记录每个pc是否可用
   val valid_table: Vec[Bool] = RegInit(VecInit(Seq.fill(size)(0.B)))
@@ -98,7 +104,7 @@ class BTB(size: Int, BHT_size: Int) extends Module {
     // 预测值
     io.predicts(i).target := target_table(find_index.result)
     // 预测是否成功
-    io.predicts(i).predict := find_index.is_find & BHT_result(find_index.result)
+    io.predicts(i).predict := find_index.is_find & Mux(true_table(find_index.result), 1.B, BHT_result(find_index.result))
   }
 
   // ex段 pc查找结果
@@ -132,6 +138,7 @@ class BTB(size: Int, BHT_size: Int) extends Module {
     }.otherwise {
       location_table(lru_result) := io.ex_pc
       target_table(lru_result) := io.ex_target
+      true_table(lru_result) := io.ex_is_always_true
       pattern_table(lru_result) := Mux(io.ex_success, fill1(bht_len), 0.U)
       valid_table(lru_result) := 1.B
     }
