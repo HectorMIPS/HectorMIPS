@@ -82,3 +82,28 @@ jobs:
         run: |
           cd ${{env.SIM_DIR}}/xsim
           make
+          
+  bit_generate:
+    name: bit_generate
+    needs: perf_test
+    runs-on: self-hosted
+    env:
+      SIM_DIR: /home/hch/bitgenerate
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Download mycpu_top
+        uses: actions/download-artifact@v2
+        with:
+          name: mycpu_top
+      - name: copy to default location
+        run: cp mycpu_top.v ${{env.SIM_DIR}}/rtl/myCPU/
+      - name: Run Test
+        run: |
+          cd ${{env.SIM_DIR}}/
+          make
+      - name: upload
+        uses: actions/upload-artifact@v2
+        with:
+          name: mycpu_bit
+          path: ${{env.SIM_DIR}}/run_vivado/mycpu_prj1/mycpu.runs/impl_1/soc_axi_lite_top.bit
