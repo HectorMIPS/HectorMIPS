@@ -134,7 +134,7 @@ class DCache(val config: CacheConfig)
   val cache_hit_way = Wire(Vec(2, UInt(config.wayNumWidth.W)))
 
   //  val addr_r = RegInit(0.U(32.W)) //地址寄存器
-  val addr_r_0 = Reg(UInt(32.W)) //地址寄存器
+  val addr_r_0 = RegInit(0.U(32.W)) //地址寄存器
   val addr_r = Wire(Vec(2, UInt(32.W))) //地址寄存器
   addr_r(0) := Mux(io.valid(0) && io.addr_ok(0), io.addr(0), addr_r_0)
   addr_r(1) := storeBuffer.io.cache_write_addr
@@ -448,15 +448,7 @@ class DCache(val config: CacheConfig)
         when(is_hitWay(worker)) {
           lruMem.io.visit := cache_hit_way(worker) // lru记录命中
           state(worker) := sIDLE
-          //        when(io.valid) {
-          //          // 直接进入下一轮
-          //          state := sLOOKUP
-          //          addr_r := io.addr
-          //          size_r := io.size
-          //          wr_r := io.wr
-          //          wdata_r := io.wdata
-          //        }.otherwise {
-          //        }
+
           when(worker.U === 0.U) {
             io.data_ok(port_r) := true.B
 //            addr_r_0 := 0.U
