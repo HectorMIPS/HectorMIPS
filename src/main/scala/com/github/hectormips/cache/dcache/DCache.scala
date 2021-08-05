@@ -10,8 +10,7 @@ import chisel3.stage.{ChiselGeneratorAnnotation, ChiselStage}
 import firrtl.ir.UIntType
 
 
-
-class QueueItem extends Bundle{
+class QueueItem extends Bundle {
   val port = UInt(1.W)
   val addr = UInt(32.W)
 }
@@ -48,19 +47,19 @@ class DCache(val config: CacheConfig)
   val state = RegInit(VecInit(Seq.fill(2)(0.U(3.W))))
   val is_hitWay = Wire(Vec(2, Bool()))
   val queue = Module(new Queue(new QueueItem, 3))
-//  val port_valid = RegInit(VecInit(Seq.fill(2)(true.B)))
+  //  val port_valid = RegInit(VecInit(Seq.fill(2)(true.B)))
   val storeBuffer = Module(new StoreBuffer(7))
 
-//  val read_can_fire = Wire(Bool()) //允许读 且 有读请求
-//  read_can_fire := io.valid(0) && io.addr_ok(0) && !io.wr(0) || io.valid(1) && io.addr_ok(1) && !io.wr(1)
-//  val doWrite = RegInit(false.B)
+  //  val read_can_fire = Wire(Bool()) //允许读 且 有读请求
+  //  read_can_fire := io.valid(0) && io.addr_ok(0) && !io.wr(0) || io.valid(1) && io.addr_ok(1) && !io.wr(1)
+  //  val doWrite = RegInit(false.B)
   io.data_ok(1) := false.B
   io.data_ok(0) := false.B
   io.rdata(1) := 0.U
   io.rdata(0) := 0.U
 
-  io.addr_ok(0) := storeBuffer.io.cpu_ok && (queue.io.count===0.U || (state(0)===sLOOKUP && is_hitWay(0)) )//读写都准备完成
-  io.addr_ok(1) := storeBuffer.io.cpu_ok && (queue.io.count===0.U || (state(0)===sLOOKUP && is_hitWay(0)) )
+  io.addr_ok(0) := storeBuffer.io.cpu_ok && (queue.io.count === 0.U) //读写都准备完成
+  io.addr_ok(1) := storeBuffer.io.cpu_ok && (queue.io.count === 0.U)
 
   when(queue.io.enq.ready) {
     when(io.valid(0) && io.addr_ok(0) && !io.wr(0)) {
@@ -93,7 +92,7 @@ class DCache(val config: CacheConfig)
     storeBuffer.io.cpu_addr := io.addr(0)
     storeBuffer.io.cpu_wdata := io.wdata(0)
     storeBuffer.io.cpu_port := 0.U
-//    doWrite := true.B
+    //    doWrite := true.B
   }
   when(io.wr(1) && io.addr_ok(1) && io.valid(1)) {
     storeBuffer.io.cpu_req := true.B
@@ -101,11 +100,11 @@ class DCache(val config: CacheConfig)
     storeBuffer.io.cpu_addr := io.addr(1)
     storeBuffer.io.cpu_wdata := io.wdata(1)
     storeBuffer.io.cpu_port := 1.U
-//    doWrite := true.B
+    //    doWrite := true.B
   }
-  when(storeBuffer.io.data_ok){
+  when(storeBuffer.io.data_ok) {
     io.data_ok(storeBuffer.io.data_ok_port) := true.B
-//    doWrite := false.B
+    //    doWrite := false.B
   }
 
   /**
@@ -124,7 +123,6 @@ class DCache(val config: CacheConfig)
   }
 
 
-
   val lruMem = Module(new LruMem(config.wayNumWidth, config.indexWidth)) // lru
   //  val victim = Module(new Victim(config)) // 写代理
   val invalidateQueue = Module(new InvalidateQueue(config))
@@ -136,9 +134,9 @@ class DCache(val config: CacheConfig)
   val cache_hit_way = Wire(Vec(2, UInt(config.wayNumWidth.W)))
 
   //  val addr_r = RegInit(0.U(32.W)) //地址寄存器
-//  val addr_r_0 = Reg(UInt(32.W)) //地址寄存器
-  val addr_r = Wire(Vec(2,UInt(32.W))) //地址寄存器
-  addr_r(0) := queue.io.deq.bits.addr
+  //  val addr_r_0 = Reg(UInt(32.W)) //地址寄存器
+  val addr_r = Wire(Vec(2, UInt(32.W))) //地址寄存器
+  addr_r(0) := Mux(io.valid(0) && io.addr_ok(0), io.addr(0), queue.io.deq.bits.addr)
   addr_r(1) := storeBuffer.io.cache_write_addr
 
   val wdata_r = Wire(UInt(32.W))
@@ -171,6 +169,7 @@ class DCache(val config: CacheConfig)
     bankIndex(i) := config.getBankIndex(addr_r(i))
     tag(i) := config.getTag(addr_r(i))
   }
+
   /**
    * 初始化 ram
    */
@@ -245,9 +244,9 @@ class DCache(val config: CacheConfig)
           dirtyMem(way).io.wea := true.B
           dirtyMem(way).io.dina := false.B
           when(bank.U === bDataWtBank(0)) {
-            when(storeBuffer.io.cache_query_mask=/=0.U && bank.U === config.getBankIndex(storeBuffer.io.cache_query_addr)){
+            when(storeBuffer.io.cache_query_mask =/= 0.U && bank.U === config.getBankIndex(storeBuffer.io.cache_query_addr)) {
               m.io.dina := io.axi.readData.bits.data & storeBuffer_reverse_mask | storeBuffer.io.cache_query_data & storeBuffer.io.cache_query_mask
-            }.otherwise{
+            }.otherwise {
               m.io.dina := io.axi.readData.bits.data
             }
           }
@@ -267,7 +266,7 @@ class DCache(val config: CacheConfig)
             }.otherwise {
               m.io.dinb := io.axi.readData.bits.data
             }
-          }.otherwise{
+          }.otherwise {
             m.io.dinb := wdata_r
           }
         }.elsewhen(state(1) === sLOOKUP && is_hitWay(1) && cache_hit_way(1) === way.U) {
@@ -301,7 +300,7 @@ class DCache(val config: CacheConfig)
       //        (state === sVictimReplace && waySelReg === way.U && bankIndex ===bank.U)||  //读/写命中victim
       // 写端口数据写使能
       bData.wEn(1)(way)(bank) := (state(1) === sLOOKUP && is_hitWay(1) && cache_hit_way(1) === way.U && bankIndex(1) === bank.U) || // 写命中
-        (state(1) === sREFILL && waySelReg(1) === way.U && (bDataWtBank(1) === bank.U || bank.U === bankIndex(1)) )
+        (state(1) === sREFILL && waySelReg(1) === way.U && (bDataWtBank(1) === bank.U || bank.U === bankIndex(1)))
     }
   }
   for (way <- 0 until config.wayNum) {
@@ -406,13 +405,13 @@ class DCache(val config: CacheConfig)
 
   //  lookupReadyGO := state(0) === sLOOKUP && state(1)=/=sIDLE && state(1) =/= s
 
-  io.axi.readAddr.valid := state(0)===sREPLACE || state(1)===sREPLACE
+  io.axi.readAddr.valid := state(0) === sREPLACE || state(1) === sREPLACE
   //  victim.io.qaddr := Cat(addr_r(31,config.offsetWidth),0.U(config.offsetWidth.W))
   for (worker <- 0 to 1) {
     switch(state(worker)) {
       is(sIDLE) {
         when(worker.U === 0.U) {
-          when(queue.io.count=/=0.U) {
+          when(queue.io.count =/= 0.U || io.valid(0) && io.addr_ok(0)) {
             when(index(0) === index(1)) {
               when(state(1) === sIDLE) {
                 state(0) := sLOOKUP
@@ -427,7 +426,7 @@ class DCache(val config: CacheConfig)
           }
         }.elsewhen(worker.U === 1.U) {
           when(storeBuffer.io.cache_write_valid) {
-            when(index(0) === index(1) && (queue.io.count=/=0.U || state(0) === sWaiting)) {
+            when(index(0) === index(1) && (io.valid(0) && io.addr_ok(0) || queue.io.count =/= 0.U || state(0) === sWaiting)) {
               // 等待直到读端口进入空状态
               state(1) := sIDLE
             }.otherwise {
@@ -549,6 +548,7 @@ class DCache(val config: CacheConfig)
       }
     }
   }
+
   /**
    * 驱逐写控制信号
    */
