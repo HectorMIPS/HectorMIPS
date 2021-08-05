@@ -41,7 +41,15 @@ class BTB(size: Int, BHT_size: Int) extends Module {
 
   class LookUpResult extends Bundle {
     val is_find: Bool = Bool()
+    val target: UInt = UInt(32.W)
+    val predict: Bool = Bool()
+    val is_true: Bool = Bool()
+  }
+
+  class UpdateLookUpResult extends Bundle {
+    val is_find: Bool = Bool()
     val result: UInt = UInt(len.W)
+    val pattern: UInt = UInt(bht_len.W)
   }
 
   private def get_index(pc: UInt): LookUpResult = {
@@ -50,7 +58,22 @@ class BTB(size: Int, BHT_size: Int) extends Module {
     index := Mux1H((0 until size).map(i => (location_table(i) === pc, {
       val default = Wire(new LookUpResult)
       default.is_find := 1.B
+      default.target := target_table(i)
+      default.predict := BHT_result(i)
+      default.is_true := true_table(i)
+      default
+    })))
+    index
+  }
+
+  private def get_update_index(pc: UInt): UpdateLookUpResult = {
+    // 查找是否有记录
+    val index: UpdateLookUpResult = Wire(new UpdateLookUpResult)
+    index := Mux1H((0 until size).map(i => (location_table(i) === pc, {
+      val default = Wire(new UpdateLookUpResult)
+      default.is_find := 1.B
       default.result := i.U(len.W)
+      default.pattern := pattern_table(i)
       default
     })))
     index
@@ -102,20 +125,18 @@ class BTB(size: Int, BHT_size: Int) extends Module {
     find_index := get_index(io.predicts(i).pc)
 
     // 预测值
-    io.predicts(i).target := target_table(find_index.result)
+    io.predicts(i).target := find_index.target
     // 预测是否成功
-    io.predicts(i).predict := find_index.is_find & Mux(true_table(find_index.result), 1.B, BHT_result(find_index.result))
+    io.predicts(i).predict := find_index.is_find & Mux(find_index.is_true, 1.B, find_index.predict)
   }
 
   // ex段 pc查找结果
-  val ex_index: LookUpResult = Wire(new LookUpResult)
-  ex_index := get_index(io.ex_pc)
+  val ex_index: UpdateLookUpResult = Wire(new UpdateLookUpResult)
+  ex_index := get_update_index(io.ex_pc)
 
   // ex段，pattern查找结果
-  val ex_pattern: UInt = Wire(UInt(bht_len.W))
   val ex_pattern_next: UInt = Wire(UInt(bht_len.W))
-  ex_pattern := pattern_table(ex_index.result)
-  ex_pattern_next := update_pattern_table(pattern_table(ex_index.result), io.ex_success)
+  ex_pattern_next := update_pattern_table(ex_index.pattern, io.ex_success)
 
   // lru的返回值，下一个应该替换的地址
   val lru_result: UInt = Wire(UInt(len.W))
@@ -147,7 +168,7 @@ class BTB(size: Int, BHT_size: Int) extends Module {
   // 设置BHT
   for (i <- 0 until size) {
     for (j <- 0 until BHT_size) {
-      val is_this_bht = ex_index.result === i.U(len.W) & ex_pattern === j.U(bht_len.W)
+      val is_this_bht = ex_index.result === i.U(len.W) & ex_index.pattern === j.U(bht_len.W)
       val is_this_next = lru_result === i.U(len.W)
       withReset(reset.asBool() | ((~ex_index.is_find).asBool() & is_this_next)) {
         val bht = Module(new BHT)
