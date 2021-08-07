@@ -47,7 +47,7 @@ class UncacheInst extends Module{
     }
   }
   when(state === s1Recv){
-    when(io.axi.rvalid.asBool() && io.axi.rready.asBool() && io.axi.rid ===0.U){
+    when(io.axi.rvalid.asBool() && io.axi.rlast(0) && io.axi.rready.asBool() && io.axi.rid ===0.U){
       state := s2Handshake
       rdata(0) :=  io.axi.rdata
     }.otherwise{
@@ -55,7 +55,7 @@ class UncacheInst extends Module{
     }
   }
   when(state === s2Recv){
-    when(io.axi.rvalid.asBool() && io.axi.rready.asBool()  && io.axi.rid ===1.U){
+    when(io.axi.rvalid.asBool() && io.axi.rlast(0) && io.axi.rready.asBool()  && io.axi.rid ===1.U){
       state := sWait
       rdata(1) :=  io.axi.rdata
     }.otherwise{
