@@ -26,13 +26,13 @@ class SocTopSRamLikeBundle extends Bundle {
 
 
 // 使用axi的Soc顶层
-class SocTopAXI extends Module {
+class SocTopAXI(cache_all: Boolean = false) extends Module {
   val io: SocTopSRamLikeBundle = IO(new SocTopSRamLikeBundle)
   withReset(!reset.asBool()) {
     val cpu_top  : CpuTopSRamLike   = Module(new CpuTopSRamLike(0xbfbffffcL, 0))
     val cache    : Cache            = Module(new Cache(new CacheConfig()))
     val crossbar : axi_crossbar_2x1 = Module(new axi_crossbar_2x1)
-    val mem_judge: MemAccessJudge   = Module(new MemAccessJudge())
+    val mem_judge: MemAccessJudge   = Module(new MemAccessJudge(cache_all.B))
 
 
     io.axi_io.force_name()
@@ -85,5 +85,12 @@ class SocTopAXI extends Module {
 }
 
 object SocTopAXI extends App {
+  // 生成根目录下的mycpu_top.v
   (new ChiselStage).emitVerilog(new SocTopAXI)
+  // 生成开启加速的func test文件
+  (new ChiselStage).emitVerilog(new SocTopAXI(true), "--target-dir build/func".split(" +"))
+  // 生成不开启加速的perf test文件
+  (new ChiselStage).emitVerilog(new SocTopAXI(false), "--target-dir build/perf".split(" +"))
+  // 生成不开启加速的sys test文件
+  (new ChiselStage).emitVerilog(new SocTopAXI(false), "--target-dir build/sys".split(" +"))
 }
