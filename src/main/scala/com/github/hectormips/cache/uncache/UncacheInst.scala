@@ -70,7 +70,7 @@ class UncacheInst extends Module{
   io.axi.arid := Mux(state===s2Handshake,1.U,0.U)
   io.axi.araddr := Mux(state===s1Handshake,addr_r,addr_r+4.U)
   io.axi.arlen := 0.U
-  io.axi.arsize := 3.U
+  io.axi.arsize := 2.U
   io.axi.arburst := 0.U
   io.axi.arlock := 0.U
   io.axi.arcache := 0.U
