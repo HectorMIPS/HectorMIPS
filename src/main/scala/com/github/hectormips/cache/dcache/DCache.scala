@@ -473,7 +473,7 @@ class DCache(val config: CacheConfig)
           //没命中,检查victim
           //        state := sCheckVictim
           //        victim.io.qvalid := true.B
-          when(worker.U === 0.U && state(1) === sREPLACE || worker.U === 1.U && state(0) === sREPLACE) {
+          when(worker.U === 0.U && state(1) === sREPLACE || worker.U === 1.U && (state(0) === sREPLACE || state(0) === sLOOKUP )) {
             state(worker) := sLOOKUP
           }.otherwise {
             io.axi.readAddr.bits.id := worker_id(worker)

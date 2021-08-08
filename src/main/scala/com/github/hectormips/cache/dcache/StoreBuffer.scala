@@ -2,6 +2,7 @@ package com.github.hectormips.cache.dcache
 import chisel3._
 import chisel3.util._
 import com.github.hectormips.cache.utils.Wstrb
+import org.scalacheck.Prop.True
 
 import scala.collection.immutable.Nil
 import scala.collection.script.Include
@@ -78,7 +79,7 @@ class StoreBuffer(length:Int) extends Module{
    * 处理输入的请求
    */
 
-  io.cpu_ok := !buffer.full()
+  io.cpu_ok := buffer.count < (length - 1).U
   io.data_ok_port := 0.U
   when(io.cpu_req && io.cpu_ok){
     tmp_size  := io.cpu_size
@@ -99,7 +100,7 @@ class StoreBuffer(length:Int) extends Module{
       buffer.enq_data().addr := tmp_addr
       buffer.enq_data().wdata := tmp_wdata
       buffer.enq_data().valid := true.B
-      buffer.enq()
+      buffer.enq := true.B
     }
     when(io.cpu_req && io.cpu_ok){
       tmp_size  := io.cpu_size
@@ -141,7 +142,7 @@ class StoreBuffer(length:Int) extends Module{
       //多沿一个事务
       buffer.deq_data().valid := true.B
     }.otherwise{
-      buffer.deq()
+      buffer.deq := true.B
       buffer.deq_data().valid := false.B
     }
   }
@@ -155,7 +156,7 @@ class bufferItem extends Bundle{
   val wstrb  = UInt(4.W)
 //  val port  = UInt(1.W)
 }
-class Buffer(length:Int) extends  Bundle{
+class Buffer(length:Int) extends Bundle {
   val data   = RegInit(VecInit(Seq.fill(length+1)({
     val bundle = Wire(new bufferItem)
     bundle.valid := 0.U
@@ -165,32 +166,35 @@ class Buffer(length:Int) extends  Bundle{
 //    bundle.port := 0.U
     bundle
   })))
-  val enq_ptr = RegInit(0.U(log2Ceil(length).W))
-  val deq_ptr  = RegInit(0.U(log2Ceil(length).W))
+  val count = RegInit(0.U(log2Ceil(length+1).W))
+  val enq_ptr = RegInit(0.U(log2Ceil(length+1).W))
+  val deq_ptr  = RegInit(0.U(log2Ceil(length+1).W))
+  val enq = WireInit(false.B)
+  val deq = WireInit(false.B)
   def empty():Bool={
     enq_ptr === deq_ptr
   }
-  def full():Bool={
-    enq_ptr === deq_ptr - 2.U
-  }
 
-
-  def count():UInt={
-    enq_ptr - deq_ptr
-  }
-  def enq():Unit={
+  when(enq){
     when(enq_ptr === length.U){
       enq_ptr := 0.U
     }.otherwise{
       enq_ptr := enq_ptr + 1.U
     }
   }
-  def deq():Unit={
+  when(deq){
     when(deq_ptr === length.U){
       deq_ptr := 0.U
     }.otherwise{
       deq_ptr := deq_ptr + 1.U
     }
+  }
+  when(enq && deq){
+    count := count
+  }.elsewhen(enq){
+    count := count + 1.U
+  }.elsewhen(deq){
+    count := count - 1.U
   }
   def enq_data():bufferItem={
     data(enq_ptr)
