@@ -228,15 +228,8 @@ class InsExecute extends Module {
   flush := ((interrupt_occur && interrupt_available) || exception_occur(exception_index) ||
     eret_occur) && ready_go && io.id_ex_in(exception_index).bus_valid
   for (i <- 0 to 1) {
-    exception_flags(i) := io.id_ex_in(i).exception_flags |
-      Mux(io.id_ex_in(i).mem_en_id_ex &&
-        ((io.id_ex_in(i).mem_data_sel_id_ex === MemDataSel.word && io.id_ex_in(i).src_sum(1, 0) =/= 0.U) ||
-          io.id_ex_in(i).mem_data_sel_id_ex === MemDataSel.hword && io.id_ex_in(i).src_sum(0) =/= 0.U),
-        // 写使能非零说明是写地址异常
-        Mux(io.id_ex_in(i).mem_wen_id_ex =/= 0.U, ExceptionConst.EXCEPTION_BAD_RAM_ADDR_WRITE,
-          ExceptionConst.EXCEPTION_BAD_RAM_ADDR_READ), 0.U)
+    exception_flags(i) := io.id_ex_in(i).exception_flags
     exception_occur(i) := exception_flags(i) =/= 0.U
-
   }
   // dram操作
   io.ex_ram_out.mem_en := io.id_ex_in(data_ram_index).bus_valid &&

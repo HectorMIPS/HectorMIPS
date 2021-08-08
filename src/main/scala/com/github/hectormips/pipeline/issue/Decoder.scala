@@ -561,11 +561,12 @@ class Decoder extends Module {
   io.out_regular.imm_32 := imm_signed.asUInt()
 
 
-  io.out_regular.mem_data_sel := MuxCase(MemDataSel.word, Seq(
+  val mem_data_sel: MemDataSel.Type = MuxCase(MemDataSel.word, Seq(
     (ins_lb | ins_lbu | ins_sb) -> MemDataSel.byte,
     (ins_lh | ins_lhu | ins_sh) -> MemDataSel.hword,
     (ins_lw | ins_sw) -> MemDataSel.word
-  )) // 正常情况下只在load指令时起效，可以用这个参数来捎带传输load指令的位选择宽度
+  ))
+  io.out_regular.mem_data_sel := mem_data_sel // 正常情况下只在load指令时起效，可以用这个参数来捎带传输load指令的位选择宽度
   io.out_regular.mem_rdata_extend_is_signed := ins_lb | ins_lh
 
   val hilo_sel: HiloSel.Type = MuxCase(HiloSel.nop, Seq(
@@ -663,13 +664,20 @@ class Decoder extends Module {
   val src_2_e      : UInt = Cat(alu_src2_except_ex(31), alu_src2_except_ex)
   val alu_quick_res: UInt = Mux(alu_op === AluOp.op_add, src_1_e + src_2_e, src_1_e - src_2_e)
   val overflow_flag: Bool = alu_quick_res(32) ^ alu_quick_res(31)
+  val src_sum_except_ex: UInt = alu_src1_except_ex + alu_src2_except_ex
   io.out_regular.exception_flags := Mux(pc(1, 0) === 0.U,
     0.U, ExceptionConst.EXCEPTION_FETCH_ADDR) |
     Mux(ins_valid, 0.U, ExceptionConst.EXCEPTION_RESERVE_INST) |
     Mux(ins_syscall, ExceptionConst.EXCEPTION_SYSCALL, 0.U) |
     Mux(ins_break, ExceptionConst.EXCEPTION_TRAP, 0.U) |
-    Mux(overflow_flag && overflow_detection_en, ExceptionConst.EXCEPTION_INT_OVERFLOW, 0.U)
-  io.out_regular.src_sum := alu_src1_except_ex + alu_src2_except_ex
+    Mux(overflow_flag && overflow_detection_en, ExceptionConst.EXCEPTION_INT_OVERFLOW, 0.U) |
+    Mux(ram_en &&
+      ((mem_data_sel === MemDataSel.word && src_sum_except_ex(1, 0) =/= 0.U) ||
+        mem_data_sel === MemDataSel.hword && src_sum_except_ex(0) =/= 0.U),
+      // 写使能非零说明是写地址异常
+      Mux(ram_wen =/= 0.U, ExceptionConst.EXCEPTION_BAD_RAM_ADDR_WRITE,
+        ExceptionConst.EXCEPTION_BAD_RAM_ADDR_READ), 0.U)
+  io.out_regular.src_sum := src_sum_except_ex
   io.out_regular.ins_valid := io.in.ins_valid
 
   io.out_issue.op1_rf_num := Mux(src1_sel === AluSrc1Sel.regfile_read1, rs, 0.U)
