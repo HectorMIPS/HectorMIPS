@@ -2,7 +2,6 @@ package com.github.hectormips.cache.dcache
 import chisel3._
 import chisel3.util._
 import com.github.hectormips.cache.utils.Wstrb
-import org.scalacheck.Prop.True
 
 import scala.collection.immutable.Nil
 import scala.collection.script.Include
