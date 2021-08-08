@@ -101,15 +101,15 @@ class StoreBuffer(length:Int) extends Module{
       buffer.enq_data().valid := true.B
       buffer.enq()
     }
-//    when(io.cpu_req && io.cpu_ok){
-//      tmp_size  := io.cpu_size
-//      tmp_addr  := io.cpu_addr
-//      tmp_wdata := io.cpu_wdata
-//      tmp_port := io.cpu_port
-//      tmp_valid := true.B
-//    }.otherwise{
+    when(io.cpu_req && io.cpu_ok){
+      tmp_size  := io.cpu_size
+      tmp_addr  := io.cpu_addr
+      tmp_wdata := io.cpu_wdata
+      tmp_port := io.cpu_port
+      tmp_valid := true.B
+    }.otherwise{
       tmp_valid := false.B
-//    }
+    }
     io.data_ok := true.B
     io.data_ok_port := tmp_port
   }
