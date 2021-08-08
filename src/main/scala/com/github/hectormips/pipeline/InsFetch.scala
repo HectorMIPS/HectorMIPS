@@ -22,13 +22,11 @@ object InsJumpSel extends OneHotEnum {
 class DecodePreFetchBundle extends Bundle {
 
   val bus_valid            : Bool                = Bool()
-  val stall_id_pf          : Bool                = Bool()
   val predict_branch_bundle: PredictBranchBundle = new PredictBranchBundle
 
   def defaults(): Unit = {
     predict_branch_bundle.defaults()
     bus_valid := 0.B
-    stall_id_pf := 0.B
   }
 }
 
@@ -79,7 +77,7 @@ class InsPreFetch extends Module {
   val seq_epc_8        : UInt              = io.cp0_pf_epc
   val seq_exception_8  : UInt              = ExceptionConst.EXCEPTION_PROGRAM_ADDR
   // 如果有load-to-branch的情况，清空了队列之后还需要等待
-  val req              : Bool              = !io.id_pf_in.stall_id_pf && io.next_allowin &&
+  val req              : Bool              = io.next_allowin &&
     (io.fetch_state === RamState.waiting_for_request || io.fetch_state === RamState.requesting || io.data_ok) &&
     !io.flush
   pc_jump := io.id_pf_in.predict_branch_bundle.jumpTarget

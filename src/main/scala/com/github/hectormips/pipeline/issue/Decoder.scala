@@ -68,6 +68,7 @@ class DecoderHazardOut extends Bundle {
   val ex_to_branch   : Bool = Bool()
   val load_to_regular: Bool = Bool()
   val ex_to_exception: Bool = Bool()
+  val ex_to_ram_addr : Bool = Bool()
 }
 
 class DecoderIssueOut extends Bundle {
@@ -334,14 +335,14 @@ class Decoder extends Module {
     !is_jump || !jump_taken || (jump_taken && io.in.predict_jump_target =/= jump_target),
     jump_taken)
 
-
+  val always_jump: Bool = ins_j | ins_jal | ins_jr | ins_jalr
   // 0: pc=pc+(signed)(offset<<2)
   // 1: pc=pc[31:28]|instr_index<<2
   // 2: regfile_read1(bypass)
   io.out_branch.jump_val := jump_val
 
   io.out_branch.jump_taken := jump_taken
-  io.out_branch.always_jump := ins_j | ins_jal | ins_jr | ins_jalr
+  io.out_branch.always_jump := always_jump
   io.out_branch.predict_branch_bundle.jump_sel := jump_sel
   io.out_branch.predict_branch_bundle.jump_val := jump_val
   io.out_branch.predict_branch_bundle.bus_valid := 1.B
@@ -358,6 +359,8 @@ class Decoder extends Module {
     (ins_bltz | ins_bltzal) -> BranchCondition.ltz,
     ins_blez -> BranchCondition.lez,
     (ins_jr || ins_jal || ins_j || ins_jalr) -> BranchCondition.always))
+  io.out_branch.predict_branch_bundle.pc := io.in.pc_debug
+  io.out_branch.predict_branch_bundle.always_jump := always_jump
 
 
   val src1_sel          : AluSrc1Sel.Type = Wire(AluSrc1Sel())
@@ -407,6 +410,10 @@ class Decoder extends Module {
         ((src2_sel === AluSrc2Sel.regfile_read2 || ram_wen) && rt === bp_regaddr))
   }
 
+  def hasRamAddrHazard(bus_hazard_but_not_ready: Bool, bp_regaddr: UInt): Bool = {
+    bus_hazard_but_not_ready && bp_regaddr =/= 0.U && rs === bp_regaddr
+  }
+
   val load_regular_hazard: Bool = hasRegularHazard(ex_id_hazard_but_not_ready, io.in.bypass_bus.bp_ex_id(0).reg_addr) ||
     hasRegularHazard(ex_id_hazard_but_not_ready, io.in.bypass_bus.bp_ex_id(1).reg_addr) ||
     hasRegularHazard(ms_id_hazard_but_not_ready, io.in.bypass_bus.bp_ms_id(0).reg_addr) ||
@@ -437,10 +444,15 @@ class Decoder extends Module {
   val ex_exception_hazard: Bool = hasRegularHazard(io.in.bypass_bus.bp_ex_id(0).bus_valid, io.in.bypass_bus.bp_ex_id(0).reg_addr) ||
     hasRegularHazard(io.in.bypass_bus.bp_ex_id(1).bus_valid, io.in.bypass_bus.bp_ex_id(1).reg_addr)
 
+  // 如果ex阶段的前递有效且被用于计算srcsum，则停滞一拍
+  val ex_ram_addr_hazard: Bool = hasRamAddrHazard(io.in.bypass_bus.bp_ex_id(0).bus_valid, io.in.bypass_bus.bp_ex_id(0).reg_addr) ||
+    hasRamAddrHazard(io.in.bypass_bus.bp_ex_id(1).bus_valid, io.in.bypass_bus.bp_ex_id(1).reg_addr)
+
   io.out_hazard.load_to_branch := load_branch_hazard
   io.out_hazard.load_to_regular := load_regular_hazard
   io.out_hazard.ex_to_branch := ex_branch_hazard
   io.out_hazard.ex_to_exception := ex_exception_hazard
+  io.out_hazard.ex_to_ram_addr := ex_ram_addr_hazard
 
 
   src1_sel := MuxCase(AluSrc1Sel.nop, Seq(
@@ -657,7 +669,7 @@ class Decoder extends Module {
     Mux(ins_syscall, ExceptionConst.EXCEPTION_SYSCALL, 0.U) |
     Mux(ins_break, ExceptionConst.EXCEPTION_TRAP, 0.U) |
     Mux(overflow_flag && overflow_detection_en, ExceptionConst.EXCEPTION_INT_OVERFLOW, 0.U)
-  io.out_regular.src_sum := alu_src1 + alu_src2
+  io.out_regular.src_sum := alu_src1_except_ex + alu_src2_except_ex
   io.out_regular.ins_valid := io.in.ins_valid
 
   io.out_issue.op1_rf_num := Mux(src1_sel === AluSrc1Sel.regfile_read1, rs, 0.U)

@@ -90,6 +90,12 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   }.elsewhen(id_feedback_flipper.bus_valid === 1.B) {
     id_feedback_flipper.bus_valid := 0.B
   }
+  decoder_predictor.en_ex := id_feedback_flipper.bus_valid
+  decoder_predictor.ex_success := id_feedback_flipper.jump_sel =/= InsJumpSel.seq_pc
+  decoder_predictor.ex_target := id_feedback_flipper.jumpTarget
+  decoder_predictor.ex_pc := id_feedback_flipper.pc
+  decoder_predictor.ex_always_jump := id_feedback_flipper.always_jump
+
   predictor.io.en_ex := decoder_predictor.en_ex
   predictor.io.ex_pc := decoder_predictor.ex_pc
   predictor.io.ex_success := decoder_predictor.ex_success
@@ -280,7 +286,6 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   id_module.io.flush := pipeline_flush_ex || id_feedback_flipper.hasPredictFail
   io.debug.debug_predict_fail := id_module.io.debug_predict_fail
   io.debug.debug_predict_success := id_module.io.debug_predict_success
-  decoder_predictor := id_module.io.id_pred_out
   // 回馈给预取阶段的输出
   id_pf_bus := id_module.io.id_pf_out
 

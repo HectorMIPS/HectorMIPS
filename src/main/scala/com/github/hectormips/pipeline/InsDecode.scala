@@ -81,7 +81,6 @@ class InsDecodeBundle extends WithAllowin {
   val id_pf_out: DecodePreFetchBundle = Output(new DecodePreFetchBundle)
 
   val id_ex_out            : Vec[DecodeExecuteBundle] = Output(Vec(2, new DecodeExecuteBundle))
-  val id_pred_out          : DecoderPredictorBundle   = Output(new DecoderPredictorBundle)
   val flush                : Bool                     = Input(Bool())
   val debug_predict_success: Bool                     = Output(Bool())
   val debug_predict_fail   : Bool                     = Output(Bool())
@@ -149,11 +148,13 @@ class InsDecode extends Module {
   val ins1_ready     : Bool = !decoders(0).out_hazard.load_to_regular &&
     !(decoders(0).out_branch.is_jump &&
       (decoders(0).out_hazard.load_to_branch || decoders(0).out_hazard.ex_to_branch)) &&
-    !(decoders(0).out_regular.overflow_detection_en && decoders(0).out_hazard.ex_to_exception)
+    !(decoders(0).out_regular.overflow_detection_en && decoders(0).out_hazard.ex_to_exception) &&
+    !(decoders(0).out_regular.mem_en && decoders(0).out_hazard.ex_to_ram_addr)
   val ins2_ready     : Bool = !decoders(1).out_hazard.load_to_regular &&
     !(decoders(1).out_branch.is_jump &&
       (decoders(1).out_hazard.load_to_branch || decoders(1).out_hazard.ex_to_branch)) &&
-    !(decoders(1).out_regular.overflow_detection_en && decoders(1).out_hazard.ex_to_exception)
+    !(decoders(1).out_regular.overflow_detection_en && decoders(1).out_hazard.ex_to_exception) &&
+    !(decoders(1).out_regular.mem_en && decoders(1).out_hazard.ex_to_ram_addr)
 
 
   // 当准备被发射的指令没有冲突可以进入下一个阶段的时候准入指令
@@ -245,15 +246,6 @@ class InsDecode extends Module {
   io.id_pf_out.bus_valid := jump_bus_valid && ready_go && io.next_allowin
   io.debug_predict_fail := jump_bus_valid && decoders(0).out_branch.predict_fail
   io.debug_predict_success := jump_bus_valid && !decoders(0).out_branch.predict_fail
-  io.id_pred_out.en_ex := jump_bus_valid
-  io.id_pred_out.ex_success := jump_taken
-  io.id_pred_out.ex_target := jump_target
-  io.id_pred_out.ex_pc := decoders(0).out_regular.pc_debug
-  io.id_pred_out.ex_always_jump := decoders(0).out_branch.always_jump
-
-  io.id_pf_out.stall_id_pf := decoders(0).out_regular.ins_valid && decoders(0).out_branch.is_jump &&
-    decoders(1).out_regular.ins_valid && (decoders(0).out_hazard.load_to_branch || decoders(1).out_hazard.ex_to_branch)
-
 
   val has_waw_hazard  : Bool = issuer.io.out.waw_hazard
   val bus_valid_common: Bool = !reset.asBool() && ready_go && !io.flush

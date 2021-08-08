@@ -19,6 +19,8 @@ class PredictBranchBundle extends Bundle {
   val rf1                : SInt                 = SInt(32.W)
   val rf2                : SInt                 = SInt(32.W)
   val branch_condition   : BranchCondition.Type = BranchCondition()
+  val pc                 : UInt                 = UInt(32.W)
+  val always_jump        : Bool                 = Bool()
 
   def defaults(): Unit = {
     jump_sel := InsJumpSel.seq_pc
@@ -30,6 +32,8 @@ class PredictBranchBundle extends Bundle {
     rf1 := 0.S
     rf2 := 0.S
     branch_condition := BranchCondition.always
+    pc := 0.U
+    always_jump := 0.B
   }
 
   def jumpTarget: UInt = {
