@@ -28,9 +28,12 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
 
   // 内建寄存器
   // pc重置时默认为0xfffffffc，这样+4得到的就是第一条指令地址
-  val pc_next: UInt = Wire(UInt(32.W))
-  val pc_wen : Bool = Wire(Bool())
-  val pc     : UInt = RegEnable(pc_next, pc_init.U(32.W), pc_wen)
+  val pc_next : UInt = Wire(UInt(32.W))
+  val pc_wen  : Bool = Wire(Bool())
+  // 同步更新pc、pc+4、pc+8，降低加法器延迟
+  val pc      : UInt = RegEnable(pc_next, pc_init.U(32.W), pc_wen)
+  val pc_seq_4: UInt = RegEnable(pc_next + 4.U, (pc_init + 4).U, pc_wen)
+  val pc_seq_8: UInt = RegEnable(pc_next + 8.U, (pc_init + 8).U, pc_wen)
 
   val hi_wen : Bool = Wire(Bool())
   val lo_wen : Bool = Wire(Bool())
@@ -154,6 +157,8 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   pf_module.io.inst_sram_ins_valid := Mux(io.inst_sram_like_io.data_ok && !fetch_force_cancel,
     io.inst_sram_like_io.inst_valid, inst_valid_buffer)
   pf_module.io.pc := pc
+  pf_module.io.pc_seq4 := pc_seq_4
+  pf_module.io.pc_seq8 := pc_seq_8
   pf_module.io.next_allowin := if_allowin
   pf_module.io.to_exception_service_en_ex_pf := ex_pf_buffer.to_exception_service_en_ex_pf
   pf_module.io.to_epc_en_ex_pf := ex_pf_buffer.to_epc_en_ex_pf

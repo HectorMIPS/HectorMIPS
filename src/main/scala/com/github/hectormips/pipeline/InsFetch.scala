@@ -45,6 +45,8 @@ class ExecutePrefetchBundle extends Bundle {
 
 class InsPreFetchBundle extends WithAllowin {
   val pc                           : UInt                        = Input(UInt(32.W))
+  val pc_seq4                      : UInt                        = Input(UInt(32.W))
+  val pc_seq8                      : UInt                        = Input(UInt(32.W))
   val id_pf_in                     : DecodePreFetchBundle        = Input(new DecodePreFetchBundle)
   val ins_ram_addr                 : UInt                        = Output(UInt(32.W))
   val ins_ram_en                   : Bool                        = Output(Bool())
@@ -70,9 +72,9 @@ class InsPreFetchBundle extends WithAllowin {
 class InsPreFetch extends Module {
   val io               : InsPreFetchBundle = IO(new InsPreFetchBundle())
   val pc_jump          : UInt              = Wire(UInt(32.W))
-  val seq_pc_4         : UInt              = io.pc + 4.U
+  val seq_pc_4         : UInt              = io.pc_seq4
   // 如果上次取出的指令只有一个有效，则下一个取的指令只+4
-  val seq_pc_8         : UInt              = Mux(!io.inst_sram_ins_valid(1), seq_pc_4, io.pc + 8.U)
+  val seq_pc_8         : UInt              = Mux(!io.inst_sram_ins_valid(1), io.pc_seq4, io.pc_seq8)
   val exception_or_eret: Bool              = io.to_exception_service_en_ex_pf || io.to_epc_en_ex_pf
   val seq_epc_8        : UInt              = io.cp0_pf_epc
   val seq_exception_8  : UInt              = ExceptionConst.EXCEPTION_PROGRAM_ADDR
