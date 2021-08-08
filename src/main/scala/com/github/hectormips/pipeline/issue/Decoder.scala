@@ -67,6 +67,7 @@ class DecoderHazardOut extends Bundle {
   val load_to_branch : Bool = Bool()
   val ex_to_branch   : Bool = Bool()
   val load_to_regular: Bool = Bool()
+  val ex_to_exception: Bool = Bool()
 }
 
 class DecoderIssueOut extends Bundle {
@@ -359,10 +360,12 @@ class Decoder extends Module {
     (ins_jr || ins_jal || ins_j || ins_jalr) -> BranchCondition.always))
 
 
-  val src1_sel: AluSrc1Sel.Type = Wire(AluSrc1Sel())
-  val src2_sel: AluSrc2Sel.Type = Wire(AluSrc2Sel())
-  val alu_src1: UInt            = Wire(UInt(32.W))
-  val alu_src2: UInt            = Wire(UInt(32.W))
+  val src1_sel          : AluSrc1Sel.Type = Wire(AluSrc1Sel())
+  val src2_sel          : AluSrc2Sel.Type = Wire(AluSrc2Sel())
+  val alu_src1          : UInt            = Wire(UInt(32.W))
+  val alu_src2          : UInt            = Wire(UInt(32.W))
+  val alu_src1_except_ex: UInt            = Wire(UInt(32.W))
+  val alu_src2_except_ex: UInt            = Wire(UInt(32.W))
 
   val ram_wen: Bool = ins_sw | ins_sh | ins_sb
   val ram_en : Bool = ins_lw | ins_lb |
@@ -397,11 +400,11 @@ class Decoder extends Module {
     hasBranchHazard(ms_id_hazard_but_not_ready, io.in.bypass_bus.bp_ms_id(0).reg_addr) ||
     hasBranchHazard(ms_id_hazard_but_not_ready, io.in.bypass_bus.bp_ms_id(1).reg_addr)
 
-  def hasRegularHazard(bus_hazard_but_not_ready: Bool, regaddr: UInt): Bool = {
-    bus_hazard_but_not_ready &&
-      ((src1_sel === AluSrc1Sel.regfile_read1 && rs === regaddr) ||
+  def hasRegularHazard(bus_hazard_but_not_ready: Bool, bp_regaddr: UInt): Bool = {
+    bus_hazard_but_not_ready && bp_regaddr =/= 0.U &&
+      ((src1_sel === AluSrc1Sel.regfile_read1 && rs === bp_regaddr) ||
         // 如果是访存指令，内容同样是由寄存器2读出
-        ((src2_sel === AluSrc2Sel.regfile_read2 || ram_wen) && rt === regaddr))
+        ((src2_sel === AluSrc2Sel.regfile_read2 || ram_wen) && rt === bp_regaddr))
   }
 
   val load_regular_hazard: Bool = hasRegularHazard(ex_id_hazard_but_not_ready, io.in.bypass_bus.bp_ex_id(0).reg_addr) ||
@@ -430,9 +433,14 @@ class Decoder extends Module {
   val ex_branch_hazard: Bool = hasBranchHazard(io.in.bypass_bus.bp_ex_id(0).bus_valid, io.in.bypass_bus.bp_ex_id(0).reg_addr) ||
     hasBranchHazard(io.in.bypass_bus.bp_ex_id(1).bus_valid, io.in.bypass_bus.bp_ex_id(1).reg_addr)
 
+  // 如果ex阶段的前递有效，并且当前指令需要检测溢出，则停滞一拍
+  val ex_exception_hazard: Bool = hasRegularHazard(io.in.bypass_bus.bp_ex_id(0).bus_valid, io.in.bypass_bus.bp_ex_id(0).reg_addr) ||
+    hasRegularHazard(io.in.bypass_bus.bp_ex_id(1).bus_valid, io.in.bypass_bus.bp_ex_id(1).reg_addr)
+
   io.out_hazard.load_to_branch := load_branch_hazard
   io.out_hazard.load_to_regular := load_regular_hazard
   io.out_hazard.ex_to_branch := ex_branch_hazard
+  io.out_hazard.ex_to_exception := ex_exception_hazard
 
 
   src1_sel := MuxCase(AluSrc1Sel.nop, Seq(
@@ -457,31 +465,40 @@ class Decoder extends Module {
   ))
   alu_src1 := 0.U
   alu_src2 := 0.U
+  alu_src1_except_ex := 0.U
+  alu_src2_except_ex := 0.U
 
 
   switch(src1_sel) {
     is(AluSrc1Sel.pc_delay) {
       alu_src1 := pc_delay_slot
+      alu_src1_except_ex := pc_delay_slot
     }
     is(AluSrc1Sel.sa_32) {
       alu_src1 := sa
+      alu_src1_except_ex := sa
     }
     is(AluSrc1Sel.regfile_read1) {
       alu_src1 := regfile_read1_with_bypass
+      alu_src1_except_ex := regfile_read1_with_bypass_except_ex
     }
   }
   switch(src2_sel) {
     is(AluSrc2Sel.imm_32_signed_extend) {
       alu_src2 := imm_signed.asUInt()
+      alu_src2_except_ex := imm_signed.asUInt()
     }
     is(AluSrc2Sel.const_4) {
       alu_src2 := 4.U
+      alu_src2_except_ex := 4.U
     }
     is(AluSrc2Sel.regfile_read2) {
       alu_src2 := regfile_read2_with_bypass
+      alu_src2_except_ex := regfile_read2_with_bypass_except_ex
     }
     is(AluSrc2Sel.imm_32_unsigned_extend) {
       alu_src2 := imm_unsigned
+      alu_src2_except_ex := imm_unsigned
     }
   }
   io.out_regular.alu_src1 := alu_src1
@@ -630,8 +647,8 @@ class Decoder extends Module {
   io.out_regular.overflow_detection_en := overflow_detection_en
   io.out_regular.ins_eret := ins_eret
   io.out_regular.src_use_hilo := ins_mfhi | ins_mflo
-  val src_1_e      : UInt = Cat(alu_src1(31), alu_src1)
-  val src_2_e      : UInt = Cat(alu_src2(31), alu_src2)
+  val src_1_e      : UInt = Cat(alu_src1_except_ex(31), alu_src1_except_ex)
+  val src_2_e      : UInt = Cat(alu_src2_except_ex(31), alu_src2_except_ex)
   val alu_quick_res: UInt = Mux(alu_op === AluOp.op_add, src_1_e + src_2_e, src_1_e - src_2_e)
   val overflow_flag: Bool = alu_quick_res(32) ^ alu_quick_res(31)
   io.out_regular.exception_flags := Mux(pc(1, 0) === 0.U,
@@ -640,7 +657,7 @@ class Decoder extends Module {
     Mux(ins_syscall, ExceptionConst.EXCEPTION_SYSCALL, 0.U) |
     Mux(ins_break, ExceptionConst.EXCEPTION_TRAP, 0.U) |
     Mux(overflow_flag && overflow_detection_en, ExceptionConst.EXCEPTION_INT_OVERFLOW, 0.U)
-  io.out_regular.src_sum := (src_1_e + src_2_e) (31, 0)
+  io.out_regular.src_sum := alu_src1 + alu_src2
   io.out_regular.ins_valid := io.in.ins_valid
 
   io.out_issue.op1_rf_num := Mux(src1_sel === AluSrc1Sel.regfile_read1, rs, 0.U)

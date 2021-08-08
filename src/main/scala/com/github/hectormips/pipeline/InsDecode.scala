@@ -147,9 +147,13 @@ class InsDecode extends Module {
     io.if_id_in.ins_valid_if_id(0) -> 1.U,
   ))
   val ins1_ready     : Bool = !decoders(0).out_hazard.load_to_regular &&
-    !(decoders(0).out_branch.is_jump && (decoders(0).out_hazard.load_to_branch || decoders(0).out_hazard.ex_to_branch))
+    !(decoders(0).out_branch.is_jump &&
+      (decoders(0).out_hazard.load_to_branch || decoders(0).out_hazard.ex_to_branch)) &&
+    !(decoders(0).out_regular.overflow_detection_en && decoders(0).out_hazard.ex_to_exception)
   val ins2_ready     : Bool = !decoders(1).out_hazard.load_to_regular &&
-    !(decoders(1).out_branch.is_jump && (decoders(1).out_hazard.load_to_branch || decoders(1).out_hazard.ex_to_branch))
+    !(decoders(1).out_branch.is_jump &&
+      (decoders(1).out_hazard.load_to_branch || decoders(1).out_hazard.ex_to_branch)) &&
+    !(decoders(1).out_regular.overflow_detection_en && decoders(1).out_hazard.ex_to_exception)
 
 
   // 当准备被发射的指令没有冲突可以进入下一个阶段的时候准入指令
@@ -186,7 +190,7 @@ class InsDecode extends Module {
     issue_remain_predict_target := Mux(decoders(0).out_branch.is_jump || issue_from_buffer,
       io.if_id_in.predict_jump_target_if_id(0), io.if_id_in.predict_jump_target_if_id(1))
   }.elsewhen(decoders(0).out_regular.ins_valid && decoders(0).out_branch.is_jump &&
-   (io.flush || (decoders(0).out_branch.jump_taken && issue_from_buffer)) &&
+    (io.flush || (decoders(0).out_branch.jump_taken && issue_from_buffer)) &&
     decoders(1).out_regular.ins_valid && ready_go && io.next_allowin && io.if_id_in.bus_valid) {
     // 如果有跳转行为并且行为与预测结果不一致，
     // 或者预测正确，有跳转的情况下来自于if的两条指令中第一条是延迟槽指令时
