@@ -18,20 +18,16 @@ object InsJumpSel extends OneHotEnum {
   val regfile_read1     : Type = Value(8.U)
 }
 
+// TODO: 将跳转失败的判断组合逻辑放在buffer中
 class DecodePreFetchBundle extends Bundle {
-  val jump_sel_id_pf: InsJumpSel.Type = Output(InsJumpSel())
-  val jump_val_id_pf: Vec[UInt]       = Output(Vec(4, UInt(32.W)))
-  val is_jump       : Bool            = Output(Bool())
-  val bus_valid     : Bool            = Output(Bool())
-  val jump_taken    : Bool            = Output(Bool())
-  val stall_id_pf   : Bool            = Output(Bool())
+
+  val bus_valid            : Bool                = Bool()
+  val stall_id_pf          : Bool                = Bool()
+  val predict_branch_bundle: PredictBranchBundle = new PredictBranchBundle
 
   def defaults(): Unit = {
-    jump_sel_id_pf := InsJumpSel.seq_pc
-    jump_val_id_pf := VecInit(Seq.fill(4)(0.U))
-    is_jump := 0.B
+    predict_branch_bundle.defaults()
     bus_valid := 0.B
-    jump_taken := 0.B
     stall_id_pf := 0.B
   }
 }
@@ -49,7 +45,7 @@ class ExecutePrefetchBundle extends Bundle {
 
 class InsPreFetchBundle extends WithAllowin {
   val pc                           : UInt                        = Input(UInt(32.W))
-  val id_pf_in                     : DecodePreFetchBundle        = Flipped(new DecodePreFetchBundle)
+  val id_pf_in                     : DecodePreFetchBundle        = Input(new DecodePreFetchBundle)
   val ins_ram_addr                 : UInt                        = Output(UInt(32.W))
   val ins_ram_en                   : Bool                        = Output(Bool())
   val next_pc                      : UInt                        = Output(UInt(32.W))
@@ -66,8 +62,7 @@ class InsPreFetchBundle extends WithAllowin {
   val addr_ok                      : Bool                        = Input(Bool())
   val pred_pf_in                   : Vec[PredictorFetcherBundle] = Input(Vec(2, new PredictorFetcherBundle))
   val pf_pred_out                  : Vec[FetcherPredictorBundle] = Output(Vec(2, new FetcherPredictorBundle))
-
-  val in_valid: Bool = Input(Bool()) // 传入预取的输入是否有效
+  val in_valid                     : Bool                        = Input(Bool()) // 传入预取的输入是否有效
 
 }
 
@@ -80,34 +75,19 @@ class InsPreFetch extends Module {
   val seq_pc_8         : UInt              = Mux(!io.inst_sram_ins_valid(1), seq_pc_4, io.pc + 8.U)
   val exception_or_eret: Bool              = io.to_exception_service_en_ex_pf || io.to_epc_en_ex_pf
   val seq_epc_8        : UInt              = io.cp0_pf_epc
-  val seq_exception_8  : UInt              = ExceptionConst.EXCEPTION_PROGRAM_ADDR + 4.U
-  val feed_back_valid  : Bool              = io.id_pf_in.bus_valid || exception_or_eret
+  val seq_exception_8  : UInt              = ExceptionConst.EXCEPTION_PROGRAM_ADDR
   // 如果有load-to-branch的情况，清空了队列之后还需要等待
   val req              : Bool              = !io.id_pf_in.stall_id_pf && io.next_allowin &&
     (io.fetch_state === RamState.waiting_for_request || io.fetch_state === RamState.requesting || io.data_ok) &&
     !io.flush
-  pc_jump := io.id_pf_in.jump_val_id_pf(3)
+  pc_jump := io.id_pf_in.predict_branch_bundle.jumpTarget
   // 如果上一次取出的指令是跳转指令但是需要等待延迟槽指令的时候，则将跳转地址存进buffer里
   val branch_predict_target_buffer      : UInt = RegInit(0.U(32.W))
   val branch_predict_target_buffer_valid: Bool = RegInit(0.B)
 
-  switch(io.id_pf_in.jump_sel_id_pf) {
-    is(InsJumpSel.seq_pc) {
-      pc_jump := io.id_pf_in.jump_val_id_pf(3)
-    }
-    is(InsJumpSel.pc_add_offset) {
-      pc_jump := io.id_pf_in.jump_val_id_pf(0)
-    }
-    is(InsJumpSel.pc_cat_instr_index) {
-      pc_jump := io.id_pf_in.jump_val_id_pf(1)
-    }
-    is(InsJumpSel.regfile_read1) {
-      pc_jump := io.id_pf_in.jump_val_id_pf(2)
-    }
-
-  }
   // 如果来自id的bus有效 说明跳转被取消了 或者没有成功预测跳转
-  val target_from_id: Bool = io.id_pf_in.bus_valid
+  val target_from_id: Bool = io.id_pf_in.predict_branch_bundle.hasPredictFail &&
+    io.id_pf_in.bus_valid
   // 直到当前指令可以被decode接收时才发送新的请求
   val ready_go      : Bool = io.next_allowin
 
@@ -132,10 +112,10 @@ class InsPreFetch extends Module {
   io.pf_pred_out(0).pc := io.pc
   io.pf_pred_out(1).pc := seq_pc_4
 
-  when(!io.id_pf_in.bus_valid && !io.to_exception_service_en_ex_pf && !io.to_epc_en_ex_pf) {
+  when(!target_from_id && !io.to_exception_service_en_ex_pf && !io.to_epc_en_ex_pf) {
     when(((io.pred_pf_in(0).predict && !io.inst_sram_ins_valid(1)) ||
       (io.inst_sram_ins_valid(1) && io.pred_pf_in(1).predict)) && req &&
-        io.addr_ok && !branch_predict_target_buffer_valid) {
+      io.addr_ok && !branch_predict_target_buffer_valid) {
       // 当需要等待延迟槽指令并且请求已经被发出的时候将buffer置为valid
       branch_predict_target_buffer_valid := 1.B
       branch_predict_target_buffer := Mux(io.pred_pf_in(0).predict, io.pred_pf_in(0).target, io.pred_pf_in(1).target)

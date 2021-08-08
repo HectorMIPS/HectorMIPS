@@ -3,7 +3,7 @@ package com.github.hectormips.pipeline.issue
 import chisel3.{Bundle, _}
 import chisel3.util._
 import com.github.hectormips.pipeline.cp0.ExceptionConst
-import com.github.hectormips.pipeline.{AluOp, AluSrc1Sel, AluSrc2Sel, BypassMsgBundle, DecodeBypassBundle, HiloSel, InsJumpSel, MemDataSel, RegFileWAddrSel}
+import com.github.hectormips.pipeline.{AluOp, AluSrc1Sel, AluSrc2Sel, BranchCondition, BypassMsgBundle, DecodeBypassBundle, HiloSel, InsJumpSel, MemDataSel, PredictBranchBundle, RegFileWAddrSel}
 
 class DecoderIn extends Bundle {
   val instruction        : UInt               = UInt(32.W)
@@ -53,12 +53,13 @@ class DecoderRegularOut extends Bundle {
 }
 
 class DecoderBranchOut extends Bundle {
-  val jump_sel    : InsJumpSel.Type = InsJumpSel()
-  val jump_val    : Vec[UInt]       = Vec(4, UInt(32.W))
-  val is_jump     : Bool            = Bool()
-  val jump_taken  : Bool            = Bool()
-  val predict_fail: Bool            = Bool()
-  val always_jump : Bool            = Bool()
+  val jump_sel             : InsJumpSel.Type     = InsJumpSel()
+  val jump_val             : Vec[UInt]           = Vec(4, UInt(32.W))
+  val is_jump              : Bool                = Bool()
+  val jump_taken           : Bool                = Bool()
+  val predict_fail         : Bool                = Bool()
+  val always_jump          : Bool                = Bool()
+  val predict_branch_bundle: PredictBranchBundle = new PredictBranchBundle()
 }
 
 class DecoderHazardOut extends Bundle {
@@ -340,6 +341,23 @@ class Decoder extends Module {
 
   io.out_branch.jump_taken := jump_taken
   io.out_branch.always_jump := ins_j | ins_jal | ins_jr | ins_jalr
+  io.out_branch.predict_branch_bundle.jump_sel := jump_sel
+  io.out_branch.predict_branch_bundle.jump_val := jump_val
+  io.out_branch.predict_branch_bundle.bus_valid := 1.B
+  io.out_branch.predict_branch_bundle.is_jump := is_jump
+  io.out_branch.predict_branch_bundle.predict_jump_taken := io.in.predict_jump_taken
+  io.out_branch.predict_branch_bundle.predict_jump_target := io.in.predict_jump_target
+  io.out_branch.predict_branch_bundle.rf1 := regfile_read1_with_bypass_except_ex.asSInt()
+  io.out_branch.predict_branch_bundle.rf2 := regfile_read2_with_bypass_except_ex.asSInt()
+  io.out_branch.predict_branch_bundle.branch_condition := MuxCase(BranchCondition.always, Seq(
+    ins_beq -> BranchCondition.eq,
+    ins_bne -> BranchCondition.ne,
+    ins_bgtz -> BranchCondition.gtz,
+    (ins_bgez | ins_bgezal) -> BranchCondition.gez,
+    (ins_bltz | ins_bltzal) -> BranchCondition.ltz,
+    ins_blez -> BranchCondition.lez,
+    (ins_jr || ins_jal || ins_j || ins_jalr) -> BranchCondition.always))
+
 
   val src1_sel: AluSrc1Sel.Type = Wire(AluSrc1Sel())
   val src2_sel: AluSrc2Sel.Type = Wire(AluSrc2Sel())

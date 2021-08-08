@@ -67,15 +67,25 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   val predictor_fetcher            : Vec[PredictorFetcherBundle] = Wire(Vec(2, new PredictorFetcherBundle))
   val fetcher_predictor            : Vec[FetcherPredictorBundle] = Wire(Vec(2, new FetcherPredictorBundle))
   // 将ex阶段的flush回馈延迟一个周期
-  val feedback_flipper             : Bool                        = RegInit(0.B)
+  val ex_feedback_flipper          : Bool                        = RegInit(0.B)
+  val id_feedback_flipper          : PredictBranchBundle         = RegInit(init = {
+    val bundle: PredictBranchBundle = Wire(new PredictBranchBundle)
+    bundle.defaults()
+    bundle
+  })
   val branch_state                 : BranchState.Type            = RegInit(BranchState.no_branch)
-  val fetch_force_cancel           : Bool                        = feedback_flipper || branch_state === BranchState.flushing
+  val fetch_force_cancel           : Bool                        = ex_feedback_flipper || branch_state === BranchState.flushing
 
   val predictor: BTB = Module(new BTB(16, 4))
-  when(feedback_flipper === 1.B) {
-    feedback_flipper := 0.B
+  when(ex_feedback_flipper === 1.B) {
+    ex_feedback_flipper := 0.B
   }.elsewhen(to_epc_en_ex_pf || to_exception_service_en_ex_pf || pipeline_flush_ex) {
-    feedback_flipper := 1.B
+    ex_feedback_flipper := 1.B
+  }
+  when(id_pf_bus.bus_valid) {
+    id_feedback_flipper := id_pf_bus.predict_branch_bundle
+  }.elsewhen(id_feedback_flipper.bus_valid === 1.B) {
+    id_feedback_flipper.bus_valid := 0.B
   }
   predictor.io.en_ex := decoder_predictor.en_ex
   predictor.io.ex_pc := decoder_predictor.ex_pc
@@ -105,7 +115,7 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
       inst_valid_buffer := io.inst_sram_like_io.inst_valid
     }
   }
-  when(id_pf_bus.bus_valid) {
+  when(id_feedback_flipper.hasPredictFail) {
     branch_state := BranchState.flushing
   }.elsewhen(branch_state === BranchState.flushing) {
     branch_state := BranchState.branching
@@ -113,12 +123,13 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   io.debug.debug_flush := branch_state === BranchState.flushing
 
   // 预取
-  val pf_module   : InsPreFetch           = Module(new InsPreFetch)
-  val id_pf_buffer: DecodePreFetchBundle  = RegInit(init = {
+  val pf_module   : InsPreFetch          = Module(new InsPreFetch)
+  val id_pf_buffer: DecodePreFetchBundle = RegInit(init = {
     val id_pf_bundle: DecodePreFetchBundle = Wire(new DecodePreFetchBundle)
     id_pf_bundle.defaults()
     id_pf_bundle
   })
+
   val ex_pf_buffer: ExecutePrefetchBundle = RegInit(init = {
     val ex_pf_bundle: ExecutePrefetchBundle = Wire(new ExecutePrefetchBundle)
     ex_pf_bundle.defaults()
@@ -129,7 +140,6 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
     id_pf_buffer.bus_valid := 0.B
   }.elsewhen(id_pf_bus.bus_valid) {
     id_pf_buffer := id_pf_bus
-    branch_state := BranchState.flushing
   }.elsewhen(pf_module.io.ins_ram_en && io.inst_sram_like_io.addr_ok && !fetch_force_cancel) {
     id_pf_buffer.bus_valid := 0.B
     branch_state := BranchState.no_branch
@@ -238,11 +248,11 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   fifo_id_bus.ins_if_id := inst_fifo.io.out.bits.inst_bundle.inst
   fifo_id_bus.pc_debug_if_id := inst_fifo.io.out.bits.inst_bundle.pc
   fifo_id_bus.ins_valid_if_id := inst_fifo.io.out.bits.inst_bundle.inst_valid
-  fifo_id_bus.bus_valid := inst_fifo.io.out.valid && !fetch_force_cancel && !id_pf_bus.bus_valid
+  fifo_id_bus.bus_valid := inst_fifo.io.out.valid && !fetch_force_cancel && !id_feedback_flipper.hasPredictFail
   fifo_id_bus.predict_jump_target_if_id := inst_fifo.io.out.bits.inst_bundle.pred_jump_target
   fifo_id_bus.predict_jump_taken_if_id := inst_fifo.io.out.bits.inst_bundle.pred_jump_taken
   inst_fifo.io.out.ready := id_allowin
-  inst_fifo.io.in.bits.flush := id_pf_bus.bus_valid || pipeline_flush_ex
+  inst_fifo.io.in.bits.flush := id_feedback_flipper.hasPredictFail || pipeline_flush_ex
 
 
   // 译码
@@ -252,15 +262,17 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
     val bundle: FetchDecodeBundle = Wire(new FetchDecodeBundle)
     bundle.defaults()
     bundle
-  }, this_allowin = id_allowin, force_reset = reset.asBool() || pipeline_flush_ex)
+  }, this_allowin = id_allowin, force_reset = reset.asBool() || pipeline_flush_ex || id_feedback_flipper.hasPredictFail)
 
 
   val id_module: InsDecode = Module(new InsDecode)
   id_module.io.if_id_in := id_reg
+  // 如果跳转flipper发现当前跳转失败，则进入的数据无效（同时在刷新寄存器中的内容）
+  id_module.io.if_id_in.bus_valid := id_reg.bus_valid && !id_feedback_flipper.hasPredictFail
   id_module.io.regfile_read1 := regfile.io.rdata1
   id_module.io.regfile_read2 := regfile.io.rdata2
   id_module.io.bypass_bus := bypass_bus
-  id_module.io.flush := pipeline_flush_ex
+  id_module.io.flush := pipeline_flush_ex || id_feedback_flipper.hasPredictFail
   io.debug.debug_predict_fail := id_module.io.debug_predict_fail
   io.debug.debug_predict_success := id_module.io.debug_predict_success
   decoder_predictor := id_module.io.id_pred_out

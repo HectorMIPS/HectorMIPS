@@ -186,7 +186,7 @@ class InsDecode extends Module {
     issue_remain_predict_target := Mux(decoders(0).out_branch.is_jump || issue_from_buffer,
       io.if_id_in.predict_jump_target_if_id(0), io.if_id_in.predict_jump_target_if_id(1))
   }.elsewhen(decoders(0).out_regular.ins_valid && decoders(0).out_branch.is_jump &&
-    (decoders(0).out_branch.predict_fail || (decoders(0).out_branch.jump_taken && issue_from_buffer)) &&
+   (io.flush || (decoders(0).out_branch.jump_taken && issue_from_buffer)) &&
     decoders(1).out_regular.ins_valid && ready_go && io.next_allowin && io.if_id_in.bus_valid) {
     // 如果有跳转行为并且行为与预测结果不一致，
     // 或者预测正确，有跳转的情况下来自于if的两条指令中第一条是延迟槽指令时
@@ -233,17 +233,14 @@ class InsDecode extends Module {
   // 如果预测结果是跳转，则当实际的结果不是跳转或者跳转目的地时预测失败
   // 如果预测结果时不跳转，则当实际的结果是跳转的时候预测失败
   // 如果有分支指令，仅当其在槽1时有效
-  io.id_pf_out.jump_sel_id_pf := decoders(0).out_branch.jump_sel
-  io.id_pf_out.jump_val_id_pf := decoders(0).out_branch.jump_val
-  io.id_pf_out.is_jump := decoders(0).out_branch.is_jump
+  io.id_pf_out.predict_branch_bundle := decoders(0).out_branch.predict_branch_bundle
   // 仅在1. 槽0是跳转指令
   // 2. 延迟槽指令准备就绪
   // 3. 跳转指令的结果和延迟槽指令的预测结果不一致
   // 时才对pf进行控制
-  io.id_pf_out.bus_valid := jump_bus_valid && decoders(0).out_branch.predict_fail
+  io.id_pf_out.bus_valid := jump_bus_valid && ready_go && io.next_allowin
   io.debug_predict_fail := jump_bus_valid && decoders(0).out_branch.predict_fail
   io.debug_predict_success := jump_bus_valid && !decoders(0).out_branch.predict_fail
-  io.id_pf_out.jump_taken := jump_taken
   io.id_pred_out.en_ex := jump_bus_valid
   io.id_pred_out.ex_success := jump_taken
   io.id_pred_out.ex_target := jump_target
