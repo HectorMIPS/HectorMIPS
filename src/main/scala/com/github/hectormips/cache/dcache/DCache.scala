@@ -168,9 +168,11 @@ class DCache(val config: CacheConfig)
     is_hitWay(i) := cache_hit_onehot(i).asUInt().orR() // 判断是否命中cache
     state(i) := sIDLE
     index(i) := config.getIndex(addr_r(i))
-    bankIndex(i) := config.getBankIndex(addr_r(i))
-    tag(i) := config.getTag(addr_r(i))
   }
+  tag(0) := config.getTag(addr_r_0)
+  tag(1) := config.getTag(addr_r(1))
+  bankIndex(0) := config.getBankIndex(addr_r_0)
+  bankIndex(1) := config.getBankIndex(addr_r(1))
 
   /**
    * 初始化 ram
