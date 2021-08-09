@@ -112,14 +112,14 @@ class DCache(val config: CacheConfig)
    */
   val dataMem = List.fill(config.wayNum) {
     List.fill(config.bankNum) { // 4字节长就有4个
-      Module(new dcache_data_bank(config.lineNum))
+      Module(new dcache_data_bank(config))
     }
   }
   val tagvMem = List.fill(config.wayNum) {
-    Module(new dcache_tagv(config.tagWidth, config.lineNum))
+    Module(new dcache_tagv(config))
   }
   val dirtyMem = List.fill(config.wayNum) {
-    Module(new dcache_dirty(config.lineNum))
+    Module(new dcache_dirty(config))
   }
 
 

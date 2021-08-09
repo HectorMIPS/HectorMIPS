@@ -39,11 +39,11 @@ class ICache(val config: CacheConfig)
    */
   val dataMem = List.fill(config.wayNum) {
     List.fill(config.bankNum) { // 4字节长就有4个
-      Module(new icache_data_bank(config.lineNum))
+      Module(new icache_data_bank(config))
     }
   }
   val tagvMem = List.fill(config.wayNum) {
-    Module(new icache_tagv(config.tagWidth, config.lineNum))
+    Module(new icache_tagv(config))
   }
 
   //  val validMem = RegInit(VecInit(Seq.fill(config.wayNum)(VecInit(Seq.fill(config.lineNum)(false.B)))))
