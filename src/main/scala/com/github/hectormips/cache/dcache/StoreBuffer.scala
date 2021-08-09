@@ -33,11 +33,13 @@ class StoreBuffer(length:Int) extends Module{
     val cache_query_data = Output(UInt(32.W)) //这里返回的是移位后的数据
     val cache_query_mask = Output(UInt(32.W)) //如果没找到，mask为0
   })
-  val cache_hit_queue_onehot = Wire(Vec(length+1,Bool()))
+  val cache_hit_queue_onehot = Wire(Vec(length+2,Bool()))
   val cache_is_hit_queue = Wire(Bool())
   val cache_hit_queue_index = Wire(UInt(log2Ceil(length+1).W))
+  val cache_hit_tmp = Wire(Bool())
+
   cache_is_hit_queue := cache_hit_queue_onehot.asUInt() =/= 0.U
-  val cpu_hit_queue_onehot = Wire(Vec(length+1,Bool()))
+  val cpu_hit_queue_onehot = Wire(Vec(length+2,Bool()))
   val cpu_is_hit_queue = Wire(Bool())
   val cpu_hit_queue_index = Wire(UInt(log2Ceil(length+1).W))
   cpu_is_hit_queue := cpu_hit_queue_onehot.asUInt() =/= 0.U
@@ -51,6 +53,8 @@ class StoreBuffer(length:Int) extends Module{
   val tmp_wdata = Reg(UInt(32.W))
   val tmp_valid = RegInit(false.B)
   val tmp_port  = RegInit(0.U)
+  val tmp_query_mask = Wire(UInt(4.W))//仅在查询中使用的tmp的mask
+  tmp_query_mask := 0.U
   wstrb.io.size := tmp_size
   wstrb.io.offset := tmp_addr(1,0)
   /**
@@ -58,10 +62,12 @@ class StoreBuffer(length:Int) extends Module{
    */
   val cache_query_addr_r = RegInit(0.U(32.W))
   cache_query_addr_r := io.cache_query_addr
-  for(i <- 0 to length){ //0~7都可以填充 但是最多只能放7个
+  for(i <- 0 to length+1){ //0~7都可以填充 但是最多只能放7个
     cache_hit_queue_onehot(i) := buffer.data(i).valid &&  buffer.data(i).addr(31,2) === cache_query_addr_r(31,2)
     cpu_hit_queue_onehot(i) := buffer.data(i).valid &&  buffer.data(i).addr(31,2) === tmp_addr(31,2)
   }
+  cache_hit_tmp := tmp_valid &&  tmp_addr(31,2) === cache_query_addr_r(31,2)
+
   cache_hit_queue_index := OHToUInt(cache_hit_queue_onehot)
   when(cache_is_hit_queue){
     io.cache_query_data := buffer.data(cache_hit_queue_index).wdata
@@ -69,6 +75,22 @@ class StoreBuffer(length:Int) extends Module{
       Mux(buffer.data(cache_hit_queue_index).wstrb(2),"hff".U(8.W),0.U(8.W)),
       Mux(buffer.data(cache_hit_queue_index).wstrb(1),"hff".U(8.W),0.U(8.W)),
       Mux(buffer.data(cache_hit_queue_index).wstrb(0),"hff".U(8.W),0.U(8.W)))
+  }.elsewhen(cache_hit_tmp){
+    // 写后读
+    when(cpu_is_hit_queue){
+      io.cache_query_data := buffer.data(cpu_hit_queue_index).wdata
+      tmp_query_mask := wstrb.io.mask | buffer.data(cpu_hit_queue_index).wstrb
+      io.cache_query_mask := Cat(Mux(tmp_query_mask(3),"hff".U(8.W),0.U(8.W)),
+        Mux(tmp_query_mask(2),"hff".U(8.W),0.U(8.W)),
+        Mux(tmp_query_mask(1),"hff".U(8.W),0.U(8.W)),
+        Mux(tmp_query_mask(0),"hff".U(8.W),0.U(8.W)))
+    }.otherwise{
+      io.cache_query_data := tmp_wdata
+      io.cache_query_mask := Cat(Mux(wstrb.io.mask(3),"hff".U(8.W),0.U(8.W)),
+        Mux(wstrb.io.mask(2),"hff".U(8.W),0.U(8.W)),
+        Mux(wstrb.io.mask(1),"hff".U(8.W),0.U(8.W)),
+        Mux(wstrb.io.mask(0),"hff".U(8.W),0.U(8.W)))
+    }
   }.otherwise{
     io.cache_query_data := 0.U
     io.cache_query_mask := 0.U
