@@ -8,6 +8,7 @@ trait WithAllowin extends Bundle {
   val next_allowin: Bool = Input(Bool())
 }
 
+
 trait WithValid extends Bundle {
   val bus_valid: Bool = Bool()
 

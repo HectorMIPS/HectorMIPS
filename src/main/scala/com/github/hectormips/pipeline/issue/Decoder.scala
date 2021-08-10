@@ -50,6 +50,8 @@ class DecoderRegularOut extends Bundle {
   val exception_flags           : UInt                 = UInt(ExceptionConst.EXCEPTION_FLAG_WIDTH.W)
   val ins_valid                 : Bool                 = Bool()
   val src_use_hilo              : Bool                 = Bool()
+  val tlbp                      : Bool                 = Bool()
+  val tlbr                      : Bool                 = Bool()
 }
 
 class DecoderBranchOut extends Bundle {
@@ -88,6 +90,7 @@ class DecoderIssueOut extends Bundle {
   val div_or_mult     : Bool         = Bool()
   val is_valid        : Bool         = Bool()
   val is_eret         : Bool         = Bool()
+  val is_privileged   : Bool         = Bool()
   val ram_wen         : Bool         = Bool()
   val ram_en          : Bool         = Bool()
   val ram_wsrc_regfile: UInt         = UInt(5.W)
@@ -105,74 +108,78 @@ class Decoder extends Module {
 
   val io: DecoderIO = IO(new DecoderIO)
 
-  val opcode       : UInt = Wire(UInt(6.W))
-  val sa           : UInt = Wire(UInt(5.W))
-  val imm_signed   : SInt = Wire(SInt(32.W))
-  val imm_unsigned : UInt = Wire(UInt(16.W))
-  val func         : UInt = Wire(UInt(6.W))
-  val rs           : UInt = Wire(UInt(5.W))
-  val rt           : UInt = Wire(UInt(5.W))
-  val rd           : UInt = Wire(UInt(5.W))
-  val ins_addu     : Bool = Wire(Bool())
-  val ins_add      : Bool = Wire(Bool())
-  val ins_addiu    : Bool = Wire(Bool())
-  val ins_addi     : Bool = Wire(Bool())
-  val ins_subu     : Bool = Wire(Bool())
-  val ins_sub      : Bool = Wire(Bool())
-  val ins_lw       : Bool = Wire(Bool())
-  val ins_sw       : Bool = Wire(Bool())
-  val ins_beq      : Bool = Wire(Bool())
-  val ins_bne      : Bool = Wire(Bool())
-  val ins_jal      : Bool = Wire(Bool())
-  val ins_jr       : Bool = Wire(Bool())
-  val ins_slt      : Bool = Wire(Bool())
-  val ins_sltu     : Bool = Wire(Bool())
-  val ins_sll      : Bool = Wire(Bool())
-  val ins_srl      : Bool = Wire(Bool())
-  val ins_sra      : Bool = Wire(Bool())
-  val ins_lui      : Bool = Wire(Bool())
-  val ins_and      : Bool = Wire(Bool())
-  val ins_or       : Bool = Wire(Bool())
-  val ins_xor      : Bool = Wire(Bool())
-  val ins_nor      : Bool = Wire(Bool())
-  val ins_slti     : Bool = Wire(Bool())
-  val ins_sltiu    : Bool = Wire(Bool())
-  val ins_andi     : Bool = Wire(Bool())
-  val ins_ori      : Bool = Wire(Bool())
-  val ins_xori     : Bool = Wire(Bool())
-  val ins_sllv     : Bool = Wire(Bool())
-  val ins_srlv     : Bool = Wire(Bool())
-  val ins_srav     : Bool = Wire(Bool())
-  val ins_mult     : Bool = Wire(Bool())
-  val ins_multu    : Bool = Wire(Bool())
-  val ins_mul      : Bool = Wire(Bool())
-  val ins_div      : Bool = Wire(Bool())
-  val ins_divu     : Bool = Wire(Bool())
-  val ins_mfhi     : Bool = Wire(Bool())
-  val ins_mflo     : Bool = Wire(Bool())
-  val ins_mthi     : Bool = Wire(Bool())
-  val ins_mtlo     : Bool = Wire(Bool())
-  val ins_bgez     : Bool = Wire(Bool())
-  val ins_bgtz     : Bool = Wire(Bool())
-  val ins_blez     : Bool = Wire(Bool())
-  val ins_bltz     : Bool = Wire(Bool())
-  val ins_j        : Bool = Wire(Bool())
-  val ins_bltzal   : Bool = Wire(Bool())
-  val ins_bgezal   : Bool = Wire(Bool())
-  val ins_jalr     : Bool = Wire(Bool())
-  val ins_lb       : Bool = Wire(Bool())
-  val ins_lbu      : Bool = Wire(Bool())
-  val ins_lh       : Bool = Wire(Bool())
-  val ins_lhu      : Bool = Wire(Bool())
-  val ins_sb       : Bool = Wire(Bool())
-  val ins_sh       : Bool = Wire(Bool())
-  val ins_mfc0     : Bool = Wire(Bool())
-  val ins_mtc0     : Bool = Wire(Bool())
-  val ins_nop      : Bool = Wire(Bool())
-  val ins_syscall  : Bool = Wire(Bool())
-  val ins_break    : Bool = Wire(Bool())
-  val ins_eret     : Bool = Wire(Bool())
-  val ins_cache    : Bool = Wire(Bool())
+  val opcode      : UInt = Wire(UInt(6.W))
+  val sa          : UInt = Wire(UInt(5.W))
+  val imm_signed  : SInt = Wire(SInt(32.W))
+  val imm_unsigned: UInt = Wire(UInt(16.W))
+  val func        : UInt = Wire(UInt(6.W))
+  val rs          : UInt = Wire(UInt(5.W))
+  val rt          : UInt = Wire(UInt(5.W))
+  val rd          : UInt = Wire(UInt(5.W))
+  val ins_addu    : Bool = Wire(Bool())
+  val ins_add     : Bool = Wire(Bool())
+  val ins_addiu   : Bool = Wire(Bool())
+  val ins_addi    : Bool = Wire(Bool())
+  val ins_subu    : Bool = Wire(Bool())
+  val ins_sub     : Bool = Wire(Bool())
+  val ins_lw      : Bool = Wire(Bool())
+  val ins_sw      : Bool = Wire(Bool())
+  val ins_beq     : Bool = Wire(Bool())
+  val ins_bne     : Bool = Wire(Bool())
+  val ins_jal     : Bool = Wire(Bool())
+  val ins_jr      : Bool = Wire(Bool())
+  val ins_slt     : Bool = Wire(Bool())
+  val ins_sltu    : Bool = Wire(Bool())
+  val ins_sll     : Bool = Wire(Bool())
+  val ins_srl     : Bool = Wire(Bool())
+  val ins_sra     : Bool = Wire(Bool())
+  val ins_lui     : Bool = Wire(Bool())
+  val ins_and     : Bool = Wire(Bool())
+  val ins_or      : Bool = Wire(Bool())
+  val ins_xor     : Bool = Wire(Bool())
+  val ins_nor     : Bool = Wire(Bool())
+  val ins_slti    : Bool = Wire(Bool())
+  val ins_sltiu   : Bool = Wire(Bool())
+  val ins_andi    : Bool = Wire(Bool())
+  val ins_ori     : Bool = Wire(Bool())
+  val ins_xori    : Bool = Wire(Bool())
+  val ins_sllv    : Bool = Wire(Bool())
+  val ins_srlv    : Bool = Wire(Bool())
+  val ins_srav    : Bool = Wire(Bool())
+  val ins_mult    : Bool = Wire(Bool())
+  val ins_multu   : Bool = Wire(Bool())
+  val ins_mul     : Bool = Wire(Bool())
+  val ins_div     : Bool = Wire(Bool())
+  val ins_divu    : Bool = Wire(Bool())
+  val ins_mfhi    : Bool = Wire(Bool())
+  val ins_mflo    : Bool = Wire(Bool())
+  val ins_mthi    : Bool = Wire(Bool())
+  val ins_mtlo    : Bool = Wire(Bool())
+  val ins_bgez    : Bool = Wire(Bool())
+  val ins_bgtz    : Bool = Wire(Bool())
+  val ins_blez    : Bool = Wire(Bool())
+  val ins_bltz    : Bool = Wire(Bool())
+  val ins_j       : Bool = Wire(Bool())
+  val ins_bltzal  : Bool = Wire(Bool())
+  val ins_bgezal  : Bool = Wire(Bool())
+  val ins_jalr    : Bool = Wire(Bool())
+  val ins_lb      : Bool = Wire(Bool())
+  val ins_lbu     : Bool = Wire(Bool())
+  val ins_lh      : Bool = Wire(Bool())
+  val ins_lhu     : Bool = Wire(Bool())
+  val ins_sb      : Bool = Wire(Bool())
+  val ins_sh      : Bool = Wire(Bool())
+  val ins_mfc0    : Bool = Wire(Bool())
+  val ins_mtc0    : Bool = Wire(Bool())
+  val ins_nop     : Bool = Wire(Bool())
+  val ins_syscall : Bool = Wire(Bool())
+  val ins_break   : Bool = Wire(Bool())
+  val ins_eret    : Bool = Wire(Bool())
+  val ins_cache   : Bool = Wire(Bool())
+  val ins_tlbr    : Bool = Wire(Bool())
+  val ins_tlbwi   : Bool = Wire(Bool())
+  val ins_tlbp    : Bool = Wire(Bool())
+
   val offset       : SInt = Wire(SInt(32.W))
   val instr_index  : UInt = Wire(UInt(26.W))
   val instruction  : UInt = io.in.instruction
@@ -247,6 +254,9 @@ class Decoder extends Module {
   ins_break := opcode === 0.U && func === 0x0d.U
   ins_eret := instruction === 0x42000018.U
   ins_cache := opcode === 0x2f.U
+  ins_tlbr := instruction === 0x42000001.U
+  ins_tlbwi := instruction === 0x42000002.U
+  ins_tlbp := instruction === 0x42000008.U
   offset := Cat(VecInit(Seq.fill(14)(instruction(15))).asUInt(), instruction(15, 0), 0.U(2.W)).asSInt()
   instr_index := instruction(25, 0)
 
@@ -595,6 +605,8 @@ class Decoder extends Module {
   io.out_regular.cp0_addr := cp0_addr(7, 3)
   io.out_regular.cp0_sel := cp0_addr(2, 0)
   io.out_regular.regfile_wdata_from_cp0 := op_from_cp0
+  io.out_regular.tlbp := ins_tlbp
+  io.out_regular.tlbr := ins_tlbr
 
   // 相信我 其实我也不想写这么长
   val ins_valid: Bool = ins_addu ||
@@ -656,7 +668,10 @@ class Decoder extends Module {
     ins_syscall ||
     ins_break ||
     ins_eret ||
-    ins_cache
+    ins_cache ||
+    ins_tlbp ||
+    ins_tlbwi ||
+    ins_tlbr
 
   io.out_regular.is_delay_slot := io.in.is_delay_slot
   val overflow_detection_en: Bool = ins_add | ins_addi | ins_sub
@@ -703,4 +718,6 @@ class Decoder extends Module {
   io.out_issue.div_or_mult := ins_div | ins_divu | ins_multu | ins_mult | ins_mul
   io.out_issue.is_valid := io.in.ins_valid
   io.out_issue.is_eret := ins_eret && io.in.ins_valid
+  io.out_issue.is_privileged := io.in.ins_valid &&
+    (ins_eret | ins_mfc0 | ins_mtc0 | ins_syscall | ins_cache | ins_tlbr | ins_tlbwi | ins_tlbp)
 }

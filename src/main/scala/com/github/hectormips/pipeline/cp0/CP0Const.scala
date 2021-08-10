@@ -15,6 +15,16 @@ object CP0Const {
 
   val CP0_REGADDR_EPC: UInt = 14.U
 
+  val CP0_REGADDR_ENTRYHI: UInt = 10.U
+
+  val CP0_REGADDR_PAGEMASK: UInt = 5.U
+
+  val CP0_REGADDR_ENTRYLO0: UInt = 2.U
+
+  val CP0_REGADDR_ENTRYLO1: UInt = 3.U
+
+  val CP0_REGADDR_INDEX: UInt = 0.U
+
 }
 
 // 例外常量，从低位到高位优先级依次降低

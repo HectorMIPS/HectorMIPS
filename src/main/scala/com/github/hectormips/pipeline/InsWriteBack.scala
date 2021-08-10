@@ -16,6 +16,8 @@ class MemoryWriteBackBundle extends WithVEI {
   val cp0_addr_ms_wb              : UInt                 = UInt(5.W)
   val cp0_sel_ms_wb               : UInt                 = UInt(3.W)
   val regfile_wdata_from_cp0_ms_wb: Bool                 = Bool()
+  val tlbp                        : Bool                 = Bool()
+  val tlbr                        : Bool                 = Bool()
 
   override def defaults(): Unit = {
     super.defaults()
@@ -29,6 +31,8 @@ class MemoryWriteBackBundle extends WithVEI {
     cp0_addr_ms_wb := 0.U
     cp0_sel_ms_wb := 0.U
     regfile_wdata_from_cp0_ms_wb := 0.B
+    tlbp := 0.B
+    tlbr := 0.B
   }
 }
 
@@ -93,8 +97,7 @@ class InsWriteBack extends Module {
 
     io.cp0_hazard_bypass_wb_ex(i).bus_valid := bus_valid
     io.cp0_hazard_bypass_wb_ex(i).cp0_en := io.ms_wb_in(i).regfile_wdata_from_cp0_ms_wb || io.ms_wb_in(i).cp0_wen_ms_wb
-    io.cp0_hazard_bypass_wb_ex(i).cp0_ip_wen := io.ms_wb_in(i).cp0_addr_ms_wb === CP0Const.CP0_REGADDR_CAUSE &&
-      io.ms_wb_in(i).cp0_sel_ms_wb === 0.U && io.ms_wb_in(i).cp0_wen_ms_wb
+    io.cp0_hazard_bypass_wb_ex(i).cp0_wen := io.ms_wb_in(i).cp0_wen_ms_wb || io.ms_wb_in(i).tlbp || io.ms_wb_in(i).tlbr
   }
 }
 

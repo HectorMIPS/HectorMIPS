@@ -35,6 +35,8 @@ class ExecuteMemoryBundle extends WithVEI {
   val regfile_wdata_from_cp0_ex_ms    : Bool                 = Bool()
   val mem_req                         : Bool                 = Bool()
   val mem_wen                         : Bool                 = Bool()
+  val tlbp                            : Bool                 = Bool()
+  val tlbr                            : Bool                 = Bool()
 
   override def defaults(): Unit = {
     super.defaults()
@@ -54,6 +56,8 @@ class ExecuteMemoryBundle extends WithVEI {
     regfile_wdata_from_cp0_ex_ms := 0.B
     mem_req := 0.B
     mem_wen := 0.B
+    tlbp := 0.B
+    tlbr := 0.B
   }
 }
 
@@ -131,12 +135,13 @@ class InsMemory extends Module {
     io.ms_wb_out(i).cp0_sel_ms_wb := io.ex_ms_in(i).cp0_sel_ex_ms
     io.ms_wb_out(i).regfile_wdata_from_cp0_ms_wb := io.ex_ms_in(i).regfile_wdata_from_cp0_ex_ms
     io.ms_wb_out(i).exception_flags := DontCare
+    io.ms_wb_out(i).tlbp := io.ex_ms_in(i).tlbp
+    io.ms_wb_out(i).tlbr := io.ex_ms_in(i).tlbr
 
     io.cp0_hazard_bypass_ms_ex(i).bus_valid := bypass_bus_valid
     io.cp0_hazard_bypass_ms_ex(i).cp0_en := io.ex_ms_in(i).regfile_wdata_from_cp0_ex_ms ||
       io.ex_ms_in(i).cp0_wen_ex_ms
-    io.cp0_hazard_bypass_ms_ex(i).cp0_ip_wen := io.ex_ms_in(i).cp0_addr_ex_ms === CP0Const.CP0_REGADDR_CAUSE &&
-      io.ex_ms_in(i).cp0_sel_ex_ms === 0.U && io.ex_ms_in(i).cp0_wen_ex_ms
+    io.cp0_hazard_bypass_ms_ex(i).cp0_wen := io.ex_ms_in(i).cp0_wen_ex_ms || io.ex_ms_in(i).tlbp || io.ex_ms_in(i).tlbr
   }
 }
 

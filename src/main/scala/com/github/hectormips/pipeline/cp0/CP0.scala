@@ -33,7 +33,7 @@ class CP0Bundle extends Bundle {
 
 }
 
-class CP0 extends Module {
+class CP0(n_tlb: Int = 5) extends Module {
   val io: CP0Bundle = IO(new CP0Bundle)
 
   val status_exl: Bool = Wire(Bool())
@@ -49,6 +49,11 @@ class CP0 extends Module {
   val compare : UInt = RegInit(UInt(32.W), init = 0x0.U)
   val badvaddr: UInt = RegInit(UInt(32.W), init = 0x0.U)
   val epc     : UInt = RegInit(UInt(32.W), init = 0x0.U)
+  val entryhi : UInt = RegInit(UInt(32.W), init = 0x0.U)
+  val pagemask: UInt = RegInit(UInt(32.W), init = 0x0.U)
+  val entrylo0: UInt = RegInit(UInt(32.W), init = 0x0.U)
+  val entrylo1: UInt = RegInit(UInt(32.W), init = 0x0.U)
+  val index   : UInt = RegInit(UInt(32.W), init = 0x0.U)
 
 
   val compare_eq_count: Bool = compare === count
@@ -121,17 +126,39 @@ class CP0 extends Module {
   }
 
   for (i <- 0 to 1) {
-    when(io.wb_cp0(i).regaddr === CP0Const.CP0_REGADDR_COUNT && io.wb_cp0(i).regsel === 0.U && io.wb_cp0(i).wen) {
-      count := io.wb_cp0(i).wdata
-    }
+    when(io.wb_cp0(i).regsel === 0.U && io.wb_cp0(i).wen) {
+      when(io.wb_cp0(i).regaddr === CP0Const.CP0_REGADDR_COUNT) {
+        count := io.wb_cp0(i).wdata
+      }
 
-    when(io.wb_cp0(i).regaddr === CP0Const.CP0_REGADDR_COMPARE && io.wb_cp0(i).regsel === 0.U && io.wb_cp0(i).wen) {
-      compare := io.wb_cp0(i).wdata
-      cause := Cat(cause(31), 0.B, cause(29, 0))
-    }
+      when(io.wb_cp0(i).regaddr === CP0Const.CP0_REGADDR_COMPARE) {
+        compare := io.wb_cp0(i).wdata
+        cause := Cat(cause(31), 0.B, cause(29, 0))
+      }
 
-    when(io.wb_cp0(i).regaddr === CP0Const.CP0_REGADDR_EPC && io.wb_cp0(i).regsel === 0.U && io.wb_cp0(i).wen) {
-      epc := io.wb_cp0(i).wdata
+      when(io.wb_cp0(i).regaddr === CP0Const.CP0_REGADDR_EPC) {
+        epc := io.wb_cp0(i).wdata
+      }
+
+      when(io.wb_cp0(i).regaddr === CP0Const.CP0_REGADDR_ENTRYHI) {
+        entryhi := Cat(io.wb_cp0(i).wdata(31, 13), 0.U(5.W), io.wb_cp0(i).wdata(7, 0))
+      }
+
+      when(io.wb_cp0(i).regaddr === CP0Const.CP0_REGADDR_PAGEMASK) {
+        pagemask := Cat(0.U(7.W), io.wb_cp0(i).wdata(24, 13), 0.U(13.W))
+      }
+
+      when(io.wb_cp0(i).regaddr === CP0Const.CP0_REGADDR_ENTRYLO0) {
+        entrylo0 := Cat(entrylo0(31, 30), io.wb_cp0(i).wdata(29, 0))
+      }
+
+      when(io.wb_cp0(i).regaddr === CP0Const.CP0_REGADDR_ENTRYLO1) {
+        entrylo1 := Cat(entrylo1(31, 30), io.wb_cp0(i).wdata(29, 0))
+      }
+
+      when(io.wb_cp0(i).regaddr === CP0Const.CP0_REGADDR_INDEX) {
+        index := Cat(index(31), 0.U((32 - n_tlb).W), io.wb_cp0(i).wdata(n_tlb - 1, 0))
+      }
     }
   }
   when(io.ex_cp0_in.exception_occur) {
@@ -171,6 +198,11 @@ class CP0 extends Module {
       (io.wb_cp0(i).regaddr === CP0Const.CP0_REGADDR_COMPARE) -> compare,
       (io.wb_cp0(i).regaddr === CP0Const.CP0_REGADDR_COUNT) -> count,
       (io.wb_cp0(i).regaddr === CP0Const.CP0_REGADDR_BADVADDR) -> badvaddr,
+      (io.wb_cp0(i).regaddr === CP0Const.CP0_REGADDR_ENTRYHI) -> entryhi,
+      (io.wb_cp0(i).regaddr === CP0Const.CP0_REGADDR_ENTRYLO0) -> entrylo0,
+      (io.wb_cp0(i).regaddr === CP0Const.CP0_REGADDR_ENTRYLO1) -> entrylo1,
+      (io.wb_cp0(i).regaddr === CP0Const.CP0_REGADDR_INDEX) -> index,
+      (io.wb_cp0(i).regaddr === CP0Const.CP0_REGADDR_PAGEMASK) -> pagemask,
     )), 0.U)
   }
   io.cp0_ex_out.status_exl := status_exl

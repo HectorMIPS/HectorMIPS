@@ -42,6 +42,8 @@ class DecodeExecuteBundle extends WithVEI {
   val overflow_detection_en           : Bool                 = Bool()
   val ins_eret                        : Bool                 = Bool()
   val src_use_hilo                    : Bool                 = Bool()
+  val tlbp                            : Bool                 = Bool()
+  val tlbr                            : Bool                 = Bool()
 
 
   val is_delay_slot: Bool = Bool()
@@ -81,14 +83,16 @@ class DecodeExecuteBundle extends WithVEI {
     is_delay_slot := 0.B
     src_use_hilo := 0.B
     src_sum := 0.U
+    tlbp := 0.B
+    tlbr := 0.B
     super.defaults()
   }
 }
 
 // 由于mtc0 mfc0指令均在写回阶段才读、写cp0寄存器，因此如果例外需要读、写cp0寄存器，需要等待后方流水完成写回
 class CP0HazardBypass extends Bundle with WithValid {
-  val cp0_en    : Bool = Bool() // 是否需要使用cp0寄存器
-  val cp0_ip_wen: Bool = Bool() // 写入的域含ip时 强制暂停
+  val cp0_en : Bool = Bool() // 是否需要使用cp0寄存器
+  val cp0_wen: Bool = Bool() // 写入的域含ip时 强制暂停
 }
 
 
@@ -179,11 +183,11 @@ class InsExecute extends Module {
     (io.cp0_hazard_bypass_ms_ex(1).bus_valid && io.cp0_hazard_bypass_ms_ex(1).cp0_en)
   val wb_cp0_hazard : Bool = (io.cp0_hazard_bypass_wb_ex(0).bus_valid && io.cp0_hazard_bypass_wb_ex(0).cp0_en) ||
     (io.cp0_hazard_bypass_wb_ex(1).bus_valid && io.cp0_hazard_bypass_wb_ex(1).cp0_en)
-  // 当ms、wb的指令正在写cp0的ip域时，暂停流水线
-  val ms_cp0_ip0_wen: Bool = (io.cp0_hazard_bypass_ms_ex(0).bus_valid && io.cp0_hazard_bypass_ms_ex(0).cp0_ip_wen) ||
-    (io.cp0_hazard_bypass_ms_ex(1).bus_valid && io.cp0_hazard_bypass_ms_ex(1).cp0_ip_wen)
-  val wb_cp0_ip0_wen: Bool = (io.cp0_hazard_bypass_wb_ex(0).bus_valid && io.cp0_hazard_bypass_wb_ex(0).cp0_ip_wen) ||
-    (io.cp0_hazard_bypass_wb_ex(1).bus_valid && io.cp0_hazard_bypass_wb_ex(1).cp0_ip_wen)
+  // 当ms、wb的指令正在写cp0时，暂停流水线
+  val ms_cp0_ip0_wen: Bool = (io.cp0_hazard_bypass_ms_ex(0).bus_valid && io.cp0_hazard_bypass_ms_ex(0).cp0_wen) ||
+    (io.cp0_hazard_bypass_ms_ex(1).bus_valid && io.cp0_hazard_bypass_ms_ex(1).cp0_wen)
+  val wb_cp0_ip0_wen: Bool = (io.cp0_hazard_bypass_wb_ex(0).bus_valid && io.cp0_hazard_bypass_wb_ex(0).cp0_wen) ||
+    (io.cp0_hazard_bypass_wb_ex(1).bus_valid && io.cp0_hazard_bypass_wb_ex(1).cp0_wen)
 
   val ready_go: Bool = !ms_cp0_ip0_wen && !wb_cp0_ip0_wen &&
     Mux(io.id_ex_in(0).bus_valid && !exceptionShielded(0), alu(0.U ^ order_flipped).out.out_valid, 1.B) &&
@@ -272,6 +276,8 @@ class InsExecute extends Module {
     // 如果只有第二条指令发生例外，则只无效化第二条指令的输出
     io.ex_ms_out(i).bus_valid := io.id_ex_in(i).bus_valid && !(exception_on_inst1 && i.U === 1.U) &&
       !exception_on_inst0 && !reset.asBool() && !eret_occur && ready_go
+    io.ex_ms_out(i).tlbp := io.id_ex_in(i).tlbp
+    io.ex_ms_out(i).tlbr := io.id_ex_in(i).tlbr
   }
 
   // 送给cp0的输出

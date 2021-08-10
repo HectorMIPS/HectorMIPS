@@ -40,9 +40,8 @@ class Issuer extends Module {
       io.in_decoder2.op2_rf_num === io.in_decoder1.rf_wnum) ||
       // 访存指令特殊处理
       (io.in_decoder2.ram_wen && io.in_decoder2.ram_wsrc_regfile === io.in_decoder1.rf_wnum))
-  // 只要写cp0寄存器，那么就只能发射一条
-  // 目的是为了防止软中断导致的异常
-  val has_raw_cp0_hazard    : Bool = io.in_decoder1.cp0_wen
+  // 只要是特权指令就只发射一条
+  val has_cp0_hazard        : Bool = io.in_decoder1.is_privileged
   val has_raw_hilo_hazard   : Bool = io.in_decoder1.hilo_wen && io.in_decoder2.op2_from_hilo &&
     (io.in_decoder1.hilo_sel === io.in_decoder2.hilo_sel ||
       (io.in_decoder1.hilo_sel === HiloSel.both && io.in_decoder2.hilo_sel =/= HiloSel.nop))
@@ -60,9 +59,10 @@ class Issuer extends Module {
   val has_ram_access     : Bool = (io.in_decoder1.ram_en || (!io.in_decoder1.is_jump && io.in_decoder2.ram_en)) &&
     io.in_decoder1.is_valid && io.in_decoder2.is_valid
 
-  has_raw_hazard := has_raw_regfile_hazard || has_raw_cp0_hazard || has_raw_hilo_hazard
+  has_raw_hazard := has_raw_regfile_hazard || has_cp0_hazard || has_raw_hilo_hazard
   is_decoder2_jump := io.in_decoder2.is_valid && io.in_decoder2.is_jump
-  has_device_hazard := io.in_decoder1.div_or_mult && io.in_decoder2.div_or_mult
+  // 只要有需要用乘法/除法器的指令均单发射
+  has_device_hazard := io.in_decoder1.div_or_mult || io.in_decoder2.div_or_mult
   has_waw_hazard := has_waw_regfile_hazard || has_waw_hilo_hazard || has_waw_hilo_hazard
   // 有冲突或者只有一条指令的时候只发射一条
   // 当一条指令为eret的时候也只发射一条

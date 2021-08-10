@@ -287,6 +287,8 @@ class InsDecode extends Module {
     io.id_ex_out(i).issue_num := issuer.io.out.issue_count
     io.id_ex_out(i).exception_flags := decoders(i).out_regular.exception_flags
     io.id_ex_out(i).src_sum := decoders(i).out_regular.src_sum
+    io.id_ex_out(i).tlbp := decoders(i).out_regular.tlbp
+    io.id_ex_out(i).tlbr := decoders(i).out_regular.tlbr
   }
   // 当第一条指令为跳转指令的时候，只有两条指令同时有效时才能发射
   io.id_ex_out(0).bus_valid := bus_valid_common && decoders(0).out_regular.ins_valid &&
