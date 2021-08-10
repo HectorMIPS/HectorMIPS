@@ -9,6 +9,7 @@ import com.github.hectormips.cache.dcache.DCache
 import com.github.hectormips.cache.icache.ICache
 import com.github.hectormips.cache.uncache.{Uncache, UncacheInst}
 import chisel3.util.experimental.forceName
+import com.github.hectormips.tlb.SearchPort
 
 //class cpu_axi_interface extends BlackBox{//TODO:暂用
 //  var io = IO(new Bundle{
@@ -26,7 +27,8 @@ class Cache(val config:CacheConfig)  extends Module{
     val uncache_inst = Flipped(new SRamLikeInstIO)
     val dcache = Flipped(Vec(2,new SRamLikeDataIO()))
     val uncached = Flipped(Vec(2,new SRamLikeDataIO()))
-
+    val tlb0 = Flipped(new SearchPort(config.tlbnum)) // icache
+    val tlb1 = Flipped(new SearchPort(config.tlbnum)) // dcache
     val icache_hit_count = Output(UInt(32.W))
     val icache_total_count = Output(UInt(32.W))
     val dcache_hit_count = Output(UInt(32.W))
@@ -42,6 +44,9 @@ class Cache(val config:CacheConfig)  extends Module{
 
   val uncached = Module(new Uncache())
   val uncache_inst = Module(new UncacheInst())
+
+  icache.io.tlb <> io.tlb0
+  dcache.io.tlb <> io.tlb1
 
   io.dcache_hit_count := dcache.io.debug_hit_count
   io.dcache_total_count := dcache.io.debug_total_count
