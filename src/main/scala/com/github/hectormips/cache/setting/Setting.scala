@@ -27,6 +27,11 @@ class CacheConfig(val _wayNum: Int = 2, val WayWidth: Int = 4 * 1024, val DataWi
   val indexWidth = log2Ceil(WayWidth) - offsetWidth //路大小位数 减去offset位数,8
   val lineNum = 1 << indexWidth
 
+  //storeBuffer Length
+  val storeBufferLength = 7
+
+  // MMU
+  val asidWidth = 8 //256
 //  val victimDepthWidth = log2Ceil(victimDepth)
 
   //victim

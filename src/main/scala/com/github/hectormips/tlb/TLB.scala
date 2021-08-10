@@ -5,7 +5,7 @@ import chisel3.stage.{ChiselGeneratorAnnotation, ChiselStage}
 import chisel3.util._
 
 // 查询接口
-class SearchPort(TLBNUM:Int) extends Bundle{
+class SearchPort(TLBNUM: Int) extends Bundle {
   val vpn2 = Input(UInt(19.W))
   val odd_page = Input(UInt(1.W))
   val asid = Input(UInt(8.W))
@@ -20,27 +20,27 @@ class SearchPort(TLBNUM:Int) extends Bundle{
 }
 
 // TLB行
-class TLBRow extends Bundle{
+class TLBRow extends Bundle {
   val vpn2 = UInt(19.W)
   val asid = UInt(8.W)
-  val g    = UInt(1.W)
+  val g = UInt(1.W)
   val PFN0 = UInt(20.W)
-  val C0   = UInt(3.W)
-  val D0   = UInt(1.W)
-  val V0   = UInt(1.W)
+  val C0 = UInt(3.W)
+  val D0 = UInt(1.W)
+  val V0 = UInt(1.W)
   val PFN1 = UInt(20.W)
-  val C1   = UInt(3.W)
-  val D1   = UInt(1.W)
-  val V1   = UInt(1.W)
+  val C1 = UInt(3.W)
+  val D1 = UInt(1.W)
+  val V1 = UInt(1.W)
 }
 
-class TLBBundle(TLBNUM:Int) extends Bundle {
+class TLBBundle(TLBNUM: Int) extends Bundle {
   val s0 = new SearchPort(TLBNUM) // 查询端口1，供取指使用,有三种例外
-  val s1 = new SearchPort(TLBNUM) // 查询端口2，供仿存使用
+  val s1 = new SearchPort(TLBNUM) // 查询端口2，供仿存使用R
 
   // TLBWI，无例外
   val we = Input(Bool())
-  val w_index =  Input(UInt(log2Up(TLBNUM).W)) // TLB表项id
+  val w_index = Input(UInt(log2Up(TLBNUM).W)) // TLB表项id
   val w_vpn2 = Input(UInt(19.W))
   val w_asid = Input(UInt(8.W))
   val w_g = Input(Bool())
@@ -54,7 +54,7 @@ class TLBBundle(TLBNUM:Int) extends Bundle {
   val w_v1 = Input(Bool())
 
   //TLBR 使用index查询，无例外
-  val r_index =  Input(UInt(log2Up(TLBNUM).W)) // TLB表项id
+  val r_index = Input(UInt(log2Up(TLBNUM).W)) // TLB表项id
   val r_vpn2 = Output(UInt(19.W))
   val r_asid = Output(UInt(8.W))
   val r_g = Output(Bool())
@@ -70,10 +70,11 @@ class TLBBundle(TLBNUM:Int) extends Bundle {
   //TLBP 使用VPN2和ASID 查询index，无例外
   val p_vpn2 = Input(UInt(19.W))
   val p_asid = Input(UInt(8.W))
-  val p_index =  Output(UInt(log2Up(TLBNUM).W)) // TLB表项id
+  val p_index = Output(UInt(log2Up(TLBNUM).W)) // TLB表项id
   val p_find = Output(Bool())
 }
-class tlb(TLBNUM:Int) extends Module{
+
+class tlb(TLBNUM: Int) extends Module {
   /**
    * 书上压缩了页表(32-log2(4k)=20,而这里只有19)，VPN2低位忽略，表示两个4KB的页
    * --------------------------------------------------------
@@ -82,95 +83,96 @@ class tlb(TLBNUM:Int) extends Module{
    * --------------------------------------------------------
    *
    */
-//  chisel3.util.experimental.forceName(clock,"clk")
+  //  chisel3.util.experimental.forceName(clock,"clk")
   val io = IO(new TLBBundle(TLBNUM))
-  val tlbrow = Reg(Vec(TLBNUM,new TLBRow))
+  val tlbrow = Reg(Vec(TLBNUM, new TLBRow))
 
   /**
    * 查询
    */
-  def tlb_match(tlbrow: Vec[TLBRow],s:SearchPort):Unit={
-    val match0 =  Wire(Vec(TLBNUM, Bool()))
-    val index0  = Wire(UInt(log2Up(TLBNUM).W))
-    index0 :=  OHToUInt(match0.asUInt())
-    val ex = Wire(Vec(3,Bool()))
-    s.ex := Cat(ex(2),ex(1),ex(0))
+  def tlb_match(tlbrow: Vec[TLBRow], s: SearchPort): Unit = {
+    val match0 = Wire(Vec(TLBNUM, Bool()))
+    val index0 = Wire(UInt(log2Up(TLBNUM).W))
+    index0 := OHToUInt(match0.asUInt())
+    val ex = Wire(Vec(3, Bool()))
+    s.ex := Cat(ex(2), ex(1), ex(0))
     ex(2) := s.found && s.d //修改例外
     ex(1) := false.B
     ex(0) := false.B
-    for(i<- 0 until TLBNUM)
-      // vpn匹配 且 进程id匹配
-      match0(i)  := ((s.vpn2 === tlbrow(i).vpn2) && ( (s.asid === tlbrow(i).asid) || (tlbrow(i).g.asBool())))
-    when(match0.asUInt()===0.U(1.W)) {
+    for (i <- 0 until TLBNUM)
+    // vpn匹配 且 进程id匹配
+      match0(i) := ((s.vpn2 === tlbrow(i).vpn2) && ((s.asid === tlbrow(i).asid) || (tlbrow(i).g.asBool())))
+    when(match0.asUInt() === 0.U(1.W)) {
       // 未找到
       s.found := false.B
       s.index := 0.U
-      s.pfn   := 0.U
-      s.c     := 0.U
-      s.d     := 0.U
-      s.v     := 0.U
+      s.pfn := 0.U
+      s.c := 0.U
+      s.d := 0.U
+      s.v := 0.U
       s.ex(0) := true.B //重填例外
-    }.elsewhen( (s.odd_page===false.B && tlbrow(index0).V0=/=true.B)  || (s.odd_page===true.B && tlbrow(index0).V1=/=true.B)){
+    }.elsewhen((s.odd_page === false.B && tlbrow(index0).V0 =/= true.B) || (s.odd_page === true.B && tlbrow(index0).V1 =/= true.B)) {
       // invalid
       s.found := false.B
       s.index := 0.U
-      s.pfn   := 0.U
-      s.c     := 0.U
-      s.d     := 0.U
-      s.v     := 0.U
+      s.pfn := 0.U
+      s.c := 0.U
+      s.d := 0.U
+      s.v := 0.U
       s.ex(1) := true.B //无效例外
-    }.otherwise{
+    }.otherwise {
       s.found := true.B
       s.index := index0
-      s.pfn   := Mux(s.odd_page.asBool(),tlbrow(index0).PFN1,tlbrow(index0).PFN0)
-      s.c     := Mux(s.odd_page.asBool(),tlbrow(index0).C1,tlbrow(index0).C0)
-      s.d     := Mux(s.odd_page.asBool(),tlbrow(index0).D1,tlbrow(index0).D0)
-      s.v     := Mux(s.odd_page.asBool(),tlbrow(index0).V1,tlbrow(index0).V0)
+      s.pfn := Mux(s.odd_page.asBool(), tlbrow(index0).PFN1, tlbrow(index0).PFN0)
+      s.c := Mux(s.odd_page.asBool(), tlbrow(index0).C1, tlbrow(index0).C0)
+      s.d := Mux(s.odd_page.asBool(), tlbrow(index0).D1, tlbrow(index0).D0)
+      s.v := Mux(s.odd_page.asBool(), tlbrow(index0).V1, tlbrow(index0).V0)
     }
   }
-  tlb_match(tlbrow,io.s0)
-  tlb_match(tlbrow,io.s1)
 
-  when(io.we){
+  tlb_match(tlbrow, io.s0)
+  tlb_match(tlbrow, io.s1)
+
+  when(io.we) {
     /**
      * 写
      */
     tlbrow(io.w_index).vpn2 := io.w_vpn2
     tlbrow(io.w_index).asid := io.w_asid
-    tlbrow(io.w_index).g    := io.w_g
+    tlbrow(io.w_index).g := io.w_g
     tlbrow(io.w_index).PFN0 := io.w_pfn0
-    tlbrow(io.w_index).C0   := io.w_c0
-    tlbrow(io.w_index).D0   := io.w_d0
-    tlbrow(io.w_index).V0   := io.w_v0
+    tlbrow(io.w_index).C0 := io.w_c0
+    tlbrow(io.w_index).D0 := io.w_d0
+    tlbrow(io.w_index).V0 := io.w_v0
     tlbrow(io.w_index).PFN1 := io.w_pfn1
-    tlbrow(io.w_index).C1   := io.w_c1
-    tlbrow(io.w_index).D1   := io.w_d1
-    tlbrow(io.w_index).V1   := io.w_v1
+    tlbrow(io.w_index).C1 := io.w_c1
+    tlbrow(io.w_index).D1 := io.w_d1
+    tlbrow(io.w_index).V1 := io.w_v1
   }
   io.r_vpn2 := tlbrow(io.r_index).vpn2
   io.r_asid := tlbrow(io.r_index).asid
-  io.r_g    := tlbrow(io.r_index).g
+  io.r_g := tlbrow(io.r_index).g
   io.r_pfn0 := tlbrow(io.r_index).PFN0
-  io.r_c0   := tlbrow(io.r_index).C0
-  io.r_d0   := tlbrow(io.r_index).D0
-  io.r_v0   := tlbrow(io.r_index).V0
+  io.r_c0 := tlbrow(io.r_index).C0
+  io.r_d0 := tlbrow(io.r_index).D0
+  io.r_v0 := tlbrow(io.r_index).V0
   io.r_pfn1 := tlbrow(io.r_index).PFN1
-  io.r_c1   := tlbrow(io.r_index).C1
-  io.r_d1   := tlbrow(io.r_index).D1
-  io.r_v1   := tlbrow(io.r_index).V1
+  io.r_c1 := tlbrow(io.r_index).C1
+  io.r_d1 := tlbrow(io.r_index).D1
+  io.r_v1 := tlbrow(io.r_index).V1
 
   /**
    * 查询操作
    */
   val p_vpn2 = Input(UInt(19.W))
   val p_asid = Input(UInt(8.W))
-  val p_index =  Output(UInt(log2Up(TLBNUM).W)) // TLB表项id
+  val p_index = Output(UInt(log2Up(TLBNUM).W)) // TLB表项id
   val p_find = Output(Bool())
 
-  val tlbp_onehot =  Wire(Vec(TLBNUM, Bool()))
-  val tlbp_index  = Wire(UInt(log2Up(TLBNUM).W))
-  tlbp_index :=  OHToUInt(tlbp_onehot.asUInt())
-  for(i <- 0 until TLBNUM){
+  val tlbp_onehot = Wire(Vec(TLBNUM, Bool()))
+  val tlbp_index = Wire(UInt(log2Up(TLBNUM).W))
+  tlbp_index := OHToUInt(tlbp_onehot.asUInt())
+  for (i <- 0 until TLBNUM) {
     tlbp_onehot(i) := tlbrow(i).vpn2 === io.p_vpn2 && (tlbrow(i).g.asBool() || tlbrow(i).asid === io.p_asid)
   }
   io.p_find := tlbp_onehot.asUInt() =/= 0.U
