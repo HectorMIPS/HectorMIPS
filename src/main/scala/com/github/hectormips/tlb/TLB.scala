@@ -96,7 +96,7 @@ class tlb(TLBNUM: Int) extends Module {
     index0 := OHToUInt(match0.asUInt())
     val ex = Wire(Vec(3, Bool()))
     s.ex := Cat(ex(2), ex(1), ex(0))
-    ex(2) := s.found && s.d //修改例外
+    ex(2) := s.d //修改例外需要知道是否为store，因此由cache决定是否修改此位
     ex(1) := false.B
     ex(0) := false.B
     for (i <- 0 until TLBNUM)

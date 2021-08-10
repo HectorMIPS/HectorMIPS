@@ -48,7 +48,7 @@ class DCache(val config: CacheConfig)
     val debug_hit_count = Output(UInt(32.W)) // cache命中数
 
   })
-  val sIDLE :: sLOOKUP :: sREPLACE :: sREFILL :: sWaiting :: sEviction :: sEvictionWaiting :: sFailed :: sFetchHandshake :: sFetchRecv :: Nil = Enum(10)
+  val sIDLE :: sLOOKUP :: sREPLACE :: sREFILL :: sWaiting :: sEviction :: sEvictionWaiting :: sFetchHandshake :: sFetchRecv :: Nil = Enum(10)
   val state = RegInit(VecInit(Seq.fill(2)(0.U(4.W))))
   val is_hitWay = Wire(Vec(2, Bool()))
   val write_failed = RegInit(false.B)
@@ -343,8 +343,8 @@ class DCache(val config: CacheConfig)
    * TLB配置
    */
 
-  val ex = RegInit(VecInit(Seq.fill(2)(0.U(3.W))))
-  io.ex := ex
+  io.ex :=  Cat(io.wr(0) && !io.tlb.ex(2) && !io.tlb.ex(1) && !io.tlb.ex(0),io.tlb.ex(1,0))
+  //如果为写，并且找到了，且本页valid=1，d=0,最高位才会置1
   io.tlb.vpn2 := io.addr(0)(31, config.indexWidth + 1) //31,13
   io.tlb.odd_page := io.addr(0)(config.indexWidth) //12
   io.tlb.asid := io.asid
@@ -366,7 +366,6 @@ class DCache(val config: CacheConfig)
   storeBuffer.io.cpu_size := 0.U
   storeBuffer.io.cpu_port := 0.U
   when(io.wr(0) && io.addr_ok(0) && io.valid(0)) {
-    ex := io.tlb.ex
     doWrite := true.B
     when(io.tlb.found) {
       when(io.tlb.c === 3.U) { //如果允许cache
@@ -383,14 +382,8 @@ class DCache(val config: CacheConfig)
         invalidateQueue.io.uncache_size := io.size(0)
       }
     }.otherwise {
-      write_failed := true.B
-      doWrite := true.B
+      io.data_ok(0) := true.B
     }
-  }
-  when(write_failed) {
-    io.data_ok(0) := true.B
-    write_failed := false.B
-    doWrite := false.B
   }
   when(invalidateQueue.io.uncahce_ok){
     io.data_ok(0) := true.B
@@ -415,7 +408,6 @@ class DCache(val config: CacheConfig)
       is(sIDLE) {
         when(worker.U === 0.U) { //读端口操作
           when(io.valid(0) && io.addr_ok(0) && !io.wr(0)) { // 如果有新的读请求
-            ex := io.tlb.ex //记录例外
             when(io.tlb.found) { //TLB 命中
               when(io.tlb.c === 3.U) { //如果允许cache
 
@@ -429,12 +421,13 @@ class DCache(val config: CacheConfig)
                   state(0) := sLOOKUP
                 }
               }.otherwise { //不允许cache
-                state := sFetchHandshake // uncache
+                state(0) := sFetchHandshake // uncache
               }
               addr_r_0 := Cat(io.tlb.pfn, io.addr(0)(config.indexWidth, 0))
             }.otherwise {
               // TLB Miss
-              state := sFailed
+              state(0) := sIDLE
+              io.data_ok(0) := true.B
             }
 
           }.elsewhen(worker.U === 1.U) {
@@ -559,10 +552,6 @@ class DCache(val config: CacheConfig)
           }.otherwise {
             state(0) := sLOOKUP
           }
-        }
-        is(sFailed){
-          state := sIDLE
-          io.data_ok(0) := true.B
         }
         is(sFetchHandshake){
           //uncache取

@@ -34,7 +34,7 @@ class ICache(val config: CacheConfig)
     val debug_total_count = Output(UInt(32.W)) // cache总查询次数
     val debug_hit_count = Output(UInt(32.W)) // cache命中数
   })
-  val sIDLE::sFailed :: sLOOKUP :: sREPLACE :: sREFILL :: sQueryPrefetch :: sWaitPrefetch::sFetchHandshake::sFetchRecv :: Nil = Enum(9)
+  val sIDLE :: sLOOKUP :: sREPLACE :: sREFILL :: sQueryPrefetch :: sWaitPrefetch::sFetchHandshake::sFetchRecv :: Nil = Enum(8)
 
   val state = RegInit(0.U(4.W)) // 初始化阶段
   val prefetch = Module(new Prefetch(config))
@@ -187,8 +187,7 @@ class ICache(val config: CacheConfig)
   /**
    * TLB配置
    */
-  val ex = RegInit(0.U(3.W))
-  io.ex := ex
+  io.ex := io.tlb.ex & 3.U //不会触发最高位的例外
   io.tlb.vpn2 := io.addr(31,config.indexWidth+1) //31,13
   io.tlb.odd_page := io.addr(config.indexWidth) //12
   io.tlb.asid := io.asid
@@ -248,7 +247,6 @@ class ICache(val config: CacheConfig)
   switch(state) {
     is(sIDLE) {
       when(io.valid) {
-        ex := io.tlb.ex
         when(io.tlb.found){
           when(io.tlb.c === 3.U){
             state := sLOOKUP // cache
@@ -258,7 +256,9 @@ class ICache(val config: CacheConfig)
           addr_r := Cat(io.tlb.pfn,io.addr(config.indexWidth,0))
         }.otherwise{
           // TLB Miss
-          state := sFailed
+          state := sIDLE
+          io.instOK := true.B
+          io.instValid := false.B
         }
       }
     }
@@ -273,7 +273,6 @@ class ICache(val config: CacheConfig)
         lruMem.io.visit := cache_hit_way // lru记录命中
         when(io.valid) {
           // 直接进入下一轮
-          ex := io.tlb.ex
           when(io.tlb.found){
             when(io.tlb.c === 3.U){
               state := sLOOKUP // cache
@@ -283,7 +282,9 @@ class ICache(val config: CacheConfig)
             addr_r := Cat(io.tlb.pfn,io.addr(config.indexWidth,0))
           }.otherwise{
             // TLB Miss
-            state := sFailed
+            state := sIDLE
+            io.instOK := true.B
+            io.instValid := false.B
           }
 
         }.otherwise {
@@ -350,13 +351,6 @@ class ICache(val config: CacheConfig)
           state := sIDLE
         }
       }
-    }
-    is(sFailed){
-      // TLB miss
-      state := sIDLE
-      io.instOK := true.B
-      io.instValid := false.B
-      //io.ex
     }
     is(sFetchHandshake){
       //uncache取
