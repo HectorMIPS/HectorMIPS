@@ -172,6 +172,7 @@ class Decoder extends Module {
   val ins_syscall  : Bool = Wire(Bool())
   val ins_break    : Bool = Wire(Bool())
   val ins_eret     : Bool = Wire(Bool())
+  val ins_cache    : Bool = Wire(Bool())
   val offset       : SInt = Wire(SInt(32.W))
   val instr_index  : UInt = Wire(UInt(26.W))
   val instruction  : UInt = io.in.instruction
@@ -245,6 +246,7 @@ class Decoder extends Module {
   ins_syscall := opcode === 0.U && func === 0x0c.U
   ins_break := opcode === 0.U && func === 0x0d.U
   ins_eret := instruction === 0x42000018.U
+  ins_cache := opcode === 0x2f.U
   offset := Cat(VecInit(Seq.fill(14)(instruction(15))).asUInt(), instruction(15, 0), 0.U(2.W)).asSInt()
   instr_index := instruction(25, 0)
 
@@ -653,17 +655,18 @@ class Decoder extends Module {
     ins_nop ||
     ins_syscall ||
     ins_break ||
-    ins_eret
+    ins_eret ||
+    ins_cache
 
   io.out_regular.is_delay_slot := io.in.is_delay_slot
   val overflow_detection_en: Bool = ins_add | ins_addi | ins_sub
   io.out_regular.overflow_detection_en := overflow_detection_en
   io.out_regular.ins_eret := ins_eret
   io.out_regular.src_use_hilo := ins_mfhi | ins_mflo
-  val src_1_e      : UInt = Cat(alu_src1_except_ex(31), alu_src1_except_ex)
-  val src_2_e      : UInt = Cat(alu_src2_except_ex(31), alu_src2_except_ex)
-  val alu_quick_res: UInt = Mux(alu_op === AluOp.op_add, src_1_e + src_2_e, src_1_e - src_2_e)
-  val overflow_flag: Bool = alu_quick_res(32) ^ alu_quick_res(31)
+  val src_1_e          : UInt = Cat(alu_src1_except_ex(31), alu_src1_except_ex)
+  val src_2_e          : UInt = Cat(alu_src2_except_ex(31), alu_src2_except_ex)
+  val alu_quick_res    : UInt = Mux(alu_op === AluOp.op_add, src_1_e + src_2_e, src_1_e - src_2_e)
+  val overflow_flag    : Bool = alu_quick_res(32) ^ alu_quick_res(31)
   val src_sum_except_ex: UInt = alu_src1_except_ex + alu_src2_except_ex
   io.out_regular.exception_flags := Mux(pc(1, 0) === 0.U,
     0.U, ExceptionConst.EXCEPTION_FETCH_ADDR) |
