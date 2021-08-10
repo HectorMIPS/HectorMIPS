@@ -16,6 +16,7 @@ class QueueItem extends Bundle{
   val wr           = Bool()
   val jump         = Vec(2,Bool())
   val target       = Vec(2,UInt(32.W))
+  val asid         = UInt(8.W)
 }
 
 /**
@@ -119,15 +120,18 @@ class MemAccessJudge(cache_all_inst:Bool=false.B) extends Module{
     io.cached_data(i).addr := io.data(i).addr
     io.cached_data(i).wr := io.data(i).wr
     io.cached_data(i).wdata := io.data(i).wdata
+    io.cached_data(i).asid := io.data(i).asid
 
     io.uncached_data(i).size := io.data(i).size
     io.uncached_data(i).addr := data_physical_addr(i)
     io.uncached_data(i).wr := io.data(i).wr
     io.uncached_data(i).wdata := io.data(i).wdata
+    io.uncached_data(i).asid := DontCare
 
     io.data(i).addr_ok := Mux(should_cache_data(i),io.cached_data(i).addr_ok,io.uncached_data(i).addr_ok)
     io.data(i).data_ok := Mux(should_cache_data(i),io.cached_data(i).data_ok,io.uncached_data(i).data_ok)
     io.data(i).rdata := Mux(should_cache_data(i),io.cached_data(i).rdata,io.uncached_data(i).rdata)
+    io.data(i).ex := io.cached_data(0).ex
   }
 
   io.inst.addr_ok := queue.io.enq.ready
@@ -158,12 +162,15 @@ class MemAccessJudge(cache_all_inst:Bool=false.B) extends Module{
   io.cached_inst.size := 2.U
   io.cached_inst.addr := Mux(io.inst.req,physical_inst_addr,physical_queue_inst_addr)
   io.cached_inst.wdata := 0.U
+  io.cached_inst.asid := io.inst.asid
 
   io.uncached_inst.req := Mux(io.inst.req,!should_cache_inst_c,queue.io.deq.valid && !queue.io.deq.bits.should_cache && !handshake)
   io.uncached_inst.wr  := false.B
   io.uncached_inst.size := 2.U
   io.uncached_inst.addr := Mux(io.inst.req,physical_inst_addr,physical_queue_inst_addr)
   io.uncached_inst.wdata := 0.U
+  io.uncached_inst.asid := DontCare
+
 
   io.inst.data_ok := Mux(queue.io.deq.bits.should_cache,io.cached_inst.data_ok,io.uncached_inst.data_ok)
   io.inst.rdata := Mux(queue.io.deq.bits.should_cache,io.cached_inst.rdata,io.uncached_inst.rdata)
@@ -171,6 +178,7 @@ class MemAccessJudge(cache_all_inst:Bool=false.B) extends Module{
   io.inst.inst_predict_jump_in := queue.io.deq.bits.jump
   io.inst.inst_predict_jump_target_in := queue.io.deq.bits.target
   io.inst.inst_pc := queue.io.deq.bits.addr
+  io.inst.ex := io.cached_inst.ex //只有cache部分会出例外
   queue.io.deq.ready := io.inst.data_ok
 
   io.cached_inst.inst_predict_jump_target_out := DontCare

@@ -6,20 +6,25 @@ import com.github.hectormips.cache.lru.LruMem
 import chisel3._
 import chisel3.util._
 import chisel3.stage.{ChiselGeneratorAnnotation, ChiselStage}
-import chisel3.util.experimental.{forceName}
+import chisel3.util.experimental.forceName
+import com.github.hectormips.tlb.SearchPort
 
 
 class ICache(val config: CacheConfig)
   extends Module {
   var io = IO(new Bundle {
     val valid = Input(Bool())
-    val addr = Input(UInt(32.W)) //等到ok以后才能撤去数据
-    val addr_ok = Output(Bool()) //等到ok以后才能撤去数据
+    val addr = Input(UInt(32.W))
+    val asid = Input(UInt(8.W)) //进程ID
+    val addr_ok = Output(Bool())
 
     val inst = Output(UInt(64.W))
     val instOK = Output(Bool())
+    val ex    = Output(UInt(3.W)) // 例外
     val instPC = Output(UInt(32.W))
     val instValid = Output(UInt())
+
+    val tlb = new SearchPort(config.tlbnum)
 
     val axi = new Bundle {
       val readAddr = Decoupled(new AXIAddr(32, 4))
@@ -29,8 +34,9 @@ class ICache(val config: CacheConfig)
     val debug_total_count = Output(UInt(32.W)) // cache总查询次数
     val debug_hit_count = Output(UInt(32.W)) // cache命中数
   })
-  val sIDLE :: sLOOKUP :: sREPLACE :: sREFILL :: sQueryPrefetch :: sWaitPrefetch :: Nil = Enum(6)
-  val state = RegInit(0.U(3.W)) // 初始化阶段
+  val sIDLE :: sLOOKUP :: sREPLACE :: sREFILL :: sQueryPrefetch :: sWaitPrefetch::sFetchHandshake::sFetchRecv :: Nil = Enum(8)
+
+  val state = RegInit(0.U(4.W)) // 初始化阶段
   val prefetch = Module(new Prefetch(config))
 
 
@@ -39,11 +45,11 @@ class ICache(val config: CacheConfig)
    */
   val dataMem = List.fill(config.wayNum) {
     List.fill(config.bankNum) { // 4字节长就有4个
-      Module(new icache_data_bank(config.lineNum))
+      Module(new icache_data_bank(config))
     }
   }
   val tagvMem = List.fill(config.wayNum) {
-    Module(new icache_tagv(config.tagWidth, config.lineNum))
+    Module(new icache_tagv(config))
   }
 
   //  val validMem = RegInit(VecInit(Seq.fill(config.wayNum)(VecInit(Seq.fill(config.lineNum)(false.B)))))
@@ -87,6 +93,7 @@ class ICache(val config: CacheConfig)
   val nextline_tag = Wire(UInt(config.tagWidth.W))
   val waySelReg = RegInit(0.U(config.wayNumWidth.W))
   val prefetch_addr = Wire(UInt(32.W))
+  val tmp_inst = RegInit(0.U(32.W))
   prefetch_addr := Cat(addr_r(31, config.offsetWidth), 0.U(config.offsetWidth.W)) + (4 * config.bankNum).U
   index := config.getIndex(addr_r)
   nextline_index := config.getIndex(prefetch_addr)
@@ -129,16 +136,7 @@ class ICache(val config: CacheConfig)
       bData.read(way)(bank) := dataMem(way)(bank).io.douta
     }
   }
-  //  for(way <- 0 until config.wayNum){
-  //    tagvData.read(way) := tagvMem(way).read(config.getIndex(io.addr))
-  //  }
-  //  for(way <- 0 until config.wayNum ) {
-  //    for (bank <- 0 until config.bankNum) {
-  //      when(bData.wEn(way)(bank) && state === sREFILL) {
-  //        dataMem(way)(bank).write(bData.addr, bData.write(bank))
-  //      }
-  //    }
-  //  }
+
   for (way <- 0 until config.wayNum) {
     when(tagvData.wEn(way)) { //写使能
       tagvMem(way).io.dina := Cat(true.B, tag)
@@ -185,32 +183,34 @@ class ICache(val config: CacheConfig)
   lruMem.io.visit := 0.U
   lruMem.io.visitValid := is_hitWay
 
-  //  /**
-  //   * reset
-  //   * 重写数据为0
-  //   */
-  //  val resetCounter = Counter(1 << config.indexWidth)
-  //  resetCounter.inc()
+
+  /**
+   * TLB配置
+   */
+  io.ex := io.tlb.ex & 3.U //不会触发最高位的例外
+  io.tlb.vpn2 := io.addr(31,config.indexWidth+1) //31,13
+  io.tlb.odd_page := io.addr(config.indexWidth) //12
+  io.tlb.asid := io.asid
 
   /**
    * axi访问设置
    */
   io.axi.readAddr.bits.id := Mux(prefetch.io.use_axi, prefetch.io.readAddr.bits.id, 0.U)
-  io.axi.readAddr.bits.len := (config.bankNum - 1).U
+  io.axi.readAddr.bits.len := Mux(state===sFetchHandshake,1.U,(config.bankNum - 1).U)
   io.axi.readAddr.bits.size := 2.U // 4B
   io.axi.readAddr.bits.addr := Mux(prefetch.io.use_axi, prefetch.io.readAddr.bits.addr, addr_r)
   io.axi.readAddr.bits.cache := 0.U
   io.axi.readAddr.bits.lock := 0.U
   io.axi.readAddr.bits.prot := 0.U
-  io.axi.readAddr.bits.burst := 2.U //突发模式2
-  io.axi.readAddr.valid := Mux(prefetch.io.use_axi, prefetch.io.readAddr.valid, state === sREPLACE)
+  io.axi.readAddr.bits.burst := Mux(state===sFetchHandshake,1.U,2.U)
+  io.axi.readAddr.valid := Mux(prefetch.io.use_axi, prefetch.io.readAddr.valid, state === sREPLACE || state===sFetchHandshake)
 
-  io.axi.readData.ready := state === sREFILL | prefetch.io.readData.ready
+  io.axi.readData.ready := state === sREFILL | prefetch.io.readData.ready | state === sFetchRecv
 
   /**
    * 预取器
    */
-  prefetch.io.req_valid := (state === sLOOKUP || state === sREFILL) && !is_nextline_hitWay
+  prefetch.io.req_valid := ( (state === sLOOKUP && (!io.valid || io.valid && io.tlb.found && io.tlb.c===3.U)) || state === sREFILL) && !is_nextline_hitWay
   prefetch.io.req_addr := prefetch_addr
 
   prefetch.io.query_addr := addr_r
@@ -247,8 +247,19 @@ class ICache(val config: CacheConfig)
   switch(state) {
     is(sIDLE) {
       when(io.valid) {
-        state := sLOOKUP
-        addr_r := io.addr
+        when(io.tlb.found){
+          when(io.tlb.c === 3.U){
+            state := sLOOKUP // cache
+          }.otherwise{
+            state := sFetchHandshake // uncache
+          }
+          addr_r := Cat(io.tlb.pfn,io.addr(config.indexWidth,0))
+        }.otherwise{
+          // TLB Miss
+          state := sIDLE
+          io.instOK := true.B
+          io.instValid := false.B
+        }
       }
     }
     is(sLOOKUP) {
@@ -262,8 +273,20 @@ class ICache(val config: CacheConfig)
         lruMem.io.visit := cache_hit_way // lru记录命中
         when(io.valid) {
           // 直接进入下一轮
-          addr_r := io.addr
-          state := sLOOKUP
+          when(io.tlb.found){
+            when(io.tlb.c === 3.U){
+              state := sLOOKUP // cache
+            }.otherwise{
+              state := sFetchHandshake // uncache
+            }
+            addr_r := Cat(io.tlb.pfn,io.addr(config.indexWidth,0))
+          }.otherwise{
+            // TLB Miss
+            state := sIDLE
+            io.instOK := true.B
+            io.instValid := false.B
+          }
+
         }.otherwise {
           state := sIDLE
         }
@@ -327,6 +350,29 @@ class ICache(val config: CacheConfig)
         when(io.axi.readData.bits.last) {
           state := sIDLE
         }
+      }
+    }
+    is(sFetchHandshake){
+      //uncache取
+      when(io.axi.readAddr.valid && io.axi.readAddr.ready && io.axi.readAddr.bits.id===0.U){
+        state := sFetchRecv
+      }.otherwise{
+        state := sFetchHandshake
+      }
+    }
+    is(sFetchRecv){
+      when(io.axi.readData.valid && io.axi.readData.ready && io.axi.readData.bits.id===0.U){
+        when(io.axi.readData.bits.last){
+          io.inst := Cat(io.axi.readData.bits.data,tmp_inst)
+          io.instOK := true.B
+          io.instValid := true.B
+          state := sIDLE
+        }.otherwise{
+          tmp_inst := io.axi.readData.bits.data
+          state := sFetchRecv
+        }
+      }.otherwise{
+        state := sFetchRecv
       }
     }
     //    is(sWaiting){

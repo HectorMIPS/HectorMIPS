@@ -9,11 +9,13 @@ class SRamLikeIO(data_width: Int = 32) extends Bundle {
   val size : UInt = Output(UInt(2.W))
   val addr : UInt = Output(UInt(32.W))
   val wdata: UInt = Output(UInt(data_width.W))
+  val ex   : UInt = Output(UInt(3.W)) //例外
 
   // slave -> master
   val addr_ok: Bool = Input(Bool())
   val data_ok: Bool = Input(Bool())
   val rdata  : UInt = Input(UInt(data_width.W))
+  val asid   : UInt = Input(UInt(8.W)) //进程号
 }
 
 class SRamLikeInstIO extends SRamLikeIO(64) {

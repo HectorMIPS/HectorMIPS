@@ -34,10 +34,12 @@ class Cache(val config:CacheConfig)  extends Module{
     val axi = new AXIIO(4)
   }
   )
-  val dcache = Module(new DCache(new CacheConfig(WayWidth=8*1024,DataWidthByByte=32)))
-//  val icache = Module(new ICache(new CacheConfig(WayWidth=8*1024,DataWidthByByte=32)))
-  // 2路组相连，每页8KB 每行32B
-  val icache = Module(new ICache(new CacheConfig(WayWidth =16*1024,DataWidthByByte=64)))
+  val dcache = Module(new DCache(new CacheConfig(WayWidth=4*1024,DataWidthByByte=16)))
+  // 2路组相连，每路4KB，每行16KB
+
+  val icache = Module(new ICache(new CacheConfig(_wayNum=2,WayWidth =4*1024,DataWidthByByte=64)))
+  // 2路组相连，每路4KB，每行8KB
+
   val uncached = Module(new Uncache())
   val uncache_inst = Module(new UncacheInst())
 
@@ -49,13 +51,14 @@ class Cache(val config:CacheConfig)  extends Module{
   //icache 与CPU接口
   icache.io.valid := io.icache.req
   icache.io.addr := io.icache.addr
+  icache.io.asid := io.icache.asid
 
   io.icache.addr_ok := icache.io.addr_ok
   io.icache.rdata :=  icache.io.inst
   io.icache.data_ok := icache.io.instOK
   io.icache.inst_valid := icache.io.instValid
   io.icache.inst_pc := icache.io.instPC
-
+  io.icache.ex := icache.io.ex
   //dcache
   for(i<- 0 to 1) {
     dcache.io.valid(i) := io.dcache(i).req
@@ -63,9 +66,13 @@ class Cache(val config:CacheConfig)  extends Module{
     dcache.io.size(i) := io.dcache(i).size
     dcache.io.wr(i) := io.dcache(i).wr
     dcache.io.wdata(i) := io.dcache(i).wdata
+    dcache.io.asid(i) := io.dcache(i).asid
+
     io.dcache(i).rdata := dcache.io.rdata(i)
     io.dcache(i).addr_ok := dcache.io.addr_ok(i)
     io.dcache(i).data_ok := dcache.io.data_ok(i)
+    io.dcache(i).ex := dcache.io.ex
+
   }
   //uncached
   uncached.io.input <> io.uncached

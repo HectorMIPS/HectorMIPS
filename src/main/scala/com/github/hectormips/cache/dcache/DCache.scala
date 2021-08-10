@@ -1,5 +1,6 @@
 package com.github.hectormips.cache.dcache
 
+import Chisel.fromBooleanToLiteral
 import com.github.hectormips.amba._
 import com.github.hectormips.cache.setting.CacheConfig
 import com.github.hectormips.cache.lru.LruMem
@@ -7,6 +8,7 @@ import com.github.hectormips.cache.utils.Wstrb
 import chisel3._
 import chisel3.util._
 import chisel3.stage.{ChiselGeneratorAnnotation, ChiselStage}
+import com.github.hectormips.tlb.SearchPort
 import firrtl.ir.UIntType
 
 
@@ -21,15 +23,18 @@ class DCache(val config: CacheConfig)
   var io = IO(new Bundle {
     val valid = Input(Vec(2, Bool()))
     val addr = Input(Vec(2, UInt(32.W)))
+    val asid = Input(UInt(8.W)) //进程ID
     val addr_ok = Output(Vec(2, Bool()))
 
     val wr = Input(Vec(2, Bool()))
     val size = Input(Vec(2, UInt(2.W)))
     val data_ok = Output(Vec(2, Bool()))
-
+    val ex = Output(UInt(3.W)) // 例外
     val rdata = Output(Vec(2, UInt(32.W)))
 
     val wdata = Input(Vec(2, UInt(32.W)))
+
+    val tlb = new SearchPort(config.tlbnum) // 读端口TLB
 
     val axi = new Bundle {
       val readAddr = Decoupled(new AXIAddr(32, 4))
@@ -43,83 +48,32 @@ class DCache(val config: CacheConfig)
     val debug_hit_count = Output(UInt(32.W)) // cache命中数
 
   })
-  val sIDLE :: sLOOKUP :: sREPLACE :: sREFILL :: sWaiting :: sEviction :: sEvictionWaiting :: Nil = Enum(7)
-  val state = RegInit(VecInit(Seq.fill(2)(0.U(3.W))))
+  val sIDLE :: sLOOKUP :: sREPLACE :: sREFILL :: sWaiting :: sEviction :: sEvictionWaiting :: sFetchHandshake :: sFetchRecv :: Nil = Enum(10)
+  val state = RegInit(VecInit(Seq.fill(2)(0.U(4.W))))
   val is_hitWay = Wire(Vec(2, Bool()))
-//  val queue = Module(new Queue(new QueueItem, 3))
+  val write_failed = RegInit(false.B)
+  //  val queue = Module(new Queue(new QueueItem, 3))
   //  val port_valid = RegInit(VecInit(Seq.fill(2)(true.B)))
-  val storeBuffer = Module(new StoreBuffer(7))
+  val storeBuffer = Module(new StoreBuffer(config))
 
   //  val read_can_fire = Wire(Bool()) //允许读 且 有读请求
   //  read_can_fire := io.valid(0) && io.addr_ok(0) && !io.wr(0) || io.valid(1) && io.addr_ok(1) && !io.wr(1)
-    val doWrite = RegInit(false.B)
-  io.data_ok(1) := false.B
-  io.data_ok(0) := false.B
-  io.rdata(1) := 0.U
-  io.rdata(0) := 0.U
+  val doWrite = RegInit(false.B)
 
-  io.addr_ok(0) := !doWrite && storeBuffer.io.cpu_ok && state(0)===sIDLE //读写都准备完成
-  io.addr_ok(1) := false.B
-
-//  when(queue.io.enq.ready) {
-//    when(io.valid(0) && io.addr_ok(0) && !io.wr(0)) {
-//      queue.io.enq.valid := true.B
-//      queue.io.enq.bits.addr := io.addr(0)
-//      queue.io.enq.bits.port := 0.U
-//    }.elsewhen(io.valid(1) && io.addr_ok(1) && !io.wr(1)) {
-//      queue.io.enq.valid := true.B
-//      queue.io.enq.bits.addr := io.addr(1)
-//      queue.io.enq.bits.port := 1.U
-//    }.otherwise {
-//      queue.io.enq.valid := false.B
-//      queue.io.enq.bits.addr := 0.U
-//      queue.io.enq.bits.port := 0.U
-//    }
-//  }.otherwise {
-//    queue.io.enq.valid := false.B
-//    queue.io.enq.bits.addr := 0.U
-//    queue.io.enq.bits.port := 0.U
-//  }
-//  queue.io.deq.ready := false.B
-  storeBuffer.io.cpu_wdata := 0.U
-  storeBuffer.io.cpu_req := false.B
-  storeBuffer.io.cpu_addr := 0.U
-  storeBuffer.io.cpu_size := 0.U
-  storeBuffer.io.cpu_port := 0.U
-  when(io.wr(0) && io.addr_ok(0) && io.valid(0)) {
-    storeBuffer.io.cpu_req := true.B
-    storeBuffer.io.cpu_size := io.size(0)
-    storeBuffer.io.cpu_addr := io.addr(0)
-    storeBuffer.io.cpu_wdata := io.wdata(0)
-    storeBuffer.io.cpu_port := 0.U
-    doWrite := true.B
-  }
-  when(io.wr(1) && io.addr_ok(1) && io.valid(1)) {
-    storeBuffer.io.cpu_req := true.B
-    storeBuffer.io.cpu_size := io.size(1)
-    storeBuffer.io.cpu_addr := io.addr(1)
-    storeBuffer.io.cpu_wdata := io.wdata(1)
-    storeBuffer.io.cpu_port := 1.U
-    doWrite := true.B
-  }
-  when(storeBuffer.io.data_ok) {
-    io.data_ok(storeBuffer.io.data_ok_port) := true.B
-    doWrite := false.B
-  }
 
   /**
    * cache的数据
    */
   val dataMem = List.fill(config.wayNum) {
     List.fill(config.bankNum) { // 4字节长就有4个
-      Module(new dcache_data_bank(config.lineNum))
+      Module(new dcache_data_bank(config))
     }
   }
   val tagvMem = List.fill(config.wayNum) {
-    Module(new dcache_tagv(config.tagWidth, config.lineNum))
+    Module(new dcache_tagv(config))
   }
   val dirtyMem = List.fill(config.wayNum) {
-    Module(new dcache_dirty(config.lineNum))
+    Module(new dcache_dirty(config))
   }
 
 
@@ -138,9 +92,6 @@ class DCache(val config: CacheConfig)
   val addr_r = Wire(Vec(2, UInt(32.W))) //地址寄存器
   addr_r(0) := Mux(io.valid(0) && io.addr_ok(0), io.addr(0), addr_r_0)
   addr_r(1) := storeBuffer.io.cache_write_addr
-  when(io.addr_ok(0) && io.valid(0) && !io.wr(0)){
-    addr_r_0 := io.addr(0)
-  }
   val wdata_r = Wire(UInt(32.W))
   //  wdata_r(0) := queue.io.deq.bits.wdata
   wdata_r := storeBuffer.io.cache_write_wdata
@@ -168,12 +119,14 @@ class DCache(val config: CacheConfig)
     is_hitWay(i) := cache_hit_onehot(i).asUInt().orR() // 判断是否命中cache
     state(i) := sIDLE
     index(i) := config.getIndex(addr_r(i))
-    bankIndex(i) := config.getBankIndex(addr_r(i))
-    tag(i) := config.getTag(addr_r(i))
   }
+  tag(0) := config.getTag(addr_r_0)
+  tag(1) := config.getTag(addr_r(1))
+  bankIndex(0) := config.getBankIndex(addr_r_0)
+  bankIndex(1) := config.getBankIndex(addr_r(1))
 
   /**
-   * 初始化 ram
+   * 与ram 交互
    */
   //初始化
   for (way <- 0 until config.wayNum) {
@@ -201,10 +154,6 @@ class DCache(val config: CacheConfig)
     }
   }
 
-  /**
-   * dataMem
-   */
-
   for (way <- 0 until config.wayNum) {
     tagvMem(way).io.addra := config.getIndex(addr_r(0))
     tagvData.read(0)(way).tag := tagvMem(way).io.douta(config.tagWidth - 1, 0)
@@ -230,10 +179,6 @@ class DCache(val config: CacheConfig)
     }
   }
 
-
-  /**
-   * 读、写端口的控制
-   */
   dataMem.indices.foreach(way => {
     dataMem(way).indices.foreach(bank => {
       val m = dataMem(way)(bank)
@@ -326,11 +271,6 @@ class DCache(val config: CacheConfig)
     })
   }
 
-  /**
-   * wstrb初始化
-   */
-  //  wstrb.io.offset := addr_r(1)(1,0)
-  //  wstrb.io.size := size_r(1)
 
   /**
    * LRU 配置
@@ -355,14 +295,14 @@ class DCache(val config: CacheConfig)
   worker_id(0) := 1.U
   worker_id(1) := 3.U
   //  io.axi.readAddr.bits.len := 6.U
-  io.axi.readAddr.bits.len := (config.bankNum - 1).U
+  io.axi.readAddr.bits.len := Mux(state(0)===sFetchHandshake,0.U,(config.bankNum - 1).U)
   io.axi.readAddr.bits.size := 2.U // 4B
-  io.axi.readAddr.bits.addr := 0.U // 未填
+  io.axi.readAddr.bits.addr := Mux(state(0)===sREPLACE || state(0)===sFetchHandshake, addr_r(0), addr_r(1))
   io.axi.readAddr.bits.cache := 0.U
   io.axi.readAddr.bits.lock := 0.U
   io.axi.readAddr.bits.prot := 0.U
   io.axi.readAddr.bits.burst := 2.U //突发模式2
-  io.axi.readData.ready := state(0) === sREFILL || state(1) === sREFILL
+  io.axi.readData.ready := state(0) === sREFILL || state(1) === sREFILL || state(0) === sFetchRecv
   //  /**
   //   * debug
   //   */
@@ -399,6 +339,60 @@ class DCache(val config: CacheConfig)
     invalidateQueue.io.wdata(i) := bData.read(i)(waySelReg(i))(evictionCounter(i))
     invalidateQueue.io.req(i) := false.B
   }
+  /**
+   * TLB配置
+   */
+
+  io.ex :=  Cat(io.wr(0) && !io.tlb.ex(2) && !io.tlb.ex(1) && !io.tlb.ex(0),io.tlb.ex(1,0))
+  //如果为写，并且找到了，且本页valid=1，d=0,最高位才会置1
+  io.tlb.vpn2 := io.addr(0)(31, config.indexWidth + 1) //31,13
+  io.tlb.odd_page := io.addr(0)(config.indexWidth) //12
+  io.tlb.asid := io.asid
+
+  /**
+   * 处理请求
+   */
+  io.data_ok(1) := false.B
+  io.data_ok(0) := false.B
+  io.rdata(1) := 0.U
+  io.rdata(0) := 0.U
+
+  io.addr_ok(0) := !doWrite && storeBuffer.io.cpu_ok && state(0) === sIDLE //读写都准备完成
+  io.addr_ok(1) := false.B
+
+  storeBuffer.io.cpu_wdata := 0.U
+  storeBuffer.io.cpu_req := false.B
+  storeBuffer.io.cpu_addr := 0.U
+  storeBuffer.io.cpu_size := 0.U
+  storeBuffer.io.cpu_port := 0.U
+  when(io.wr(0) && io.addr_ok(0) && io.valid(0)) {
+    doWrite := true.B
+    when(io.tlb.found) {
+      when(io.tlb.c === 3.U) { //如果允许cache
+        storeBuffer.io.cpu_req := true.B
+        storeBuffer.io.cpu_size := io.size(0)
+        storeBuffer.io.cpu_addr := Cat(io.tlb.pfn, io.addr(0)(config.indexWidth, 0))
+        storeBuffer.io.cpu_wdata := io.wdata(0)
+        storeBuffer.io.cpu_port := 0.U
+      }.otherwise{
+        //若不允许cache，直接向invalidate queue发起请求
+        invalidateQueue.io.uncache_req := true.B
+        invalidateQueue.io.uncache_addr := Cat(io.tlb.pfn, io.addr(0)(config.indexWidth, 0))
+        invalidateQueue.io.uncache_data := io.wdata(0)
+        invalidateQueue.io.uncache_size := io.size(0)
+      }
+    }.otherwise {
+      io.data_ok(0) := true.B
+    }
+  }
+  when(invalidateQueue.io.uncahce_ok){
+    io.data_ok(0) := true.B
+    doWrite := false.B
+  }
+  when(storeBuffer.io.data_ok) {
+    io.data_ok(0) := true.B
+    doWrite := false.B
+  }
 
   /**
    * Cache状态机
@@ -412,178 +406,178 @@ class DCache(val config: CacheConfig)
   for (worker <- 0 to 1) {
     switch(state(worker)) {
       is(sIDLE) {
-        when(worker.U === 0.U) {
-          when(io.valid(0) && io.addr_ok(0) && !io.wr(0)) {
-            when(index(0) === index(1)) {
-              when(state(1) === sIDLE) {
-                state(0) := sLOOKUP
+        when(worker.U === 0.U) { //读端口操作
+          when(io.valid(0) && io.addr_ok(0) && !io.wr(0)) { // 如果有新的读请求
+            when(io.tlb.found) { //TLB 命中
+              when(io.tlb.c === 3.U) { //如果允许cache
+
+                when(index(0) === index(1)) { // 如果冲突，考虑阻塞
+                  when(state(1) === sIDLE) {
+                    state(0) := sLOOKUP
+                  }.otherwise {
+                    state(0) := sWaiting // 阻塞状态
+                  }
+                }.otherwise {
+                  state(0) := sLOOKUP
+                }
+              }.otherwise { //不允许cache
+                state(0) := sFetchHandshake // uncache
+              }
+              addr_r_0 := Cat(io.tlb.pfn, io.addr(0)(config.indexWidth, 0))
+            }.otherwise {
+              // TLB Miss
+              state(0) := sIDLE
+              io.data_ok(0) := true.B
+            }
+
+          }.elsewhen(worker.U === 1.U) {
+            when(storeBuffer.io.cache_write_valid) {
+              when(index(0) === index(1) && (io.valid(0) && io.addr_ok(0) && !io.wr(0) || state(0) === sWaiting)) {
+                // 等待直到读端口进入空状态
+                state(1) := sIDLE
               }.otherwise {
-                state(0) := sWaiting // 阻塞状态
+                state(1) := sLOOKUP
               }
             }.otherwise {
-              state(0) := sLOOKUP
-            }
-          }.otherwise {
-            state(0) := sIDLE
-          }
-        }.elsewhen(worker.U === 1.U) {
-          when(storeBuffer.io.cache_write_valid) {
-            when(index(0) === index(1) && (io.valid(0) && io.addr_ok(0) && !io.wr(0) || state(0) === sWaiting)) {
-              // 等待直到读端口进入空状态
               state(1) := sIDLE
-            }.otherwise {
-              state(1) := sLOOKUP
             }
           }.otherwise {
-            state(1) := sIDLE
-          }
-        }.otherwise {
-          state(worker) := sIDLE
-        }
-      }
-      is(sLOOKUP) {
-        when(is_hitWay(worker)) {
-          lruMem.io.visit := cache_hit_way(worker) // lru记录命中
-          state(worker) := sIDLE
-          //        when(io.valid) {
-          //          // 直接进入下一轮
-          //          state := sLOOKUP
-          //          addr_r := io.addr
-          //          size_r := io.size
-          //          wr_r := io.wr
-          //          wdata_r := io.wdata
-          //        }.otherwise {
-          //        }
-          when(worker.U === 0.U) {
-            io.data_ok(port_r) := true.B
-            addr_r_0 := 0.U
-            io.rdata(port_r) := (bData.read(0)(cache_hit_way(0))(bankIndex(0)) & storeBuffer_reverse_mask) |
-              (storeBuffer.io.cache_query_data & storeBuffer.io.cache_query_mask)
-          }.elsewhen(worker.U === 1.U) {
-            storeBuffer.io.cache_response := true.B
-          }
-        }.elsewhen(worker.U === 0.U && storeBuffer.io.cache_query_mask === "hffff_ffff".U) {
-          // store buffer hit
-//          queue.io.deq.ready := true.B
-          state(worker) := sIDLE
-          addr_r_0 := 0.U
-          io.data_ok(port_r) := true.B
-          io.rdata(port_r) := storeBuffer.io.cache_query_data
-        }.otherwise {
-          //没命中,检查victim
-          //        state := sCheckVictim
-          //        victim.io.qvalid := true.B
-          when(worker.U === 0.U && state(1) === sREPLACE || worker.U === 1.U && state(0) === sREPLACE) {
-            state(worker) := sLOOKUP
-          }.otherwise {
-            io.axi.readAddr.bits.id := worker_id(worker)
-            io.axi.readAddr.bits.addr := Mux(worker.U === 0.U, addr_r(0), addr_r(1))
-            state(worker) := sREPLACE
-            waySelReg(worker) := lruMem.io.waySel
-          }
-        }
-      }
-      is(sREPLACE) {
-        //在此阶段完成驱逐
-        bDataWtBank(worker) := bankIndex(worker)
-        when(io.axi.readAddr.ready) {
-          io.axi.readAddr.bits.id := worker_id(worker)
-          io.axi.readAddr.bits.addr := Mux(worker.U === 0.U, addr_r(0), addr_r(1))
-          when(dirtyData.read(worker)(waySelReg(worker)) === true.B) {
-            state(worker) := sEvictionWaiting
-            invalidateQueue.io.req(worker) := true.B
-          }.otherwise {
-            state(worker) := sREFILL
-          }
-        }.otherwise {
-          state(worker) := sREPLACE
-          io.axi.readAddr.bits.id := worker_id(worker)
-          io.axi.readAddr.bits.addr := Mux(worker.U === 0.U, addr_r(0), addr_r(1))
-        }
-      }
-      is(sEvictionWaiting) {
-        when(invalidateQueue.io.data_start(worker)) {
-          state(worker) := sEviction
-          evictionCounter(worker) := 0.U
-        }.otherwise {
-          state(worker) := sEvictionWaiting
-          invalidateQueue.io.req(worker) := true.B
-        }
-      }
-      is(sEviction) {
-        evictionCounter(worker) := evictionCounter(worker) + 1.U
-        state(worker) := sEviction
-        when(evictionCounter(worker) === (config.bankNum - 1).U) {
-          state(worker) := sREFILL
-        }
-      }
-      is(sREFILL) {
-        // 取数据，重写TAGV
-        state(worker) := sREFILL
-        when(io.axi.readData.valid && io.axi.readData.bits.id === worker_id(worker)) {
-          bDataWtBank(worker) := bDataWtBank(worker) + 1.U
-          when(bDataWtBank(worker) === (bankIndex(worker) + 1.U)) {
-            when(worker.U === 0.U) {
-              io.rdata(port_r) := (bData.read(worker)(waySelReg(worker))(bankIndex(worker)) & storeBuffer_reverse_mask) |
-                (storeBuffer.io.cache_query_data & storeBuffer.io.cache_query_mask)
-              io.data_ok(port_r) := true.B
-            }
-          }
-          when(io.axi.readData.bits.last) {
             state(worker) := sIDLE
+          }
+        }
+        is(sLOOKUP) {
+          when(is_hitWay(worker)) {
+            lruMem.io.visit := cache_hit_way(worker) // lru记录命中
+            state(worker) := sIDLE
+            //        when(io.valid) {
+            //          // 直接进入下一轮
+            //          state := sLOOKUP
+            //          addr_r := io.addr
+            //          size_r := io.size
+            //          wr_r := io.wr
+            //          wdata_r := io.wdata
+            //        }.otherwise {
+            //        }
             when(worker.U === 0.U) {
+              io.data_ok(port_r) := true.B
               addr_r_0 := 0.U
-              //              queue.io.deq.ready := true.B
-            }.otherwise {
+              io.rdata(port_r) := (bData.read(0)(cache_hit_way(0))(bankIndex(0)) & storeBuffer_reverse_mask) |
+                (storeBuffer.io.cache_query_data & storeBuffer.io.cache_query_mask)
+            }.elsewhen(worker.U === 1.U) {
               storeBuffer.io.cache_response := true.B
             }
+          }.elsewhen(worker.U === 0.U && storeBuffer.io.cache_query_mask === "hffff_ffff".U) {
+            // store buffer hit
+            //          queue.io.deq.ready := true.B
+            state(worker) := sIDLE
+            addr_r_0 := 0.U
+            io.data_ok(port_r) := true.B
+            io.rdata(port_r) := storeBuffer.io.cache_query_data
+          }.otherwise {
+            //没命中,检查victim
+            //        state := sCheckVictim
+            //        victim.io.qvalid := true.B
+            when(worker.U === 0.U && state(1) === sREPLACE || worker.U === 1.U && state(0) === sREPLACE || state(0)===sFetchHandshake) {
+              state(worker) := sLOOKUP
+            }.otherwise {
+              io.axi.readAddr.bits.id := worker_id(worker)
+
+              state(worker) := sREPLACE
+              waySelReg(worker) := lruMem.io.waySel
+            }
           }
         }
-      }
-      is(sWaiting) {
-        when(index(0) === index(1)) {
-          when(state(1) === sIDLE) {
-            state(0) := sLOOKUP
+        is(sREPLACE) {
+          //在此阶段完成驱逐
+          bDataWtBank(worker) := bankIndex(worker)
+          when(io.axi.readAddr.ready) {
+            io.axi.readAddr.bits.id := worker_id(worker)
+            when(dirtyData.read(worker)(waySelReg(worker)) === true.B) {
+              state(worker) := sEvictionWaiting
+              invalidateQueue.io.req(worker) := true.B
+            }.otherwise {
+              state(worker) := sREFILL
+            }
           }.otherwise {
-            state(0) := sWaiting // 阻塞状态
+            state(worker) := sREPLACE
+            io.axi.readAddr.bits.id := worker_id(worker)
           }
-        }.otherwise {
-          state(0) := sLOOKUP
+        }
+        is(sEvictionWaiting) {
+          when(invalidateQueue.io.data_start(worker)) {
+            state(worker) := sEviction
+            evictionCounter(worker) := 0.U
+          }.otherwise {
+            state(worker) := sEvictionWaiting
+            invalidateQueue.io.req(worker) := true.B
+          }
+        }
+        is(sEviction) {
+          evictionCounter(worker) := evictionCounter(worker) + 1.U
+          state(worker) := sEviction
+          when(evictionCounter(worker) === (config.bankNum - 1).U) {
+            state(worker) := sREFILL
+          }
+        }
+        is(sREFILL) {
+          // 取数据，重写TAGV
+          state(worker) := sREFILL
+          when(io.axi.readData.valid && io.axi.readData.bits.id === worker_id(worker)) {
+            bDataWtBank(worker) := bDataWtBank(worker) + 1.U
+            when(bDataWtBank(worker) === (bankIndex(worker) + 1.U)) {
+              when(worker.U === 0.U) {
+                io.rdata(port_r) := (bData.read(worker)(waySelReg(worker))(bankIndex(worker)) & storeBuffer_reverse_mask) |
+                  (storeBuffer.io.cache_query_data & storeBuffer.io.cache_query_mask)
+                io.data_ok(port_r) := true.B
+              }
+            }
+            when(io.axi.readData.bits.last) {
+              state(worker) := sIDLE
+              when(worker.U === 0.U) {
+                addr_r_0 := 0.U
+                //              queue.io.deq.ready := true.B
+              }.otherwise {
+                storeBuffer.io.cache_response := true.B
+              }
+            }
+          }
+        }
+        is(sWaiting) {
+          when(index(0) === index(1)) {
+            when(state(1) === sIDLE) {
+              state(0) := sLOOKUP
+            }.otherwise {
+              state(0) := sWaiting // 阻塞状态
+            }
+          }.otherwise {
+            state(0) := sLOOKUP
+          }
+        }
+        is(sFetchHandshake){
+          //uncache取
+          when(io.axi.readAddr.valid && io.axi.readAddr.ready && io.axi.readAddr.bits.id===0.U){
+            state := sFetchRecv
+          }.otherwise{
+            state := sFetchHandshake
+          }
+        }
+        is(sFetchRecv){
+          when(io.axi.readData.valid && io.axi.readData.ready && io.axi.readData.bits.id===0.U && io.axi.readData.bits.last){
+            state := sIDLE
+            io.data_ok(0) := true.B
+            io.rdata := io.axi.readData.bits.data
+          }.otherwise{
+            state := sFetchRecv
+          }
         }
       }
     }
+
   }
 
-  /**
-   * 驱逐写控制信号
-   */
-  //  debug_counter := debug_counter + 1.U
-  //  fetch_ready_go := victim.io.fill_valid
-  //  when(state ===sEviction) {
-  //    // 替换掉数据到victim中
-  //    victim.io.wdata := bData.read(waySelReg)(victimEvictioncounter)
-  //  }.elsewhen(state === sCheckVictim && victim.io.find){
-  //    // sCheckVictim只会有一拍，因此不用担心lruMem.io.waySel会变化
-  //    // 从victim中取数据并替换
-  //    victim.io.wdata := DontCare
-  //  }.elsewhen(state === sVictimReplace){
-  //    // 从victim中取数据并替换
-  //    victim.io.waddr := DontCare
-  //    victim.io.wdata := RegNext(bData.read(waySelReg)(victimEvictioncounter))
-  //  }.otherwise{
-  //    victim.io.wdata := DontCare
-  //    victim.io.waddr := DontCare
-  //    //    eviction := false.B
-  //    victim.io.wvalid := false.B
-  //    victim.io.dirty := false.B
-  //    victim.io.wdata:=DontCare
-  //  }
-  //  victim.io.waddr := DontCare
 }
-
-
-object DCache extends App {
-  new ChiselStage execute(args, Seq(ChiselGeneratorAnnotation(
-    () =>
-      new DCache(new CacheConfig()))))
-}
+  object DCache extends App {
+    new ChiselStage execute(args, Seq(ChiselGeneratorAnnotation(
+      () =>
+        new DCache(new CacheConfig()))))
+  }
