@@ -1,6 +1,6 @@
 package com.github.hectormips.pipeline.cp0
 
-import Chisel.{Cat, MuxCase, log2Ceil, log2Floor}
+import Chisel.{Cat, MuxCase, UIntToOH, log2Ceil, log2Floor}
 import chisel3._
 import com.github.hectormips.pipeline.CP0ExecuteBundle
 
@@ -32,6 +32,7 @@ class CP0Bundle(n_tlb: Int) extends Bundle {
   val int_in    : UInt                    = Input(UInt(6.W))
 
   val tlbp_cp0: TLBPCP0Bundle = Input(new TLBPCP0Bundle(n_tlb))
+  val asid    : UInt          = Output(UInt(8.W))
 }
 
 class CP0(n_tlb: Int) extends Module {
@@ -216,4 +217,6 @@ class CP0(n_tlb: Int) extends Module {
   io.cp0_ex_out.cp0_status_im := status(15, 8)
   io.cp0_ex_out.vpn2 := entryhi(31, 13)
   io.cp0_ex_out.asid := entryhi(7, 0)
+
+  io.asid := entryhi(7, 0)
 }

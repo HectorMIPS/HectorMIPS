@@ -58,6 +58,7 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0, n_tlb: Int = 16) extends 
   val ex_allowin                   : Bool                        = Wire(Bool())
   val ms_allowin                   : Bool                        = Wire(Bool())
   val wb_allowin                   : Bool                        = Wire(Bool())
+  val asid                         : UInt                        = Wire(UInt(8.W))
   val bypass_bus                   : DecodeBypassBundle          = Wire(new DecodeBypassBundle)
   val cp0_ex                       : CP0ExecuteBundle            = Wire(new CP0ExecuteBundle)
   val ex_cp0                       : ExecuteCP0Bundle            = Wire(new ExecuteCP0Bundle(n_tlb))
@@ -188,6 +189,7 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0, n_tlb: Int = 16) extends 
   io.inst_sram_like_io.wr := 0.B
   io.inst_sram_like_io.wdata := DontCare
   io.inst_sram_like_io.size := 2.U
+  io.inst_sram_like_io.asid := asid
   pc_wen := pf_module.io.pc_wen
   pc_next := pf_module.io.next_pc
 
@@ -320,11 +322,13 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0, n_tlb: Int = 16) extends 
   ex_module.io.cp0_ex_in.cp0_cause_ip := cp0_cause_ip
   ex_module.io.cp0_ex_in.cp0_status_im := cp0_status_im
   ex_module.io.data_ram_addr_ok := io.data_sram_like_io(0).addr_ok
+  ex_module.io.tlbp_io <> io.tlb.tlbp_io
   io.data_sram_like_io(0).req := ex_module.io.ex_ram_out.mem_en
   io.data_sram_like_io(0).wr := ex_module.io.ex_ram_out.mem_wen
   io.data_sram_like_io(0).addr := ex_module.io.ex_ram_out.mem_addr
   io.data_sram_like_io(0).size := ex_module.io.ex_ram_out.mem_size
   io.data_sram_like_io(0).wdata := ex_module.io.ex_ram_out.mem_wdata
+  io.data_sram_like_io(0).asid := asid
   io.data_sram_like_io(1) := DontCare
   val ms_ready_go: Bool      = Wire(Bool())
   val ms_ram_wen : Vec[Bool] = Wire(Vec(2, Bool()))
@@ -378,6 +382,7 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0, n_tlb: Int = 16) extends 
   cp0_cause_ip := cp0.io.cause_ip
   cp0_status_im := cp0.io.status_im
   cp0.io.tlbp_cp0 := tlbp_cp0
+  asid := cp0.io.asid
 
   val wb_module: InsWriteBack = Module(new InsWriteBack(n_tlb))
   wb_module.io.ms_wb_in := wb_reg
@@ -411,6 +416,8 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0, n_tlb: Int = 16) extends 
   id_module.io.next_allowin := ex_allowin
   ex_module.io.next_allowin := ms_allowin
   ms_module.io.next_allowin := wb_allowin
+  io.tlb.tlbwi_io := DontCare
+  io.tlb.tlbr_io := DontCare
 
 
 }
