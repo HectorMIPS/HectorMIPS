@@ -45,6 +45,7 @@ class DecodeExecuteBundle extends WithVEI {
   val src_use_hilo                    : Bool                 = Bool()
   val tlbp                            : Bool                 = Bool()
   val tlbr                            : Bool                 = Bool()
+  val tlbwi                           : Bool                 = Bool()
 
 
   val is_delay_slot: Bool = Bool()
@@ -86,6 +87,7 @@ class DecodeExecuteBundle extends WithVEI {
     src_sum := 0.U
     tlbp := 0.B
     tlbr := 0.B
+    tlbwi := 0.B
     super.defaults()
   }
 }
@@ -180,6 +182,8 @@ class InsExecute(n_tlb: Int) extends Module {
     (exception_occur(0) && exception_index === 0.U)
   val exception_on_inst1          : Bool             = (interrupt_occur && interrupt_available) ||
     (exception_occur(1) && exception_index === 1.U)
+  // 当下一条指令需要重取时设置的标识，优先级高于例外
+  val refetch_flipper             : Bool             = RegInit(0.B)
   // 内存请求状态寄存器，当ex阶段需要发起内存请求并且已经发送了请求之后才能继续前进
 
   val data_ram_index: UInt = Mux(io.id_ex_in(0).bus_valid && io.id_ex_in(0).mem_en_id_ex, 0.U, 1.U)
@@ -242,7 +246,8 @@ class InsExecute(n_tlb: Int) extends Module {
   }
   // dram操作
   io.ex_ram_out.mem_en := io.id_ex_in(data_ram_index).bus_valid &&
-    io.id_ex_in(data_ram_index).mem_en_id_ex && !exceptionShielded(data_ram_index)
+    io.id_ex_in(data_ram_index).mem_en_id_ex && !exceptionShielded(data_ram_index) &&
+    !refetch_flipper
   io.ex_ram_out.mem_addr := io.id_ex_in(data_ram_index).src_sum
   io.ex_ram_out.mem_size := MuxCase(0.U, Seq(
     (io.id_ex_in(data_ram_index).mem_data_sel_id_ex === MemDataSel.word) -> 2.U,
@@ -273,15 +278,16 @@ class InsExecute(n_tlb: Int) extends Module {
     io.ex_ms_out(i).cp0_sel_ex_ms := io.id_ex_in(i).cp0_sel_id_ex
     io.ex_ms_out(i).regfile_wdata_from_cp0_ex_ms := io.id_ex_in(i).regfile_wdata_from_cp0_id_ex
     io.ex_ms_out(i).mem_req := io.id_ex_in(i).mem_en_id_ex
-    io.ex_ms_out(i).mem_wen := io.id_ex_in(i).mem_wen_id_ex
+    io.ex_ms_out(i).mem_wen := io.id_ex_in(i).mem_wen_id_ex && !refetch_flipper
     // 如果发生例外或者中断并且报在第二条指令上，那么只发射第一条指令
     io.ex_ms_out(i).issue_num := Mux(exception_or_interruption_en && exception_index === 1.U,
       1.U, io.id_ex_in(i).issue_num)
     io.ex_ms_out(i).exception_flags := DontCare
     // 如果只有第二条指令发生例外，则只无效化第二条指令的输出
     io.ex_ms_out(i).bus_valid := io.id_ex_in(i).bus_valid && !(exception_on_inst1 && i.U === 1.U) &&
-      !exception_on_inst0 && !reset.asBool() && !eret_occur && ready_go
+      !exception_on_inst0 && !reset.asBool() && !eret_occur && ready_go && !refetch_flipper
     io.ex_ms_out(i).tlbr := io.id_ex_in(i).tlbr
+    io.ex_ms_out(i).tlbwi := io.id_ex_in(i).tlbwi
   }
 
   // 送给cp0的输出
@@ -336,6 +342,8 @@ class InsExecute(n_tlb: Int) extends Module {
     (interrupt_occur && interrupt_available)) &&
     io.id_ex_in(exception_index).bus_valid && ready_go
   io.ex_pf_out.to_epc_en_ex_pf := eret_occur && io.id_ex_in(0).bus_valid && ready_go
+  io.ex_pf_out.refetch_flag := refetch_flipper && io.id_ex_in(0).bus_valid
+  io.ex_pf_out.refetch_pc := io.id_ex_in(0).pc_id_ex_debug
   io.ready_go := ready_go
 
 
@@ -346,13 +354,23 @@ class InsExecute(n_tlb: Int) extends Module {
   io.pipeline_flush := flush
   io.ex_hilo.hi_out := Mux(hilo_from_alu, alu(0).out.alu_res(63, 32), alu(0).in.src1)
   io.ex_hilo.hi_wen := io.id_ex_in(order_flipped).hi_wen && alu(0).out.out_valid &&
-    io.id_ex_in(order_flipped).bus_valid && !exceptionShielded(order_flipped.asUInt())
+    io.id_ex_in(order_flipped).bus_valid && !exceptionShielded(order_flipped.asUInt()) &&
+    !refetch_flipper
   io.ex_hilo.lo_out := Mux(hilo_from_alu, alu(0).out.alu_res(31, 0), alu(0).in.src1)
   io.ex_hilo.lo_wen := io.id_ex_in(order_flipped).lo_wen && alu(0).out.out_valid &&
-    io.id_ex_in(order_flipped).bus_valid && !exceptionShielded(order_flipped.asUInt())
+    io.id_ex_in(order_flipped).bus_valid && !exceptionShielded(order_flipped.asUInt()) &&
+    !refetch_flipper
 
   this_allowin := io.next_allowin && !reset.asBool() && ready_go
   io.this_allowin := this_allowin
+  when((io.id_ex_in(0).tlbwi || io.id_ex_in(0).tlbr) && io.id_ex_in(0).bus_valid) {
+    when(ready_go && io.next_allowin) {
+      refetch_flipper := 1.B
+    }
+  }
+  when(io.id_ex_in(0).bus_valid && refetch_flipper === 1.B) {
+    refetch_flipper := 0.B
+  }
 
 }
 

@@ -52,6 +52,7 @@ class DecoderRegularOut extends Bundle {
   val src_use_hilo              : Bool                 = Bool()
   val tlbp                      : Bool                 = Bool()
   val tlbr                      : Bool                 = Bool()
+  val tlbwi                     : Bool                 = Bool()
 }
 
 class DecoderBranchOut extends Bundle {
@@ -607,6 +608,7 @@ class Decoder extends Module {
   io.out_regular.regfile_wdata_from_cp0 := op_from_cp0
   io.out_regular.tlbp := ins_tlbp
   io.out_regular.tlbr := ins_tlbr
+  io.out_regular.tlbwi := ins_tlbwi
 
   // 相信我 其实我也不想写这么长
   val ins_valid: Bool = ins_addu ||

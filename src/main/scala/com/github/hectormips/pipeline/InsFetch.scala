@@ -33,36 +33,43 @@ class DecodePreFetchBundle extends Bundle {
 class ExecutePrefetchBundle extends Bundle {
   val to_exception_service_en_ex_pf: Bool = Bool()
   val to_epc_en_ex_pf              : Bool = Bool()
+  val refetch_flag                 : Bool = Bool()
+  val refetch_pc                   : UInt = UInt(32.W)
 
   def defaults(): Unit = {
     to_exception_service_en_ex_pf := 0.B
     to_epc_en_ex_pf := 0.B
+    refetch_flag := 0.B
+    refetch_pc := 0xbfc00000L.U
+  }
+
+  def valid: Bool = {
+    to_epc_en_ex_pf || to_exception_service_en_ex_pf || refetch_flag
   }
 }
 
 
 class InsPreFetchBundle extends WithAllowin {
-  val pc                           : UInt                        = Input(UInt(32.W))
-  val pc_seq4                      : UInt                        = Input(UInt(32.W))
-  val pc_seq8                      : UInt                        = Input(UInt(32.W))
-  val id_pf_in                     : DecodePreFetchBundle        = Input(new DecodePreFetchBundle)
-  val ins_ram_addr                 : UInt                        = Output(UInt(32.W))
-  val ins_ram_en                   : Bool                        = Output(Bool())
-  val next_pc                      : UInt                        = Output(UInt(32.W))
-  val pc_wen                       : Bool                        = Output(Bool())
+  val pc                 : UInt                        = Input(UInt(32.W))
+  val pc_seq4            : UInt                        = Input(UInt(32.W))
+  val pc_seq8            : UInt                        = Input(UInt(32.W))
+  val id_pf_in           : DecodePreFetchBundle        = Input(new DecodePreFetchBundle)
+  val ins_ram_addr       : UInt                        = Output(UInt(32.W))
+  val ins_ram_en         : Bool                        = Output(Bool())
+  val next_pc            : UInt                        = Output(UInt(32.W))
+  val pc_wen             : Bool                        = Output(Bool())
   // 一次读入两条指令
-  val to_exception_service_en_ex_pf: Bool                        = Input(Bool())
-  val to_epc_en_ex_pf              : Bool                        = Input(Bool())
-  val flush                        : Bool                        = Input(Bool())
-  val cp0_pf_epc                   : UInt                        = Input(UInt(32.W))
-  val fetch_state                  : RamState.Type               = Input(RamState())
+  val ex_pf_in           : ExecutePrefetchBundle       = Input(new ExecutePrefetchBundle)
+  val flush              : Bool                        = Input(Bool())
+  val cp0_pf_epc         : UInt                        = Input(UInt(32.W))
+  val fetch_state        : RamState.Type               = Input(RamState())
   // 上一个请求的valid信号，每次data_ok的时候被刷新，用于判断下一次跳转+4/+8
-  val inst_sram_ins_valid          : UInt                        = Input(UInt(2.W))
-  val data_ok                      : Bool                        = Input(Bool())
-  val addr_ok                      : Bool                        = Input(Bool())
-  val pred_pf_in                   : Vec[PredictorFetcherBundle] = Input(Vec(2, new PredictorFetcherBundle))
-  val pf_pred_out                  : Vec[FetcherPredictorBundle] = Output(Vec(2, new FetcherPredictorBundle))
-  val in_valid                     : Bool                        = Input(Bool()) // 传入预取的输入是否有效
+  val inst_sram_ins_valid: UInt                        = Input(UInt(2.W))
+  val data_ok            : Bool                        = Input(Bool())
+  val addr_ok            : Bool                        = Input(Bool())
+  val pred_pf_in         : Vec[PredictorFetcherBundle] = Input(Vec(2, new PredictorFetcherBundle))
+  val pf_pred_out        : Vec[FetcherPredictorBundle] = Output(Vec(2, new FetcherPredictorBundle))
+  val in_valid           : Bool                        = Input(Bool()) // 传入预取的输入是否有效
 
 }
 
@@ -73,7 +80,6 @@ class InsPreFetch extends Module {
   val seq_pc_4         : UInt              = io.pc_seq4
   // 如果上次取出的指令只有一个有效，则下一个取的指令只+4
   val seq_pc_8         : UInt              = Mux(!io.inst_sram_ins_valid(1), io.pc_seq4, io.pc_seq8)
-  val exception_or_eret: Bool              = io.to_exception_service_en_ex_pf || io.to_epc_en_ex_pf
   val seq_epc_8        : UInt              = io.cp0_pf_epc
   val seq_exception_8  : UInt              = ExceptionConst.EXCEPTION_PROGRAM_ADDR
   // 如果有load-to-branch的情况，清空了队列之后还需要等待
@@ -93,8 +99,9 @@ class InsPreFetch extends Module {
 
 
   val pc_out: UInt = MuxCase(seq_pc_8, Seq(
-    io.to_epc_en_ex_pf -> seq_epc_8,
-    io.to_exception_service_en_ex_pf -> seq_exception_8,
+    io.ex_pf_in.refetch_flag -> io.ex_pf_in.refetch_pc,
+    io.ex_pf_in.to_epc_en_ex_pf -> seq_epc_8,
+    io.ex_pf_in.to_exception_service_en_ex_pf -> seq_exception_8,
     // 如果队列已满或者还上一条请求还没有返回则原地踏步
     // 如果发起了请求但是没有addr_ok同样需要原地踏步
     (!io.next_allowin || (io.fetch_state === RamState.waiting_for_response && !io.data_ok) ||
@@ -112,7 +119,8 @@ class InsPreFetch extends Module {
   io.pf_pred_out(0).pc := io.pc
   io.pf_pred_out(1).pc := seq_pc_4
 
-  when(!target_from_id && !io.to_exception_service_en_ex_pf && !io.to_epc_en_ex_pf) {
+  when(!target_from_id && !io.ex_pf_in.refetch_flag && !io.ex_pf_in.to_exception_service_en_ex_pf &&
+    !io.ex_pf_in.to_epc_en_ex_pf) {
     when(((io.pred_pf_in(0).predict && !io.inst_sram_ins_valid(1)) ||
       (io.inst_sram_ins_valid(1) && io.pred_pf_in(1).predict)) && req &&
       io.addr_ok && !branch_predict_target_buffer_valid) {

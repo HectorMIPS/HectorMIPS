@@ -31,8 +31,10 @@ class CP0Bundle(n_tlb: Int) extends Bundle {
   val cause_ip  : UInt                    = Output(UInt(8.W))
   val int_in    : UInt                    = Input(UInt(6.W))
 
-  val tlbp_cp0: TLBPCP0Bundle = Input(new TLBPCP0Bundle(n_tlb))
-  val asid    : UInt          = Output(UInt(8.W))
+  val tlbp_cp0 : TLBPCP0Bundle  = Input(new TLBPCP0Bundle(n_tlb))
+  val tlbwi_cp0: TLBWICP0Bundle = Output(new TLBWICP0Bundle(n_tlb))
+  val tlbr_cp0 : TLBRCP0Bundle  = Input(new TLBRCP0Bundle())
+  val asid     : UInt           = Output(UInt(8.W))
 }
 
 class CP0(n_tlb: Int) extends Module {
@@ -218,5 +220,15 @@ class CP0(n_tlb: Int) extends Module {
   io.cp0_ex_out.vpn2 := entryhi(31, 13)
   io.cp0_ex_out.asid := entryhi(7, 0)
 
+  io.tlbwi_cp0.index := index(log_n_tlb - 1, 0)
+  io.tlbwi_cp0.entrylo0 := entrylo0
+  io.tlbwi_cp0.entrylo1 := entrylo1
+  io.tlbwi_cp0.entryhi := entryhi
+
   io.asid := entryhi(7, 0)
+  when(io.tlbr_cp0.is_tlbr) {
+    entryhi := io.tlbr_cp0.entryhi
+    entrylo0 := io.tlbr_cp0.entrylo0
+    entrylo1 := io.tlbr_cp0.entrylo1
+  }
 }

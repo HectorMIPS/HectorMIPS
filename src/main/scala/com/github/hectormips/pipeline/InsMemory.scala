@@ -38,6 +38,7 @@ class ExecuteMemoryBundle(n_tlb: Int) extends WithVEI {
   val mem_wen                         : Bool                 = Bool()
   val tlbp                            : TLBPCP0Bundle        = new TLBPCP0Bundle(n_tlb)
   val tlbr                            : Bool                 = Bool()
+  val tlbwi                           : Bool                 = Bool()
 
   override def defaults(): Unit = {
     super.defaults()
@@ -59,6 +60,7 @@ class ExecuteMemoryBundle(n_tlb: Int) extends WithVEI {
     mem_wen := 0.B
     tlbp.defaults()
     tlbr := 0.B
+    tlbwi := 0.B
   }
 }
 
@@ -138,6 +140,7 @@ class InsMemory(n_tlb: Int) extends Module {
     io.ms_wb_out(i).exception_flags := DontCare
     io.ms_wb_out(i).tlbp := io.ex_ms_in(i).tlbp
     io.ms_wb_out(i).tlbr := io.ex_ms_in(i).tlbr
+    io.ms_wb_out(i).tlbwi := io.ex_ms_in(i).tlbwi
 
     io.cp0_hazard_bypass_ms_ex(i).bus_valid := bypass_bus_valid
     io.cp0_hazard_bypass_ms_ex(i).cp0_en := io.ex_ms_in(i).regfile_wdata_from_cp0_ex_ms ||

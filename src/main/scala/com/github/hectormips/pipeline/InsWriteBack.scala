@@ -3,8 +3,8 @@ package com.github.hectormips.pipeline
 import chisel3.stage.ChiselStage
 import chisel3.{Mux, _}
 import chisel3.util._
-import com.github.hectormips.pipeline.cp0.{CP0Const, TLBPCP0Bundle}
-import com.github.hectormips.tlb.TLBPBundle
+import com.github.hectormips.pipeline.cp0.{CP0Const, TLBPCP0Bundle, TLBRCP0Bundle, TLBWICP0Bundle}
+import com.github.hectormips.tlb.{TLBPBundle, TLBRBundle, TLBWIBundle}
 
 class MemoryWriteBackBundle(n_tlb: Int) extends WithVEI {
   val regfile_waddr_sel_ms_wb     : RegFileWAddrSel.Type = RegFileWAddrSel()
@@ -19,6 +19,7 @@ class MemoryWriteBackBundle(n_tlb: Int) extends WithVEI {
   val regfile_wdata_from_cp0_ms_wb: Bool                 = Bool()
   val tlbp                        : TLBPCP0Bundle        = new TLBPCP0Bundle(n_tlb)
   val tlbr                        : Bool                 = Bool()
+  val tlbwi                       : Bool                 = Bool()
 
   override def defaults(): Unit = {
     super.defaults()
@@ -34,6 +35,7 @@ class MemoryWriteBackBundle(n_tlb: Int) extends WithVEI {
     regfile_wdata_from_cp0_ms_wb := 0.B
     tlbp.defaults()
     tlbr := 0.B
+    tlbwi := 0.B
   }
 }
 
@@ -55,6 +57,10 @@ class InsWriteBackBundle(n_tlb: Int) extends WithAllowin {
   val bypass_wb_id           : Vec[BypassMsgBundle] = Output(Vec(2, new BypassMsgBundle))
   val cp0_hazard_bypass_wb_ex: Vec[CP0HazardBypass] = Output(Vec(2, new CP0HazardBypass))
   val tlbp_cp0               : TLBPCP0Bundle        = Output(new TLBPCP0Bundle(n_tlb))
+  val tlbwi_cp0              : TLBWICP0Bundle       = Input(new TLBWICP0Bundle(n_tlb))
+  val tlbr_cp0               : TLBRCP0Bundle        = Output(new TLBRCP0Bundle)
+  val wb_tlbwi_out           : TLBWIBundle          = Flipped(new TLBWIBundle(n_tlb))
+  val wb_tlbr                : TLBRBundle           = Flipped(new TLBRBundle(n_tlb))
 }
 
 class InsWriteBack(n_tlb: Int) extends Module {
@@ -102,6 +108,27 @@ class InsWriteBack(n_tlb: Int) extends Module {
     io.cp0_hazard_bypass_wb_ex(i).cp0_wen := io.ms_wb_in(i).cp0_wen_ms_wb || io.ms_wb_in(i).tlbr
   }
   io.tlbp_cp0 := io.ms_wb_in(0).tlbp
+  io.wb_tlbwi_out.we := io.ms_wb_in(0).tlbwi
+  io.wb_tlbwi_out.w_index := io.tlbwi_cp0.index
+  io.wb_tlbwi_out.w_vpn2 := io.tlbwi_cp0.entryhi(31, 13)
+  io.wb_tlbwi_out.w_asid := io.tlbwi_cp0.entryhi(7, 0)
+
+  io.wb_tlbwi_out.w_g := io.tlbwi_cp0.entrylo0(0) & io.tlbwi_cp0.entrylo1(1)
+  io.wb_tlbwi_out.w_pfn0 := io.tlbwi_cp0.entrylo0(25, 6)
+  io.wb_tlbwi_out.w_c0 := io.tlbwi_cp0.entrylo0(5, 3)
+  io.wb_tlbwi_out.w_d0 := io.tlbwi_cp0.entrylo0(2)
+  io.wb_tlbwi_out.w_v0 := io.tlbwi_cp0.entrylo0(1)
+
+  io.wb_tlbwi_out.w_pfn1 := io.tlbwi_cp0.entrylo1(25, 6)
+  io.wb_tlbwi_out.w_c1 := io.tlbwi_cp0.entrylo1(5, 3)
+  io.wb_tlbwi_out.w_d1 := io.tlbwi_cp0.entrylo1(2)
+  io.wb_tlbwi_out.w_v1 := io.tlbwi_cp0.entrylo1(1)
+
+  io.tlbr_cp0.is_tlbr := io.ms_wb_in(0).tlbr
+  io.tlbr_cp0.entryhi := Cat(io.wb_tlbr.r_vpn2, 0.U(5.W), io.wb_tlbr.r_asid)
+  io.tlbr_cp0.entrylo0 := Cat(0.U(6.W), io.wb_tlbr.r_pfn0, io.wb_tlbr.r_c0, io.wb_tlbr.r_d0, io.wb_tlbr.r_v0, io.wb_tlbr.r_g)
+  io.tlbr_cp0.entrylo1 := Cat(0.U(6.W), io.wb_tlbr.r_pfn1, io.wb_tlbr.r_c1, io.wb_tlbr.r_d1, io.wb_tlbr.r_v1, io.wb_tlbr.r_g)
+  io.wb_tlbr.r_index := io.tlbwi_cp0.index
 }
 
 object InsWriteBack extends App {

@@ -5,10 +5,10 @@ import chisel3.stage.ChiselStage
 import chisel3.util._
 import chisel3.util.experimental.forceName
 import com.github.hectormips.pipeline._
-import com.github.hectormips.pipeline.cp0.{CP0, ExecuteCP0Bundle, TLBPCP0Bundle, WriteBackCP0Bundle}
+import com.github.hectormips.pipeline.cp0.{CP0, ExecuteCP0Bundle, TLBPCP0Bundle, TLBRCP0Bundle, TLBWICP0Bundle}
 import com.github.hectormips.pipeline.issue.InstFIFO
-import com.github.hectormips.predict.{BHT, BTB, BTBTrue}
-import com.github.hectormips.tlb.TLBInstBundle
+import com.github.hectormips.predict.BTB
+import com.github.hectormips.tlb.{TLBInstBundle, TLBRBundle, TLBWIBundle}
 import com.github.hectormips.utils.{RegAutoFlip, RegDualAutoFlip}
 
 class CpuTopSRamLikeBundle(n_tlb: Int) extends Bundle {
@@ -46,48 +46,51 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0, n_tlb: Int = 16) extends 
   val lo     : UInt = RegEnable(lo_next, 0.U, lo_wen)
 
   // 连线
-  val if_fifo_bus                  : FetchDecodeBundle           = Wire(new FetchDecodeBundle)
-  val fifo_id_bus                  : FetchDecodeBundle           = Wire(new FetchDecodeBundle)
-  val id_ex_bus                    : Vec[DecodeExecuteBundle]    = Wire(Vec(2, new DecodeExecuteBundle))
-  val ex_ms_bus                    : Vec[ExecuteMemoryBundle]    = Wire(Vec(2, new ExecuteMemoryBundle(n_tlb)))
-  val ms_wb_bus                    : Vec[MemoryWriteBackBundle]  = Wire(Vec(2, new MemoryWriteBackBundle(n_tlb)))
-  val id_pf_bus                    : DecodePreFetchBundle        = Wire(new DecodePreFetchBundle)
-  val if_allowin                   : Bool                        = Wire(Bool())
-  val inst_fifo_allowin            : Bool                        = Wire(Bool())
-  val id_allowin                   : Bool                        = Wire(Bool())
-  val ex_allowin                   : Bool                        = Wire(Bool())
-  val ms_allowin                   : Bool                        = Wire(Bool())
-  val wb_allowin                   : Bool                        = Wire(Bool())
-  val asid                         : UInt                        = Wire(UInt(8.W))
-  val bypass_bus                   : DecodeBypassBundle          = Wire(new DecodeBypassBundle)
-  val cp0_ex                       : CP0ExecuteBundle            = Wire(new CP0ExecuteBundle)
-  val ex_cp0                       : ExecuteCP0Bundle            = Wire(new ExecuteCP0Bundle(n_tlb))
-  val tlbp_cp0                     : TLBPCP0Bundle               = Wire(new TLBPCP0Bundle(n_tlb))
-  val pipeline_flush_ex            : Bool                        = Wire(Bool()) // 由执行阶段发出的流水线清空信号
-  val to_exception_service_en_ex_pf: Bool                        = Wire(Bool())
-  val to_epc_en_ex_pf              : Bool                        = Wire(Bool())
-  val epc_cp0_pf                   : UInt                        = Wire(UInt(32.W))
-  val cp0_hazard_bypass_ms_ex      : Vec[CP0HazardBypass]        = Wire(Vec(2, new CP0HazardBypass))
-  val cp0_hazard_bypass_wb_ex      : Vec[CP0HazardBypass]        = Wire(Vec(2, new CP0HazardBypass))
-  val cp0_status_im                : UInt                        = Wire(UInt(8.W))
-  val cp0_cause_ip                 : UInt                        = Wire(UInt(8.W))
-  val decoder_predictor            : DecoderPredictorBundle      = Wire(new DecoderPredictorBundle)
-  val predictor_fetcher            : Vec[PredictorFetcherBundle] = Wire(Vec(2, new PredictorFetcherBundle))
-  val fetcher_predictor            : Vec[FetcherPredictorBundle] = Wire(Vec(2, new FetcherPredictorBundle))
+  val if_fifo_bus            : FetchDecodeBundle           = Wire(new FetchDecodeBundle)
+  val fifo_id_bus            : FetchDecodeBundle           = Wire(new FetchDecodeBundle)
+  val id_ex_bus              : Vec[DecodeExecuteBundle]    = Wire(Vec(2, new DecodeExecuteBundle))
+  val ex_ms_bus              : Vec[ExecuteMemoryBundle]    = Wire(Vec(2, new ExecuteMemoryBundle(n_tlb)))
+  val ms_wb_bus              : Vec[MemoryWriteBackBundle]  = Wire(Vec(2, new MemoryWriteBackBundle(n_tlb)))
+  val id_pf_bus              : DecodePreFetchBundle        = Wire(new DecodePreFetchBundle)
+  val if_allowin             : Bool                        = Wire(Bool())
+  val inst_fifo_allowin      : Bool                        = Wire(Bool())
+  val id_allowin             : Bool                        = Wire(Bool())
+  val ex_allowin             : Bool                        = Wire(Bool())
+  val ms_allowin             : Bool                        = Wire(Bool())
+  val wb_allowin             : Bool                        = Wire(Bool())
+  val asid                   : UInt                        = Wire(UInt(8.W))
+  val bypass_bus             : DecodeBypassBundle          = Wire(new DecodeBypassBundle)
+  val cp0_ex                 : CP0ExecuteBundle            = Wire(new CP0ExecuteBundle)
+  val ex_cp0                 : ExecuteCP0Bundle            = Wire(new ExecuteCP0Bundle(n_tlb))
+  val tlbp_cp0               : TLBPCP0Bundle               = Wire(new TLBPCP0Bundle(n_tlb))
+  val tlbwi_cp0              : TLBWICP0Bundle              = Wire(new TLBWICP0Bundle(n_tlb))
+  val tlbr_cp0               : TLBRCP0Bundle               = Wire(new TLBRCP0Bundle)
+  val wb_tlbwi               : TLBWIBundle                 = Wire(new TLBWIBundle(n_tlb))
+  val wb_tlbr                : TLBRBundle                  = Wire(new TLBRBundle(n_tlb))
+  val pipeline_flush_ex      : Bool                        = Wire(Bool()) // 由执行阶段发出的流水线清空信号
+  val ex_pf_out              : ExecutePrefetchBundle       = Wire(new ExecutePrefetchBundle)
+  val epc_cp0_pf             : UInt                        = Wire(UInt(32.W))
+  val cp0_hazard_bypass_ms_ex: Vec[CP0HazardBypass]        = Wire(Vec(2, new CP0HazardBypass))
+  val cp0_hazard_bypass_wb_ex: Vec[CP0HazardBypass]        = Wire(Vec(2, new CP0HazardBypass))
+  val cp0_status_im          : UInt                        = Wire(UInt(8.W))
+  val cp0_cause_ip           : UInt                        = Wire(UInt(8.W))
+  val decoder_predictor      : DecoderPredictorBundle      = Wire(new DecoderPredictorBundle)
+  val predictor_fetcher      : Vec[PredictorFetcherBundle] = Wire(Vec(2, new PredictorFetcherBundle))
+  val fetcher_predictor      : Vec[FetcherPredictorBundle] = Wire(Vec(2, new FetcherPredictorBundle))
   // 将ex阶段的flush回馈延迟一个周期
-  val ex_feedback_flipper          : Bool                        = RegInit(0.B)
-  val id_feedback_flipper          : PredictBranchBundle         = RegInit(init = {
+  val ex_feedback_flipper    : Bool                        = RegInit(0.B)
+  val id_feedback_flipper    : PredictBranchBundle         = RegInit(init = {
     val bundle: PredictBranchBundle = Wire(new PredictBranchBundle)
     bundle.defaults()
     bundle
   })
-  val branch_state                 : BranchState.Type            = RegInit(BranchState.no_branch)
-  val fetch_force_cancel           : Bool                        = ex_feedback_flipper || branch_state === BranchState.flushing
+  val branch_state           : BranchState.Type            = RegInit(BranchState.no_branch)
+  val fetch_force_cancel     : Bool                        = ex_feedback_flipper || branch_state === BranchState.flushing
 
   val predictor: BTB = Module(new BTB(16, 4))
   when(ex_feedback_flipper === 1.B) {
     ex_feedback_flipper := 0.B
-  }.elsewhen(to_epc_en_ex_pf || to_exception_service_en_ex_pf || pipeline_flush_ex) {
+  }.elsewhen(ex_pf_out.valid || pipeline_flush_ex) {
     ex_feedback_flipper := 1.B
   }
   when(id_pf_bus.bus_valid) {
@@ -158,9 +161,8 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0, n_tlb: Int = 16) extends 
     id_pf_buffer.bus_valid := 0.B
     branch_state := BranchState.no_branch
   }
-  when(to_epc_en_ex_pf || to_exception_service_en_ex_pf) {
-    ex_pf_buffer.to_epc_en_ex_pf := to_epc_en_ex_pf
-    ex_pf_buffer.to_exception_service_en_ex_pf := to_exception_service_en_ex_pf
+  when(ex_pf_out.valid) {
+    ex_pf_buffer := ex_pf_out
   }.elsewhen(pf_module.io.ins_ram_en && io.inst_sram_like_io.addr_ok) {
     ex_pf_buffer.defaults()
   }
@@ -171,8 +173,7 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0, n_tlb: Int = 16) extends 
   pf_module.io.pc_seq4 := pc_seq_4
   pf_module.io.pc_seq8 := pc_seq_8
   pf_module.io.next_allowin := if_allowin
-  pf_module.io.to_exception_service_en_ex_pf := ex_pf_buffer.to_exception_service_en_ex_pf
-  pf_module.io.to_epc_en_ex_pf := ex_pf_buffer.to_epc_en_ex_pf
+  pf_module.io.ex_pf_in := ex_pf_buffer
   pf_module.io.cp0_pf_epc := epc_cp0_pf
   pf_module.io.flush := fetch_force_cancel
   pf_module.io.fetch_state := fetch_state_reg
@@ -344,8 +345,7 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0, n_tlb: Int = 16) extends 
   ex_module.io.cp0_ex_in := cp0_ex
   ex_cp0 := ex_module.io.ex_cp0_out
   pipeline_flush_ex := ex_module.io.pipeline_flush
-  to_exception_service_en_ex_pf := ex_module.io.ex_pf_out.to_exception_service_en_ex_pf
-  to_epc_en_ex_pf := ex_module.io.ex_pf_out.to_epc_en_ex_pf
+  ex_pf_out := ex_module.io.ex_pf_out
 
 
   // 访存
@@ -382,6 +382,8 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0, n_tlb: Int = 16) extends 
   cp0_cause_ip := cp0.io.cause_ip
   cp0_status_im := cp0.io.status_im
   cp0.io.tlbp_cp0 := tlbp_cp0
+  cp0.io.tlbr_cp0 := tlbr_cp0
+  tlbwi_cp0 := cp0.io.tlbwi_cp0
   asid := cp0.io.asid
 
   val wb_module: InsWriteBack = Module(new InsWriteBack(n_tlb))
@@ -390,9 +392,13 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0, n_tlb: Int = 16) extends 
   regfile.io.waddr := wb_module.io.regfile_waddr
   regfile.io.we := wb_module.io.regfile_wen
   wb_module.io.next_allowin := 1.B
+  wb_module.io.tlbwi_cp0 := tlbwi_cp0
   wb_allowin := wb_module.io.this_allowin
+  wb_tlbwi := wb_module.io.wb_tlbwi_out
+  wb_tlbr := wb_module.io.wb_tlbr
   bypass_bus.bp_wb_id := wb_module.io.bypass_wb_id
   tlbp_cp0 := wb_module.io.tlbp_cp0
+  tlbr_cp0 := wb_module.io.tlbr_cp0
   for (i <- 0 to 1) {
     cp0.io.wb_cp0(i).wen := wb_module.io.cp0_wen(i)
     cp0.io.wb_cp0(i).wdata := wb_module.io.cp0_wdata(i)
@@ -416,8 +422,8 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0, n_tlb: Int = 16) extends 
   id_module.io.next_allowin := ex_allowin
   ex_module.io.next_allowin := ms_allowin
   ms_module.io.next_allowin := wb_allowin
-  io.tlb.tlbwi_io := DontCare
-  io.tlb.tlbr_io := DontCare
+  io.tlb.tlbr_io <> wb_module.io.wb_tlbr
+  io.tlb.tlbwi_io := wb_tlbwi
 
 
 }
