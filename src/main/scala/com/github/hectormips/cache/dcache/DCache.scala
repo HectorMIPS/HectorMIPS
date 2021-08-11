@@ -380,8 +380,6 @@ class DCache(val config: CacheConfig)
         //若不允许cache，直接向invalidate queue发起请求
         invalidateQueue.io.uncache_req := true.B
       }
-    }.otherwise {
-      io.data_ok(0) := true.B
     }
   }
   when(invalidateQueue.io.uncahce_ok){
@@ -426,7 +424,7 @@ class DCache(val config: CacheConfig)
             }.otherwise {
               // TLB Miss
               state(0) := sIDLE
-              io.data_ok(0) := true.B
+//              io.data_ok(0) := true.B
             }
           }
           }.elsewhen(worker.U === 1.U) {

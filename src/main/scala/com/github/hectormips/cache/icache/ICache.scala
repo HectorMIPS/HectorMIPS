@@ -257,8 +257,6 @@ class ICache(val config: CacheConfig)
         }.otherwise{
           // TLB Miss
           state := sIDLE
-          io.instOK := true.B
-          io.instValid := false.B
         }
       }
     }
@@ -283,8 +281,6 @@ class ICache(val config: CacheConfig)
           }.otherwise{
             // TLB Miss
             state := sIDLE
-            io.instOK := true.B
-            io.instValid := false.B
           }
 
         }.otherwise {
