@@ -108,7 +108,8 @@ class InsWriteBack(n_tlb: Int) extends Module {
     io.cp0_hazard_bypass_wb_ex(i).cp0_wen := io.ms_wb_in(i).cp0_wen_ms_wb || io.ms_wb_in(i).tlbr
   }
   io.tlbp_cp0 := io.ms_wb_in(0).tlbp
-  io.wb_tlbwi_out.we := io.ms_wb_in(0).tlbwi
+  io.tlbr_cp0.is_tlbr := io.ms_wb_in(0).tlbp.is_tlbp && io.ms_wb_in(0).bus_valid
+  io.wb_tlbwi_out.we := io.ms_wb_in(0).tlbwi && io.ms_wb_in(0).bus_valid
   io.wb_tlbwi_out.w_index := io.tlbwi_cp0.index
   io.wb_tlbwi_out.w_vpn2 := io.tlbwi_cp0.entryhi(31, 13)
   io.wb_tlbwi_out.w_asid := io.tlbwi_cp0.entryhi(7, 0)
@@ -124,7 +125,7 @@ class InsWriteBack(n_tlb: Int) extends Module {
   io.wb_tlbwi_out.w_d1 := io.tlbwi_cp0.entrylo1(2)
   io.wb_tlbwi_out.w_v1 := io.tlbwi_cp0.entrylo1(1)
 
-  io.tlbr_cp0.is_tlbr := io.ms_wb_in(0).tlbr
+  io.tlbr_cp0.is_tlbr := io.ms_wb_in(0).tlbr && io.ms_wb_in(0).bus_valid
   io.tlbr_cp0.entryhi := Cat(io.wb_tlbr.r_vpn2, 0.U(5.W), io.wb_tlbr.r_asid)
   io.tlbr_cp0.entrylo0 := Cat(0.U(6.W), io.wb_tlbr.r_pfn0, io.wb_tlbr.r_c0, io.wb_tlbr.r_d0, io.wb_tlbr.r_v0, io.wb_tlbr.r_g)
   io.tlbr_cp0.entrylo1 := Cat(0.U(6.W), io.wb_tlbr.r_pfn1, io.wb_tlbr.r_c1, io.wb_tlbr.r_d1, io.wb_tlbr.r_v1, io.wb_tlbr.r_g)

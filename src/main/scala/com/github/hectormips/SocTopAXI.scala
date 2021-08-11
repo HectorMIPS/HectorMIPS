@@ -29,7 +29,7 @@ class SocTopSRamLikeBundle extends Bundle {
 class SocTopAXI(cache_all: Boolean = false) extends Module {
   val io: SocTopSRamLikeBundle = IO(new SocTopSRamLikeBundle)
   withReset(!reset.asBool()) {
-    val n_tlb = 16
+    val n_tlb = 32
     val cpu_top  : CpuTopSRamLike   = Module(new CpuTopSRamLike(0xbfbffffcL, 0, n_tlb))
     val cache    : Cache            = Module(new Cache(new CacheConfig()))
     val crossbar : axi_crossbar_2x1 = Module(new axi_crossbar_2x1)
