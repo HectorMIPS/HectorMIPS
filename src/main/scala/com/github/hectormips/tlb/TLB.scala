@@ -127,7 +127,7 @@ class TLB(TLBNUM: Int) extends Module {
       s.c := 0.U
       s.d := 0.U
       s.v := 0.U
-      s.ex(0) := true.B //重填例外
+      ex(0) := true.B //重填例外
     }.elsewhen((s.odd_page === false.B && tlbrow(index0).V0 =/= true.B) || (s.odd_page === true.B && tlbrow(index0).V1 =/= true.B)) {
       // invalid
       s.found := false.B
@@ -136,7 +136,7 @@ class TLB(TLBNUM: Int) extends Module {
       s.c := 0.U
       s.d := 0.U
       s.v := 0.U
-      s.ex(1) := true.B //无效例外
+      ex(1) := true.B //无效例外
     }.otherwise {
       s.found := true.B
       s.index := index0

@@ -71,34 +71,35 @@ class InvalidateQueue(config:CacheConfig) extends Module {
   }
   when(uncache_state === sUncacheTemporary){
     when(state(0)=/=sHANDSHAKE && state(1)=/=sHANDSHAKE){
-      state := sHANDSHAKE
+      uncache_state := sHANDSHAKE
       uncache_busy := false.B
     }.otherwise{
-      state := sUncacheTemporary
+      uncache_state := sUncacheTemporary
     }
   }
   when(uncache_state === sHANDSHAKE){
     when(io.writeAddr.valid && io.writeAddr.ready && io.writeAddr.bits.id === 0.U) {
-      state := sTrans
+      uncache_state := sTrans
     }.otherwise{
-      state := sHANDSHAKE
+      uncache_state := sHANDSHAKE
     }
   }
   when(uncache_state === sTrans){
     when(io.writeData.valid && io.writeData.ready && io.writeData.bits.wid === 0.U) {
-      state := sWaiting
+      uncache_state := sWaiting
     }.otherwise{
-      state := sTrans
+      uncache_state := sTrans
     }
   }
   when(uncache_state===sWaiting){
     when(io.writeResp.valid &&io.writeResp.ready && io.writeResp.bits.id === 0.U) {
-      state := sIDLE
+      uncache_state := sIDLE
       io.uncahce_ok := true.B
     }.otherwise{
-      state := sWaiting
+      uncache_state := sWaiting
     }
   }
+
   worker_id(0) := 1.U
   worker_id(1) := 3.U
 

@@ -38,7 +38,7 @@ class SocTopAXI(cache_all: Boolean = false) extends Module {
 
     io.axi_io.force_name()
     cpu_top.io.interrupt := io.interrupt
-    cpu_top.io.tlb := tlb.io.tlb_inst_io
+    cpu_top.io.tlb <> tlb.io.tlb_inst_io
 
     io.debug <> cpu_top.io.debug
 

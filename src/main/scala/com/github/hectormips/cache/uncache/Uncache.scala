@@ -38,6 +38,8 @@ class Uncache extends Module{
 
   val polling = RegInit(false.B)
   val portHandleReq = Wire(Bool())
+  io.input(0).ex := 0.U
+  io.input(1).ex := 0.U
   portHandleReq := false.B
   polling := ~polling
   io.input(0).addr_ok :=  !do_req && polling

@@ -144,6 +144,8 @@ class MemAccessJudge(cache_all_inst:Bool=false.B) extends Module{
   queue.io.enq.valid := io.inst.req
   queue.io.enq.bits.jump := io.inst.inst_predict_jump_out
   queue.io.enq.bits.target := io.inst.inst_predict_jump_target_out
+  queue.io.enq.bits.asid := io.inst.asid
+
   val handshake = RegInit(false.B)
   val physical_inst_addr = Wire(UInt(32.W))
   val physical_queue_inst_addr = Wire(UInt(32.W))

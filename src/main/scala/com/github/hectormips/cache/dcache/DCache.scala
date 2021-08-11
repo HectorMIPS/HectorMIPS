@@ -31,7 +31,7 @@ class DCache(val config: CacheConfig)
 
     val wdata = Input(Vec(2, UInt(32.W)))
 
-    val tlb = new SearchPort(config.tlbnum) // 读端口TLB
+    val tlb = Flipped(new SearchPort(config.tlbnum)) // 读端口TLB
 
     val axi = new Bundle {
       val readAddr = Decoupled(new AXIAddr(32, 4))
@@ -328,9 +328,14 @@ class DCache(val config: CacheConfig)
   }
 
   /**
-   * 驱逐
+   * invalidateQueue
    */
   val evictionCounter = RegInit(VecInit(Seq.fill(2)(0.U(config.bankNumWidth.W))))
+  invalidateQueue.io.uncache_req := false.B
+  invalidateQueue.io.uncache_addr := Cat(io.tlb.pfn, io.addr(0)(config.indexWidth, 0))
+  invalidateQueue.io.uncache_data := io.wdata(0)
+  invalidateQueue.io.uncache_size := io.size(0)
+
   for (i <- 0 to 1) {
     invalidateQueue.io.addr(i) := Cat(tagvData.read(i)(waySelReg(i)).tag, index(i), 0.U(config.offsetWidth.W))
     invalidateQueue.io.wdata(i) := bData.read(i)(waySelReg(i))(evictionCounter(i))
@@ -342,8 +347,8 @@ class DCache(val config: CacheConfig)
 
   io.ex :=  Cat(io.wr(0) && !io.tlb.ex(2) && !io.tlb.ex(1) && !io.tlb.ex(0),io.tlb.ex(1,0))
   //如果为写，并且找到了，且本页valid=1，d=0,最高位才会置1
-  io.tlb.vpn2 := io.addr(0)(31, config.indexWidth + 1) //31,13
-  io.tlb.odd_page := io.addr(0)(config.indexWidth) //12
+  io.tlb.vpn2 := io.addr(0)(31, 13) //31,13
+  io.tlb.odd_page := io.addr(0)(12) //12
   io.tlb.asid := io.asid
 
   /**
@@ -374,9 +379,6 @@ class DCache(val config: CacheConfig)
       }.otherwise{
         //若不允许cache，直接向invalidate queue发起请求
         invalidateQueue.io.uncache_req := true.B
-        invalidateQueue.io.uncache_addr := Cat(io.tlb.pfn, io.addr(0)(config.indexWidth, 0))
-        invalidateQueue.io.uncache_data := io.wdata(0)
-        invalidateQueue.io.uncache_size := io.size(0)
       }
     }.otherwise {
       io.data_ok(0) := true.B
@@ -426,7 +428,7 @@ class DCache(val config: CacheConfig)
               state(0) := sIDLE
               io.data_ok(0) := true.B
             }
-
+          }
           }.elsewhen(worker.U === 1.U) {
             when(storeBuffer.io.cache_write_valid) {
               when(index(0) === index(1) && (io.valid(0) && io.addr_ok(0) && !io.wr(0) || state(0) === sWaiting)) {
@@ -553,25 +555,22 @@ class DCache(val config: CacheConfig)
         is(sFetchHandshake){
           //uncache取
           when(io.axi.readAddr.valid && io.axi.readAddr.ready && io.axi.readAddr.bits.id===0.U){
-            state := sFetchRecv
+            state(0) := sFetchRecv
           }.otherwise{
-            state := sFetchHandshake
+            state(0) := sFetchHandshake
           }
         }
         is(sFetchRecv){
           when(io.axi.readData.valid && io.axi.readData.ready && io.axi.readData.bits.id===0.U && io.axi.readData.bits.last){
-            state := sIDLE
+            state(0) := sIDLE
             io.data_ok(0) := true.B
-            io.rdata := io.axi.readData.bits.data
+            io.rdata(0) := io.axi.readData.bits.data
           }.otherwise{
-            state := sFetchRecv
+            state(0) := sFetchRecv
           }
         }
       }
     }
-
-  }
-
 }
   object DCache extends App {
     new ChiselStage execute(args, Seq(ChiselGeneratorAnnotation(

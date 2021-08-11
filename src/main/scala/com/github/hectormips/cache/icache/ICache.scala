@@ -24,7 +24,7 @@ class ICache(val config: CacheConfig)
     val instPC = Output(UInt(32.W))
     val instValid = Output(UInt())
 
-    val tlb = new SearchPort(config.tlbnum)
+    val tlb = Flipped(new SearchPort(config.tlbnum))
 
     val axi = new Bundle {
       val readAddr = Decoupled(new AXIAddr(32, 4))
@@ -188,8 +188,8 @@ class ICache(val config: CacheConfig)
    * TLB配置
    */
   io.ex := io.tlb.ex & 3.U //不会触发最高位的例外
-  io.tlb.vpn2 := io.addr(31,config.indexWidth+1) //31,13
-  io.tlb.odd_page := io.addr(config.indexWidth) //12
+  io.tlb.vpn2 := io.addr(31,13) //31,13
+  io.tlb.odd_page := io.addr(12) //12
   io.tlb.asid := io.asid
 
   /**

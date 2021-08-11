@@ -71,14 +71,14 @@ class Cache(val config:CacheConfig)  extends Module{
     dcache.io.size(i) := io.dcache(i).size
     dcache.io.wr(i) := io.dcache(i).wr
     dcache.io.wdata(i) := io.dcache(i).wdata
-    dcache.io.asid(i) := io.dcache(i).asid
 
     io.dcache(i).rdata := dcache.io.rdata(i)
     io.dcache(i).addr_ok := dcache.io.addr_ok(i)
     io.dcache(i).data_ok := dcache.io.data_ok(i)
     io.dcache(i).ex := dcache.io.ex
-
   }
+  dcache.io.asid := io.dcache(0).asid
+
   //uncached
   uncached.io.input <> io.uncached
   uncache_inst.io.input <> io.uncache_inst

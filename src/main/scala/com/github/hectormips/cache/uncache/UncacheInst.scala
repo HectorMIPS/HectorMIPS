@@ -21,6 +21,7 @@ class UncacheInst extends Module{
   val state = RegInit(0.U(3.W))
   val addr_r = RegInit(0.U(32.W))
   val rdata  = Reg(Vec(2,UInt(32.W)))
+  io.input.ex := 0.U
   io.input.addr_ok := state === sIDLE
   io.input.data_ok := false.B
   io.input.rdata := Cat(rdata(1),rdata(0))
