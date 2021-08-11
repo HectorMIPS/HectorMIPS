@@ -1,11 +1,11 @@
 package com.github.hectormips.pipeline.cp0
 
-import Chisel.{Cat, MuxCase}
+import Chisel.{Cat, MuxCase, log2Ceil, log2Floor}
 import chisel3._
 import com.github.hectormips.pipeline.CP0ExecuteBundle
 
 
-class ExecuteCP0Bundle extends Bundle {
+class ExecuteCP0Bundle(n_tlb: Int) extends Bundle {
   val exception_occur: Bool = Bool()
   val pc             : UInt = UInt(32.W)
   val is_delay_slot  : Bool = Bool() // 执行阶段的指令是否是分支延迟槽指令
@@ -22,19 +22,20 @@ class WriteBackCP0Bundle extends Bundle {
   val wen    : Bool = Input(Bool())
 }
 
-class CP0Bundle extends Bundle {
-  val wb_cp0    : Vec[WriteBackCP0Bundle] = Vec(2, new WriteBackCP0Bundle)
-  val ex_cp0_in : ExecuteCP0Bundle        = Input(new ExecuteCP0Bundle)
+class CP0Bundle(n_tlb: Int) extends Bundle {
+  val wb_cp0    : Vec[WriteBackCP0Bundle] = Vec(2, new WriteBackCP0Bundle())
+  val ex_cp0_in : ExecuteCP0Bundle        = Input(new ExecuteCP0Bundle(n_tlb))
   val cp0_ex_out: CP0ExecuteBundle        = Output(new CP0ExecuteBundle)
   val epc       : UInt                    = Output(UInt(32.W))
   val status_im : UInt                    = Output(UInt(8.W))
   val cause_ip  : UInt                    = Output(UInt(8.W))
   val int_in    : UInt                    = Input(UInt(6.W))
 
+  val tlbp_cp0: TLBPCP0Bundle = Input(new TLBPCP0Bundle(n_tlb))
 }
 
-class CP0(n_tlb: Int = 5) extends Module {
-  val io: CP0Bundle = IO(new CP0Bundle)
+class CP0(n_tlb: Int) extends Module {
+  val io: CP0Bundle = IO(new CP0Bundle(n_tlb))
 
   val status_exl: Bool = Wire(Bool())
 
@@ -46,14 +47,15 @@ class CP0(n_tlb: Int = 5) extends Module {
   val tick_next  : Bool = Wire(Bool())
   val tick       : Bool = RegNext(init = 0.B, next = !tick_next)
   tick_next := tick
-  val compare : UInt = RegInit(UInt(32.W), init = 0x0.U)
-  val badvaddr: UInt = RegInit(UInt(32.W), init = 0x0.U)
-  val epc     : UInt = RegInit(UInt(32.W), init = 0x0.U)
-  val entryhi : UInt = RegInit(UInt(32.W), init = 0x0.U)
-  val pagemask: UInt = RegInit(UInt(32.W), init = 0x0.U)
-  val entrylo0: UInt = RegInit(UInt(32.W), init = 0x0.U)
-  val entrylo1: UInt = RegInit(UInt(32.W), init = 0x0.U)
-  val index   : UInt = RegInit(UInt(32.W), init = 0x0.U)
+  val compare  : UInt = RegInit(UInt(32.W), init = 0x0.U)
+  val badvaddr : UInt = RegInit(UInt(32.W), init = 0x0.U)
+  val epc      : UInt = RegInit(UInt(32.W), init = 0x0.U)
+  val entryhi  : UInt = RegInit(UInt(32.W), init = 0x0.U)
+  val pagemask : UInt = RegInit(UInt(32.W), init = 0x0.U)
+  val entrylo0 : UInt = RegInit(UInt(32.W), init = 0x0.U)
+  val entrylo1 : UInt = RegInit(UInt(32.W), init = 0x0.U)
+  val index    : UInt = RegInit(UInt(32.W), init = 0x0.U)
+  val log_n_tlb: Int  = log2Ceil(n_tlb)
 
 
   val compare_eq_count: Bool = compare === count
@@ -157,7 +159,7 @@ class CP0(n_tlb: Int = 5) extends Module {
       }
 
       when(io.wb_cp0(i).regaddr === CP0Const.CP0_REGADDR_INDEX) {
-        index := Cat(index(31), 0.U((32 - n_tlb).W), io.wb_cp0(i).wdata(n_tlb - 1, 0))
+        index := Cat(index(31), 0.U((32 - log_n_tlb).W), io.wb_cp0(i).wdata(log_n_tlb - 1, 0))
       }
     }
   }
@@ -205,7 +207,13 @@ class CP0(n_tlb: Int = 5) extends Module {
       (io.wb_cp0(i).regaddr === CP0Const.CP0_REGADDR_PAGEMASK) -> pagemask,
     )), 0.U)
   }
+
+  when(io.tlbp_cp0.is_tlbp) {
+    index := Cat(!io.tlbp_cp0.found, 0.U((32 - log_n_tlb).W), io.tlbp_cp0.index)
+  }
   io.cp0_ex_out.status_exl := status_exl
   io.cp0_ex_out.cp0_cause_ip := Cat(cause_15_10, cause(9, 8))
   io.cp0_ex_out.cp0_status_im := status(15, 8)
+  io.cp0_ex_out.vpn2 := entryhi(31, 13)
+  io.cp0_ex_out.asid := entryhi(7, 0)
 }

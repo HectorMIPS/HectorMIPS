@@ -1,15 +1,12 @@
 package com.github.hectormips.cache.dcache
 
-import Chisel.fromBooleanToLiteral
-import com.github.hectormips.amba._
-import com.github.hectormips.cache.setting.CacheConfig
-import com.github.hectormips.cache.lru.LruMem
-import com.github.hectormips.cache.utils.Wstrb
 import chisel3._
-import chisel3.util._
 import chisel3.stage.{ChiselGeneratorAnnotation, ChiselStage}
+import chisel3.util._
+import com.github.hectormips.amba._
+import com.github.hectormips.cache.lru.LruMem
+import com.github.hectormips.cache.setting.CacheConfig
 import com.github.hectormips.tlb.SearchPort
-import firrtl.ir.UIntType
 
 
 class QueueItem extends Bundle {
@@ -48,13 +45,13 @@ class DCache(val config: CacheConfig)
     val debug_hit_count = Output(UInt(32.W)) // cache命中数
 
   })
-  val sIDLE :: sLOOKUP :: sREPLACE :: sREFILL :: sWaiting :: sEviction :: sEvictionWaiting :: sFetchHandshake :: sFetchRecv :: Nil = Enum(10)
+  val sIDLE :: sLOOKUP :: sREPLACE :: sREFILL :: sWaiting :: sEviction :: sEvictionWaiting :: sFetchHandshake :: sFetchRecv :: Nil = Enum(9)
   val state = RegInit(VecInit(Seq.fill(2)(0.U(4.W))))
-  val is_hitWay = Wire(Vec(2, Bool()))
-  val write_failed = RegInit(false.B)
+  val is_hitWay          = Wire(Vec(2, Bool()))
+  val write_failed: Bool = RegInit(false.B)
   //  val queue = Module(new Queue(new QueueItem, 3))
   //  val port_valid = RegInit(VecInit(Seq.fill(2)(true.B)))
-  val storeBuffer = Module(new StoreBuffer(config))
+  val storeBuffer        = Module(new StoreBuffer(config))
 
   //  val read_can_fire = Wire(Bool()) //允许读 且 有读请求
   //  read_can_fire := io.valid(0) && io.addr_ok(0) && !io.wr(0) || io.valid(1) && io.addr_ok(1) && !io.wr(1)

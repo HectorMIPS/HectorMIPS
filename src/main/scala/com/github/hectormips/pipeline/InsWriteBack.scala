@@ -3,9 +3,10 @@ package com.github.hectormips.pipeline
 import chisel3.stage.ChiselStage
 import chisel3.{Mux, _}
 import chisel3.util._
-import com.github.hectormips.pipeline.cp0.CP0Const
+import com.github.hectormips.pipeline.cp0.{CP0Const, TLBPCP0Bundle}
+import com.github.hectormips.tlb.TLBPBundle
 
-class MemoryWriteBackBundle extends WithVEI {
+class MemoryWriteBackBundle(n_tlb: Int) extends WithVEI {
   val regfile_waddr_sel_ms_wb     : RegFileWAddrSel.Type = RegFileWAddrSel()
   val inst_rd_ms_wb               : UInt                 = UInt(5.W)
   val inst_rt_ms_wb               : UInt                 = UInt(5.W)
@@ -16,7 +17,7 @@ class MemoryWriteBackBundle extends WithVEI {
   val cp0_addr_ms_wb              : UInt                 = UInt(5.W)
   val cp0_sel_ms_wb               : UInt                 = UInt(3.W)
   val regfile_wdata_from_cp0_ms_wb: Bool                 = Bool()
-  val tlbp                        : Bool                 = Bool()
+  val tlbp                        : TLBPCP0Bundle        = new TLBPCP0Bundle(n_tlb)
   val tlbr                        : Bool                 = Bool()
 
   override def defaults(): Unit = {
@@ -31,14 +32,14 @@ class MemoryWriteBackBundle extends WithVEI {
     cp0_addr_ms_wb := 0.U
     cp0_sel_ms_wb := 0.U
     regfile_wdata_from_cp0_ms_wb := 0.B
-    tlbp := 0.B
+    tlbp.defaults()
     tlbr := 0.B
   }
 }
 
-class InsWriteBackBundle extends WithAllowin {
+class InsWriteBackBundle(n_tlb: Int) extends WithAllowin {
 
-  val ms_wb_in: Vec[MemoryWriteBackBundle] = Input(Vec(2, new MemoryWriteBackBundle))
+  val ms_wb_in: Vec[MemoryWriteBackBundle] = Input(Vec(2, new MemoryWriteBackBundle(n_tlb)))
 
   val regfile_wdata: Vec[UInt] = Output(Vec(2, UInt(32.W)))
   val regfile_waddr: Vec[UInt] = Output(Vec(2, UInt(5.W)))
@@ -53,10 +54,11 @@ class InsWriteBackBundle extends WithAllowin {
 
   val bypass_wb_id           : Vec[BypassMsgBundle] = Output(Vec(2, new BypassMsgBundle))
   val cp0_hazard_bypass_wb_ex: Vec[CP0HazardBypass] = Output(Vec(2, new CP0HazardBypass))
+  val tlbp_cp0               : TLBPCP0Bundle        = Output(new TLBPCP0Bundle(n_tlb))
 }
 
-class InsWriteBack extends Module {
-  val io: InsWriteBackBundle = IO(new InsWriteBackBundle)
+class InsWriteBack(n_tlb: Int) extends Module {
+  val io: InsWriteBackBundle = IO(new InsWriteBackBundle(n_tlb))
   for (i <- 0 to 1) {
     io.regfile_wen(i) := io.ms_wb_in(i).regfile_we_ms_wb && io.ms_wb_in(i).bus_valid
     io.regfile_waddr(i) := 0.U
@@ -97,10 +99,11 @@ class InsWriteBack extends Module {
 
     io.cp0_hazard_bypass_wb_ex(i).bus_valid := bus_valid
     io.cp0_hazard_bypass_wb_ex(i).cp0_en := io.ms_wb_in(i).regfile_wdata_from_cp0_ms_wb || io.ms_wb_in(i).cp0_wen_ms_wb
-    io.cp0_hazard_bypass_wb_ex(i).cp0_wen := io.ms_wb_in(i).cp0_wen_ms_wb || io.ms_wb_in(i).tlbp || io.ms_wb_in(i).tlbr
+    io.cp0_hazard_bypass_wb_ex(i).cp0_wen := io.ms_wb_in(i).cp0_wen_ms_wb || io.ms_wb_in(i).tlbr
   }
+  io.tlbp_cp0 := io.ms_wb_in(0).tlbp
 }
 
 object InsWriteBack extends App {
-  (new ChiselStage).emitVerilog(new InsWriteBack)
+  (new ChiselStage).emitVerilog(new InsWriteBack(16))
 }

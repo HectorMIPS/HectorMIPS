@@ -9,7 +9,7 @@ import com.github.hectormips.cache.cache.Cache
 import com.github.hectormips.cache.setting.CacheConfig
 import com.github.hectormips.axi_crossbar_2x1
 import chisel3.util.experimental.forceName
-import com.github.hectormips.tlb.tlb
+import com.github.hectormips.tlb.TLB
 
 class SocTopSRamLikeBundle extends Bundle {
   val axi_io   : AXIIO       = new AXIIO(1)
@@ -29,14 +29,16 @@ class SocTopSRamLikeBundle extends Bundle {
 class SocTopAXI(cache_all: Boolean = false) extends Module {
   val io: SocTopSRamLikeBundle = IO(new SocTopSRamLikeBundle)
   withReset(!reset.asBool()) {
-    val cpu_top  : CpuTopSRamLike   = Module(new CpuTopSRamLike(0xbfbffffcL, 0))
+    val n_tlb = 16
+    val cpu_top  : CpuTopSRamLike   = Module(new CpuTopSRamLike(0xbfbffffcL, 0, n_tlb))
     val cache    : Cache            = Module(new Cache(new CacheConfig()))
     val crossbar : axi_crossbar_2x1 = Module(new axi_crossbar_2x1)
-    val mem_judge: MemAccessJudge   = Module(new MemAccessJudge(cache_all.B))
-    val tlb      : tlb              = Module(new tlb(16))
+    val mem_judge: MemAccessJudge = Module(new MemAccessJudge(cache_all.B))
+    val tlb      : TLB            = Module(new TLB(n_tlb))
 
     io.axi_io.force_name()
     cpu_top.io.interrupt := io.interrupt
+    cpu_top.io.tlb := tlb.io.tlb_inst_io
 
     io.debug <> cpu_top.io.debug
 
@@ -44,21 +46,6 @@ class SocTopAXI(cache_all: Boolean = false) extends Module {
     cache.io.tlb1 <> tlb.io.s1
 
     mem_judge.io.inst <> cpu_top.io.inst_sram_like_io
-//    mem_judge.io.inst.req := cpu_top.io.inst_sram_like_io.req
-//    mem_judge.io.inst.wr := cpu_top.io.inst_sram_like_io.wr
-//    mem_judge.io.inst.size := cpu_top.io.inst_sram_like_io.size
-//    mem_judge.io.inst.addr := cpu_top.io.inst_sram_like_io.addr
-//    mem_judge.io.inst.wdata := cpu_top.io.inst_sram_like_io.wdata
-//    mem_judge.io.inst.wr := cpu_top.io.inst_sram_like_io.wr
-//    mem_judge.io.inst.inst_predict_jump_out := cpu_top.io.inst_sram_like_io.inst_predict_jump_out
-//    mem_judge.io.inst.inst_predict_jump_target_out := cpu_top.io.inst_sram_like_io.inst_predict_jump_target_out
-//    cpu_top.io.inst_sram_like_io.inst_predict_jump_in := mem_judge.io.inst.inst_predict_jump_in
-//    cpu_top.io.inst_sram_like_io.inst_predict_jump_target_in := mem_judge.io.inst.inst_predict_jump_target_in
-//    cpu_top.io.inst_sram_like_io.addr_ok := mem_judge.io.inst.addr_ok
-//    cpu_top.io.inst_sram_like_io.data_ok := mem_judge.io.inst.data_ok
-//    cpu_top.io.inst_sram_like_io.rdata := mem_judge.io.inst.rdata
-//    cpu_top.io.inst_sram_like_io.inst_valid := mem_judge.io.inst.inst_valid
-//    cpu_top.io.inst_sram_like_io.inst_pc := mem_judge.io.inst.inst_pc
 
     mem_judge.io.data(0) <> cpu_top.io.data_sram_like_io(0)
     mem_judge.io.data(1) <> cpu_top.io.data_sram_like_io(1)

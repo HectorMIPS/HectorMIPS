@@ -8,6 +8,7 @@ import chisel3.util._
 import com.github.hectormips.RamState
 import com.github.hectormips.pipeline.cp0.{ExcCodeConst, ExceptionConst, ExecuteCP0Bundle}
 import com.github.hectormips.pipeline.issue.{Alu, AluEx, AluIO, AluOut}
+import com.github.hectormips.tlb.TLBPBundle
 
 
 // 通过译码阶段传入的参数
@@ -110,6 +111,9 @@ class CP0ExecuteBundle extends Bundle {
   val epc          : UInt = Input(UInt(32.W))
   val cp0_status_im: UInt = Input(UInt(8.W))
   val cp0_cause_ip : UInt = Input(UInt(8.W))
+  // tlb相关
+  val vpn2         : UInt = Input(UInt(19.W))
+  val asid         : UInt = Input(UInt(8.W))
 }
 
 class ExecuteRamBundle extends Bundle {
@@ -130,13 +134,13 @@ class ExecuteHILOBundle extends Bundle {
 }
 
 
-class InsExecuteBundle extends WithAllowin {
+class InsExecuteBundle(n_tlb: Int) extends WithAllowin {
   val id_ex_in               : Vec[DecodeExecuteBundle] = Input(Vec(2, new DecodeExecuteBundle))
   val cp0_hazard_bypass_ms_ex: Vec[CP0HazardBypass]     = Input(Vec(2, new CP0HazardBypass))
   val cp0_hazard_bypass_wb_ex: Vec[CP0HazardBypass]     = Input(Vec(2, new CP0HazardBypass))
   val ex_ram_out             : ExecuteRamBundle         = new ExecuteRamBundle
-  val ex_ms_out              : Vec[ExecuteMemoryBundle] = Output(Vec(2, new ExecuteMemoryBundle))
-  val ex_cp0_out             : ExecuteCP0Bundle         = Output(new ExecuteCP0Bundle)
+  val ex_ms_out              : Vec[ExecuteMemoryBundle] = Output(Vec(2, new ExecuteMemoryBundle(n_tlb)))
+  val ex_cp0_out             : ExecuteCP0Bundle         = Output(new ExecuteCP0Bundle(n_tlb))
   val bypass_ex_id           : Vec[BypassMsgBundle]     = Output(Vec(2, new BypassMsgBundle))
   val cp0_ex_in              : CP0ExecuteBundle         = Input(new CP0ExecuteBundle)
   val ex_hilo                : ExecuteHILOBundle        = new ExecuteHILOBundle
@@ -145,11 +149,12 @@ class InsExecuteBundle extends WithAllowin {
   val data_ram_addr_ok       : Bool                     = Input(Bool())
   // 执行阶段是否*至少*完成了其应该完成的任务
   val ready_go               : Bool                     = Output(Bool())
+  val tlbp_io                : TLBPBundle               = Flipped(new TLBPBundle(n_tlb))
 }
 
 
-class InsExecute extends Module {
-  val io                          : InsExecuteBundle = IO(new InsExecuteBundle)
+class InsExecute(n_tlb: Int) extends Module {
+  val io                          : InsExecuteBundle = IO(new InsExecuteBundle(n_tlb))
   val flush                       : Bool             = Wire(Bool())
   val this_allowin                : Bool             = Wire(Bool())
   val alu                         : Vec[AluIO]       = VecInit(Seq(Module(new AluEx).io, Module(new Alu).io))
@@ -276,7 +281,6 @@ class InsExecute extends Module {
     // 如果只有第二条指令发生例外，则只无效化第二条指令的输出
     io.ex_ms_out(i).bus_valid := io.id_ex_in(i).bus_valid && !(exception_on_inst1 && i.U === 1.U) &&
       !exception_on_inst0 && !reset.asBool() && !eret_occur && ready_go
-    io.ex_ms_out(i).tlbp := io.id_ex_in(i).tlbp
     io.ex_ms_out(i).tlbr := io.id_ex_in(i).tlbr
   }
 
@@ -305,6 +309,13 @@ class InsExecute extends Module {
     exception_flags(exception_index)(5) -> ExcCodeConst.ADES,
     exception_flags(exception_index)(6) -> ExcCodeConst.ADEL
   ))
+
+  io.tlbp_io.p_asid := io.cp0_ex_in.asid
+  io.tlbp_io.p_vpn2 := io.cp0_ex_in.vpn2
+  io.ex_ms_out(0).tlbp.is_tlbp := io.id_ex_in(0).tlbp
+  io.ex_ms_out(0).tlbp.index := io.tlbp_io.p_index
+  io.ex_ms_out(0).tlbp.found := io.tlbp_io.p_find
+  io.ex_ms_out(1).tlbp := DontCare
 
   // 给译码的前递
   for (i <- 0 to 1) {
@@ -346,5 +357,5 @@ class InsExecute extends Module {
 }
 
 object InsExecute extends App {
-  (new ChiselStage).emitVerilog(new InsExecute)
+  (new ChiselStage).emitVerilog(new InsExecute(16))
 }

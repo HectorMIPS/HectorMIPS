@@ -5,7 +5,8 @@ import chisel3.experimental.ChiselEnum
 import chisel3.stage.ChiselStage
 import chisel3.util._
 import com.github.hectormips.RamState
-import com.github.hectormips.pipeline.cp0.CP0Const
+import com.github.hectormips.pipeline.cp0.{CP0Const, TLBPCP0Bundle}
+import com.github.hectormips.tlb.TLBPBundle
 
 object MemorySrc extends ChiselEnum {
   val alu_val : Type = Value(1.U)
@@ -18,7 +19,7 @@ object MemDataSel extends ChiselEnum {
   val word : Type = Value(4.U)
 }
 
-class ExecuteMemoryBundle extends WithVEI {
+class ExecuteMemoryBundle(n_tlb: Int) extends WithVEI {
   val alu_val_ex_ms                   : UInt                 = UInt(32.W)
   val regfile_wsrc_sel_ex_ms          : Bool                 = Bool()
   val regfile_waddr_sel_ex_ms         : RegFileWAddrSel.Type = RegFileWAddrSel()
@@ -35,7 +36,7 @@ class ExecuteMemoryBundle extends WithVEI {
   val regfile_wdata_from_cp0_ex_ms    : Bool                 = Bool()
   val mem_req                         : Bool                 = Bool()
   val mem_wen                         : Bool                 = Bool()
-  val tlbp                            : Bool                 = Bool()
+  val tlbp                            : TLBPCP0Bundle        = new TLBPCP0Bundle(n_tlb)
   val tlbr                            : Bool                 = Bool()
 
   override def defaults(): Unit = {
@@ -56,15 +57,15 @@ class ExecuteMemoryBundle extends WithVEI {
     regfile_wdata_from_cp0_ex_ms := 0.B
     mem_req := 0.B
     mem_wen := 0.B
-    tlbp := 0.B
+    tlbp.defaults()
     tlbr := 0.B
   }
 }
 
-class InsMemoryBundle extends WithAllowin {
+class InsMemoryBundle(n_tlb: Int) extends WithAllowin {
   val mem_rdata: UInt                       = Input(UInt(32.W))
-  val ex_ms_in : Vec[ExecuteMemoryBundle]   = Input(Vec(2, new ExecuteMemoryBundle))
-  val ms_wb_out: Vec[MemoryWriteBackBundle] = Output(Vec(2, new MemoryWriteBackBundle))
+  val ex_ms_in : Vec[ExecuteMemoryBundle]   = Input(Vec(2, new ExecuteMemoryBundle(n_tlb)))
+  val ms_wb_out: Vec[MemoryWriteBackBundle] = Output(Vec(2, new MemoryWriteBackBundle(n_tlb)))
 
   val bypass_ms_id           : Vec[BypassMsgBundle] = Output(Vec(2, new BypassMsgBundle))
   val cp0_hazard_bypass_ms_ex: Vec[CP0HazardBypass] = Output(Vec(2, new CP0HazardBypass))
@@ -73,8 +74,8 @@ class InsMemoryBundle extends WithAllowin {
 }
 
 
-class InsMemory extends Module {
-  val io: InsMemoryBundle = IO(new InsMemoryBundle)
+class InsMemory(n_tlb: Int) extends Module {
+  val io: InsMemoryBundle = IO(new InsMemoryBundle(n_tlb))
 
 
   val data_ram_index: UInt = Mux(io.ex_ms_in(0).bus_valid && io.ex_ms_in(0).mem_req, 0.U, 1.U)
@@ -141,10 +142,10 @@ class InsMemory extends Module {
     io.cp0_hazard_bypass_ms_ex(i).bus_valid := bypass_bus_valid
     io.cp0_hazard_bypass_ms_ex(i).cp0_en := io.ex_ms_in(i).regfile_wdata_from_cp0_ex_ms ||
       io.ex_ms_in(i).cp0_wen_ex_ms
-    io.cp0_hazard_bypass_ms_ex(i).cp0_wen := io.ex_ms_in(i).cp0_wen_ex_ms || io.ex_ms_in(i).tlbp || io.ex_ms_in(i).tlbr
+    io.cp0_hazard_bypass_ms_ex(i).cp0_wen := io.ex_ms_in(i).cp0_wen_ex_ms || io.ex_ms_in(i).tlbp.is_tlbp || io.ex_ms_in(i).tlbr
   }
 }
 
 object InsMemory extends App {
-  (new ChiselStage).emitVerilog(new InsMemory)
+  (new ChiselStage).emitVerilog(new InsMemory(16))
 }

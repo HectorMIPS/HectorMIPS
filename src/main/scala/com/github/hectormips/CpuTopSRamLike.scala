@@ -5,15 +5,18 @@ import chisel3.stage.ChiselStage
 import chisel3.util._
 import chisel3.util.experimental.forceName
 import com.github.hectormips.pipeline._
-import com.github.hectormips.pipeline.cp0.{CP0, ExecuteCP0Bundle}
+import com.github.hectormips.pipeline.cp0.{CP0, ExecuteCP0Bundle, TLBPCP0Bundle, WriteBackCP0Bundle}
 import com.github.hectormips.pipeline.issue.InstFIFO
 import com.github.hectormips.predict.{BHT, BTB, BTBTrue}
+import com.github.hectormips.tlb.TLBInstBundle
 import com.github.hectormips.utils.{RegAutoFlip, RegDualAutoFlip}
 
-class CpuTopSRamLikeBundle extends Bundle {
+class CpuTopSRamLikeBundle(n_tlb: Int) extends Bundle {
   val interrupt        : UInt                = Input(UInt(6.W))
   val inst_sram_like_io: SRamLikeInstIO      = new SRamLikeInstIO
   val data_sram_like_io: Vec[SRamLikeDataIO] = Vec(2, new SRamLikeDataIO)
+  val tlb              : TLBInstBundle       = Flipped(new TLBInstBundle(n_tlb))
+
 
   val debug: DebugBundle = new DebugBundle
   forceName(interrupt, "ext_int")
@@ -21,9 +24,9 @@ class CpuTopSRamLikeBundle extends Bundle {
 }
 
 
-class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
+class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0, n_tlb: Int = 16) extends MultiIOModule {
   // 命名
-  val io: CpuTopSRamLikeBundle = IO(new CpuTopSRamLikeBundle())
+  val io: CpuTopSRamLikeBundle = IO(new CpuTopSRamLikeBundle(n_tlb))
 
 
   // 内建寄存器
@@ -46,8 +49,8 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   val if_fifo_bus                  : FetchDecodeBundle           = Wire(new FetchDecodeBundle)
   val fifo_id_bus                  : FetchDecodeBundle           = Wire(new FetchDecodeBundle)
   val id_ex_bus                    : Vec[DecodeExecuteBundle]    = Wire(Vec(2, new DecodeExecuteBundle))
-  val ex_ms_bus                    : Vec[ExecuteMemoryBundle]    = Wire(Vec(2, new ExecuteMemoryBundle))
-  val ms_wb_bus                    : Vec[MemoryWriteBackBundle]  = Wire(Vec(2, new MemoryWriteBackBundle))
+  val ex_ms_bus                    : Vec[ExecuteMemoryBundle]    = Wire(Vec(2, new ExecuteMemoryBundle(n_tlb)))
+  val ms_wb_bus                    : Vec[MemoryWriteBackBundle]  = Wire(Vec(2, new MemoryWriteBackBundle(n_tlb)))
   val id_pf_bus                    : DecodePreFetchBundle        = Wire(new DecodePreFetchBundle)
   val if_allowin                   : Bool                        = Wire(Bool())
   val inst_fifo_allowin            : Bool                        = Wire(Bool())
@@ -57,7 +60,8 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   val wb_allowin                   : Bool                        = Wire(Bool())
   val bypass_bus                   : DecodeBypassBundle          = Wire(new DecodeBypassBundle)
   val cp0_ex                       : CP0ExecuteBundle            = Wire(new CP0ExecuteBundle)
-  val ex_cp0                       : ExecuteCP0Bundle            = Wire(new ExecuteCP0Bundle)
+  val ex_cp0                       : ExecuteCP0Bundle            = Wire(new ExecuteCP0Bundle(n_tlb))
+  val tlbp_cp0                     : TLBPCP0Bundle               = Wire(new TLBPCP0Bundle(n_tlb))
   val pipeline_flush_ex            : Bool                        = Wire(Bool()) // 由执行阶段发出的流水线清空信号
   val to_exception_service_en_ex_pf: Bool                        = Wire(Bool())
   val to_epc_en_ex_pf              : Bool                        = Wire(Bool())
@@ -304,7 +308,7 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
     bundle
   }, this_allowin = ex_allowin)
 
-  val ex_module: InsExecute = Module(new InsExecute)
+  val ex_module: InsExecute = Module(new InsExecute(n_tlb))
 
 
   // 直接接入ram的通路
@@ -342,12 +346,12 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
 
   // 访存
   val ms_reg: Vec[ExecuteMemoryBundle] = RegDualAutoFlip(next = ex_ms_bus, init = {
-    val bundle = Wire(new ExecuteMemoryBundle)
+    val bundle = Wire(new ExecuteMemoryBundle(n_tlb))
     bundle.defaults()
     bundle
   }, this_allowin = ms_allowin)
 
-  val ms_module: InsMemory = Module(new InsMemory)
+  val ms_module: InsMemory = Module(new InsMemory(n_tlb))
   ms_module.io.ex_ms_in := ms_reg
   ms_module.io.mem_rdata := io.data_sram_like_io(0).rdata
   ms_module.io.data_ram_data_ok := io.data_sram_like_io(0).data_ok
@@ -361,20 +365,21 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   ms_ready_go := ms_module.io.ram_access_done
   // 写回
   val wb_reg: Vec[MemoryWriteBackBundle] = RegDualAutoFlip(next = ms_wb_bus, init = {
-    val bundle = Wire(new MemoryWriteBackBundle)
+    val bundle = Wire(new MemoryWriteBackBundle(n_tlb))
     bundle.defaults()
     bundle
   }, this_allowin = wb_allowin)
 
-  val cp0: CP0 = Module(new CP0)
+  val cp0: CP0 = Module(new CP0(n_tlb))
   cp0.io.ex_cp0_in := ex_cp0
   cp0_ex := cp0.io.cp0_ex_out
   epc_cp0_pf := cp0.io.epc
   cp0.io.int_in := io.interrupt
   cp0_cause_ip := cp0.io.cause_ip
   cp0_status_im := cp0.io.status_im
+  cp0.io.tlbp_cp0 := tlbp_cp0
 
-  val wb_module: InsWriteBack = Module(new InsWriteBack)
+  val wb_module: InsWriteBack = Module(new InsWriteBack(n_tlb))
   wb_module.io.ms_wb_in := wb_reg
   regfile.io.wdata := wb_module.io.regfile_wdata
   regfile.io.waddr := wb_module.io.regfile_waddr
@@ -382,6 +387,7 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0) extends MultiIOModule {
   wb_module.io.next_allowin := 1.B
   wb_allowin := wb_module.io.this_allowin
   bypass_bus.bp_wb_id := wb_module.io.bypass_wb_id
+  tlbp_cp0 := wb_module.io.tlbp_cp0
   for (i <- 0 to 1) {
     cp0.io.wb_cp0(i).wen := wb_module.io.cp0_wen(i)
     cp0.io.wb_cp0(i).wdata := wb_module.io.cp0_wdata(i)
