@@ -11,6 +11,7 @@ class ExecuteCP0Bundle(n_tlb: Int) extends Bundle {
   val is_delay_slot  : Bool = Bool() // 执行阶段的指令是否是分支延迟槽指令
   val exc_code       : UInt = UInt(ExcCodeConst.WIDTH.W)
   val badvaddr       : UInt = UInt(32.W)
+  val entryhi_vpn2   : UInt = UInt(19.W)
   val eret_occur     : Bool = Bool()
 }
 
@@ -170,6 +171,13 @@ class CP0(n_tlb: Int) extends Module {
     when(!status_exl) { // 只有exl置0时更新epc
       epc := Mux(io.ex_cp0_in.is_delay_slot && io.ex_cp0_in.exc_code =/= ExcCodeConst.INT,
         io.ex_cp0_in.pc - 4.U, io.ex_cp0_in.pc)
+    }
+  }
+
+  when(io.ex_cp0_in.exception_occur) {
+    when(io.ex_cp0_in.exc_code === ExcCodeConst.TLBS || io.ex_cp0_in.exc_code === ExcCodeConst.TLBL ||
+      io.ex_cp0_in.exc_code === ExcCodeConst.MOD) {
+      entryhi := Cat(io.ex_cp0_in.entryhi_vpn2, entryhi(12, 0))
     }
   }
 

@@ -307,12 +307,16 @@ class InsExecute(n_tlb: Int) extends Module {
   // 如果是硬中断导致的例外，pc指向最后一条没有生效的指令
   // 由于只有前方流水线会被清空，所以最后一条没有生效的指令就是当前的指令
   io.ex_cp0_out.pc := io.id_ex_in(exception_index).pc_id_ex_debug
-  io.ex_cp0_out.badvaddr := MuxCase(io.id_ex_in(exception_index).pc_id_ex_debug, Seq(
+  val vaddr: UInt = MuxCase(io.id_ex_in(exception_index).pc_id_ex_debug, Seq(
     (exception_flags(exception_index)(0) || exception_flags(exception_index)(1) || exception_flags(exception_index)(2) ||
-      exception_flags(exception_index)(3) || exception_flags(exception_index)(4)) -> io.id_ex_in(exception_index).pc_id_ex_debug,
+      exception_flags(exception_index)(3) || exception_flags(exception_index)(4) || exception_flags(exception_index)(7) ||
+      exception_flags(exception_index)(8)) -> io.id_ex_in(exception_index).pc_id_ex_debug,
     // 只有当内存地址取值出错的时候，badvaddr返回的是内存对应的地址而不是指令地址
-    (exception_flags(exception_index)(5) || exception_flags(exception_index)(6)) -> io.id_ex_in(exception_index).src_sum
+    (exception_flags(exception_index)(5) || exception_flags(exception_index)(6) || exception_flags(exception_index)(9) ||
+      exception_flags(exception_index)(10) || exception_flags(exception_index)(11)) -> io.id_ex_in(exception_index).src_sum
   ))
+  io.ex_cp0_out.entryhi_vpn2 := vaddr(31, 13)
+  io.ex_cp0_out.badvaddr := vaddr
   io.ex_cp0_out.eret_occur := eret_occur && ready_go
   io.ex_cp0_out.exc_code := MuxCase(0.U, Seq(
     (interrupt_occur && interrupt_available) -> ExcCodeConst.INT,
@@ -332,6 +336,7 @@ class InsExecute(n_tlb: Int) extends Module {
     (exception_flags(exception_index)(10) && io.id_ex_in(exception_index).mem_en_id_ex) -> ExcCodeConst.TLBL,
     (exception_flags(exception_index)(11) && io.id_ex_in(exception_index).mem_en_id_ex) -> ExcCodeConst.MOD,
   ))
+
 
   io.tlbp_io.p_asid := io.cp0_ex_in.asid
   io.tlbp_io.p_vpn2 := io.cp0_ex_in.vpn2
