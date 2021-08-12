@@ -15,6 +15,7 @@ class DecoderIn extends Bundle {
   val predict_jump_target: UInt               = UInt(32.W)
   val is_delay_slot      : Bool               = Bool()
   val ins_valid          : Bool               = Bool()
+  val exception_flags    : UInt               = UInt(ExceptionConst.EXCEPTION_FLAG_WIDTH.W)
 }
 
 class DecoderRegularOut extends Bundle {
@@ -685,8 +686,8 @@ class Decoder extends Module {
   val alu_quick_res    : UInt = Mux(alu_op === AluOp.op_add, src_1_e + src_2_e, src_1_e - src_2_e)
   val overflow_flag    : Bool = alu_quick_res(32) ^ alu_quick_res(31)
   val src_sum_except_ex: UInt = alu_src1_except_ex + alu_src2_except_ex
-  io.out_regular.exception_flags := Mux(pc(1, 0) === 0.U,
-    0.U, ExceptionConst.EXCEPTION_FETCH_ADDR) |
+  io.out_regular.exception_flags := io.in.exception_flags |
+    Mux(pc(1, 0) === 0.U, 0.U, ExceptionConst.EXCEPTION_FETCH_ADDR) |
     Mux(ins_valid, 0.U, ExceptionConst.EXCEPTION_RESERVE_INST) |
     Mux(ins_syscall, ExceptionConst.EXCEPTION_SYSCALL, 0.U) |
     Mux(ins_break, ExceptionConst.EXCEPTION_TRAP, 0.U) |

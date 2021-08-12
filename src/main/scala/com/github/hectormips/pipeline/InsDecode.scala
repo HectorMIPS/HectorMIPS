@@ -9,6 +9,7 @@ import chisel3.util._
 import chisel3.experimental.ChiselEnum
 import chisel3.stage.{ChiselGeneratorAnnotation, ChiselStage}
 import com.github.hectormips.pipeline
+import com.github.hectormips.pipeline.cp0.ExceptionConst
 import com.github.hectormips.pipeline.issue.{Decoder, Issuer}
 
 object RegFileWAddrSel extends OneHotEnum {
@@ -42,6 +43,7 @@ class FetchDecodeBundle extends WithValid {
   val ins_valid_if_id          : UInt      = UInt(2.W)
   val predict_jump_taken_if_id : Vec[Bool] = Vec(2, Bool())
   val predict_jump_target_if_id: Vec[UInt] = Vec(2, UInt(32.W))
+  val exception_flag           : UInt      = UInt(32.W)
 
 
   override def defaults(): Unit = {
@@ -51,6 +53,7 @@ class FetchDecodeBundle extends WithValid {
     ins_valid_if_id := 0.U
     predict_jump_taken_if_id := VecInit(Seq.fill(2)(0.B))
     predict_jump_target_if_id := VecInit(Seq.fill(2)(0xbfc00000L.U))
+    exception_flag := 0.U
   }
 }
 
@@ -97,6 +100,7 @@ class InsDecode extends Module {
   val issue_ramain_pc            : UInt                   = RegInit(0.U(32.W))
   val issue_remain_predict       : Bool                   = RegInit(0.B)
   val issue_remain_predict_target: UInt                   = RegInit(0.U(32.W))
+  val issue_remain_exception_flag: UInt                   = RegInit(0.U(ExceptionConst.EXCEPTION_FLAG_WIDTH.W))
   val issue_remain_buffer_valid  : Bool                   = RegInit(0.B)
 
 
@@ -124,6 +128,11 @@ class InsDecode extends Module {
     issue_remain_buffer, io.if_id_in.ins_if_id(31, 0))
   decoders(1).in.instruction := Mux(issue_remain_buffer_valid,
     io.if_id_in.ins_if_id(31, 0), io.if_id_in.ins_if_id(63, 32))
+  decoders(0).in.exception_flags := Mux(issue_remain_buffer_valid,
+    issue_remain_exception_flag, io.if_id_in.exception_flag)
+  decoders(1).in.exception_flags := Mux(issue_remain_buffer_valid,
+    io.if_id_in.exception_flag, 0.U)
+
   for (i <- 0 to 1) {
     decoders(i).in.bypass_bus := io.bypass_bus
     decoders(i).in.regfile_read1 := io.regfile_read1(i)

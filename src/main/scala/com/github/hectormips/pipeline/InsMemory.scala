@@ -146,6 +146,7 @@ class InsMemory(n_tlb: Int) extends Module {
     io.cp0_hazard_bypass_ms_ex(i).cp0_en := io.ex_ms_in(i).regfile_wdata_from_cp0_ex_ms ||
       io.ex_ms_in(i).cp0_wen_ex_ms
     io.cp0_hazard_bypass_ms_ex(i).cp0_wen := io.ex_ms_in(i).cp0_wen_ex_ms || io.ex_ms_in(i).tlbp.is_tlbp || io.ex_ms_in(i).tlbr
+    io.cp0_hazard_bypass_ms_ex(i).tlb_wen := io.ex_ms_in(i).tlbwi || io.ex_ms_in(i).tlbr
   }
 }
 
