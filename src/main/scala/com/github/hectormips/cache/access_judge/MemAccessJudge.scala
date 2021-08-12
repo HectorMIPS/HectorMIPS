@@ -132,7 +132,7 @@ class MemAccessJudge(cache_all_inst:Bool=false.B) extends Module{
     io.data(i).data_ok := Mux(should_map_data(i),io.mapped_data(i).data_ok,io.unmapped_data(i).data_ok)
     io.data(i).rdata := Mux(should_map_data(i),io.mapped_data(i).rdata,io.unmapped_data(i).rdata)
   }
-  io.data(0).ex := Mux(should_map_data(0),io.mapped_data(0).ex,0.U)
+  io.data(0).ex := Mux(should_map_data_c(0),io.mapped_data(0).ex,0.U)
   io.data(1).ex := DontCare
 
   io.inst.addr_ok := queue.io.enq.ready
@@ -181,7 +181,7 @@ class MemAccessJudge(cache_all_inst:Bool=false.B) extends Module{
   io.inst.inst_predict_jump_in := queue.io.deq.bits.jump
   io.inst.inst_predict_jump_target_in := queue.io.deq.bits.target
   io.inst.inst_pc := queue.io.deq.bits.addr
-  io.inst.ex := Mux(queue.io.deq.bits.should_map,io.mapped_inst.ex,0.U) //只有cache部分会出例外
+  io.inst.ex := Mux(should_map_inst_c,io.mapped_inst.ex,0.U) //只有cache部分会出例外
   queue.io.deq.ready := io.inst.data_ok
 
   io.mapped_inst.inst_predict_jump_target_out := DontCare

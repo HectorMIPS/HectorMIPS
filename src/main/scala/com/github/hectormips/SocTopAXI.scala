@@ -51,10 +51,10 @@ class SocTopAXI(cache_all: Boolean = false) extends Module {
     mem_judge.io.data(1) <> cpu_top.io.data_sram_like_io(1)
 
 
-    mem_judge.io.cached_inst <> cache.io.icache
-    mem_judge.io.cached_data <> cache.io.dcache
-    mem_judge.io.uncached_data <> cache.io.uncached
-    mem_judge.io.uncached_inst <> cache.io.uncache_inst
+    mem_judge.io.mapped_inst <> cache.io.icache
+    mem_judge.io.mapped_data <> cache.io.dcache
+    mem_judge.io.unmapped_data <> cache.io.uncached
+    mem_judge.io.unmapped_inst <> cache.io.uncache_inst
 
     cache.io.axi <> crossbar.io.in
 
