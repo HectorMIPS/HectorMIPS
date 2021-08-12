@@ -75,15 +75,15 @@ class InsPreFetchBundle extends WithAllowin {
 
 // 预取阶段，向同步RAM发起请求
 class InsPreFetch extends Module {
-  val io               : InsPreFetchBundle = IO(new InsPreFetchBundle())
-  val pc_jump          : UInt              = Wire(UInt(32.W))
-  val seq_pc_4         : UInt              = io.pc_seq4
+  val io             : InsPreFetchBundle = IO(new InsPreFetchBundle())
+  val pc_jump        : UInt              = Wire(UInt(32.W))
+  val seq_pc_4       : UInt              = io.pc_seq4
   // 如果上次取出的指令只有一个有效，则下一个取的指令只+4
-  val seq_pc_8         : UInt              = Mux(!io.inst_sram_ins_valid(1), io.pc_seq4, io.pc_seq8)
-  val seq_epc_8        : UInt              = io.cp0_pf_epc
-  val seq_exception_8  : UInt              = ExceptionConst.EXCEPTION_PROGRAM_ADDR
+  val seq_pc_8       : UInt              = Mux(!io.inst_sram_ins_valid(1), io.pc_seq4, io.pc_seq8)
+  val seq_epc_8      : UInt              = io.cp0_pf_epc
+  val seq_exception_8: UInt              = ExceptionConst.EXCEPTION_PROGRAM_ADDR
   // 如果有load-to-branch的情况，清空了队列之后还需要等待
-  val req              : Bool              = io.next_allowin &&
+  val req            : Bool              = io.next_allowin &&
     (io.fetch_state === RamState.waiting_for_request || io.fetch_state === RamState.requesting || io.data_ok) &&
     !io.flush
   pc_jump := io.id_pf_in.predict_branch_bundle.jumpTarget
@@ -151,9 +151,13 @@ class InsSufFetchBundle extends WithAllowin {
   val ins_ram_data: UInt = Input(UInt(64.W))
 
   val if_id_out                  : FetchDecodeBundle = Output(new FetchDecodeBundle)
+  val pc_debug_icache_if         : UInt              = Input(UInt(32.W))
   val pc_debug_pf_if             : UInt              = Input(UInt(32.W))
   val flush                      : Bool              = Input(Bool())
   val ins_ram_data_ok            : Bool              = Input(Bool())
+  val ins_ram_req                : Bool              = Input(Bool())
+  val ins_ram_addr_ok            : Bool              = Input(Bool())
+  val ins_ram_ex                 : UInt              = Input(UInt(3.W))
   val ins_ram_data_valid         : UInt              = Input(UInt(2.W))
   val ins_ram_predict_jump_taken : Vec[Bool]         = Input(Vec(2, Bool()))
   val ins_ram_predict_jump_target: Vec[UInt]         = Input(Vec(2, UInt(32.W)))
@@ -164,15 +168,23 @@ class InsSufFetchBundle extends WithAllowin {
 class InsSufFetch extends Module {
   val io: InsSufFetchBundle = IO(new InsSufFetchBundle())
 
+  val fetch_tlb_ex: Bool = io.ins_ram_req && io.ins_ram_addr_ok && io.ins_ram_ex =/= 0.U
   // 取消sufetch模块的缓冲，直接放入fifo
-  io.if_id_out.ins_if_id := io.ins_ram_data
-  io.if_id_out.ins_valid_if_id := io.ins_ram_data_valid
+  io.if_id_out.ins_if_id := Mux(fetch_tlb_ex, 0.U, io.ins_ram_data)
+  io.if_id_out.exception_flag := Mux(io.ins_ram_ex(0), ExceptionConst.EXCEPTION_TLB_REFILL_FETCH, 0.U) |
+    Mux(io.ins_ram_ex(1), ExceptionConst.EXCEPTION_TLB_INVALID_FETCH, 0.U) |
+    Mux(io.ins_ram_ex(2), ExceptionConst.EXCEPTION_TLB_MODIFIED_FETCH, 0.U)
+  io.if_id_out.ins_valid_if_id := Mux(fetch_tlb_ex, 1.U, io.ins_ram_data_valid)
   io.if_id_out.bus_valid := !reset.asBool() && !io.flush &&
     // 由缓冲寄存器读出
-    io.ins_ram_data_ok && io.fetch_state === RamState.waiting_for_response
-  io.if_id_out.pc_debug_if_id := io.pc_debug_pf_if
-  io.if_id_out.predict_jump_taken_if_id := io.ins_ram_predict_jump_taken
-  io.if_id_out.predict_jump_target_if_id := io.ins_ram_predict_jump_target
+    ((io.ins_ram_data_ok && io.fetch_state === RamState.waiting_for_response) ||
+      // 如果发送请求的过程中出现了例外，则直接使用带有exception_flag的nop传向后方流水
+      fetch_tlb_ex)
+  io.if_id_out.pc_debug_if_id := Mux(fetch_tlb_ex, io.pc_debug_pf_if, io.pc_debug_icache_if)
+  for (i <- 0 to 1) {
+    io.if_id_out.predict_jump_taken_if_id(i) := Mux(fetch_tlb_ex, 0.B, io.ins_ram_predict_jump_taken(i))
+    io.if_id_out.predict_jump_target_if_id(i) := io.ins_ram_predict_jump_target(i)
+  }
   io.this_allowin := !reset.asBool() && io.next_allowin
 }
 

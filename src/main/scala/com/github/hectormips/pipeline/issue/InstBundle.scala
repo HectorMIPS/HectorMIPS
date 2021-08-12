@@ -11,4 +11,5 @@ class InstBundle extends Bundle {
   val pc              : UInt      = UInt(32.W)
   val pred_jump_taken : Vec[Bool] = Vec(2, Bool())
   val pred_jump_target: Vec[UInt] = Vec(2, UInt(32.W))
+  val exception       : UInt      = UInt(32.W)
 }

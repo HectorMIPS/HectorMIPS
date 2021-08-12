@@ -48,7 +48,7 @@ class TLBWIBundle(tlb_num: Int) extends Bundle {
   val w_c1      : UInt = Input(UInt(3.W))
   val w_d1      : Bool = Input(Bool())
   val w_v1      : Bool = Input(Bool())
-  val w_pagemask: UInt = Output(UInt(12.W))
+  val w_pagemask: UInt = Input(UInt(12.W))
 }
 
 class TLBRBundle(tlb_num: Int) extends Bundle {

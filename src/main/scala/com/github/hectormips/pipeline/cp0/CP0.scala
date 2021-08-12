@@ -212,7 +212,7 @@ class CP0(n_tlb: Int) extends Module {
   }
 
   when(io.tlbp_cp0.is_tlbp) {
-    index := Cat(!io.tlbp_cp0.found, 0.U((32 - log_n_tlb).W), io.tlbp_cp0.index)
+    index := Cat(!io.tlbp_cp0.found, 0.U((31 - log_n_tlb).W), io.tlbp_cp0.index)
   }
   io.cp0_ex_out.status_exl := status_exl
   io.cp0_ex_out.cp0_cause_ip := Cat(cause_15_10, cause(9, 8))
@@ -224,11 +224,13 @@ class CP0(n_tlb: Int) extends Module {
   io.tlbwi_cp0.entrylo0 := entrylo0
   io.tlbwi_cp0.entrylo1 := entrylo1
   io.tlbwi_cp0.entryhi := entryhi
+  io.tlbwi_cp0.pagemask := pagemask
 
   io.asid := entryhi(7, 0)
   when(io.tlbr_cp0.is_tlbr) {
     entryhi := io.tlbr_cp0.entryhi
     entrylo0 := io.tlbr_cp0.entrylo0
     entrylo1 := io.tlbr_cp0.entrylo1
+    pagemask := io.tlbr_cp0.pagemask
   }
 }

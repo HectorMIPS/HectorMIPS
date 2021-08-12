@@ -96,6 +96,7 @@ class DecodeExecuteBundle extends WithVEI {
 class CP0HazardBypass extends Bundle with WithValid {
   val cp0_en : Bool = Bool() // 是否需要使用cp0寄存器
   val cp0_wen: Bool = Bool() // 写入的域含ip时 强制暂停
+  val tlb_wen: Bool = Bool()
 }
 
 
@@ -197,16 +198,18 @@ class InsExecute(n_tlb: Int) extends Module {
     (io.cp0_hazard_bypass_ms_ex(1).bus_valid && io.cp0_hazard_bypass_ms_ex(1).cp0_wen)
   val wb_cp0_ip0_wen: Bool = (io.cp0_hazard_bypass_wb_ex(0).bus_valid && io.cp0_hazard_bypass_wb_ex(0).cp0_wen) ||
     (io.cp0_hazard_bypass_wb_ex(1).bus_valid && io.cp0_hazard_bypass_wb_ex(1).cp0_wen)
-
-  val ready_go: Bool = !ms_cp0_ip0_wen && !wb_cp0_ip0_wen &&
-    Mux(io.id_ex_in(0).bus_valid && !exceptionShielded(0), alu(0.U ^ order_flipped).out.out_valid, 1.B) &&
-    Mux(io.id_ex_in(1).bus_valid && !exceptionShielded(1), alu(1.U ^ order_flipped).out.out_valid, 1.B) &&
-    Mux(exception_occur(exception_index) || (interrupt_occur && interrupt_available),
-      !ms_cp0_hazard && !wb_cp0_hazard, 1.B) &&
-    // 当一条指令返回了addr_ok之后即可以进入下一个阶段
-    Mux(io.id_ex_in(data_ram_index).bus_valid && io.id_ex_in(data_ram_index).mem_en_id_ex &&
-      Mux(data_ram_index === 0.U, !exception_on_inst0, !exception_on_inst0 && !exception_on_inst1),
-      io.data_ram_addr_ok, 1.B)
+  val tlb_writing   : Bool = (io.cp0_hazard_bypass_ms_ex(0).bus_valid && io.cp0_hazard_bypass_ms_ex(0).tlb_wen) ||
+    (io.cp0_hazard_bypass_wb_ex(0).bus_valid && io.cp0_hazard_bypass_wb_ex(0).tlb_wen)
+  val ready_go      : Bool = !ms_cp0_ip0_wen && !wb_cp0_ip0_wen &&
+    Mux(refetch_flipper, 1.B,
+      Mux(io.id_ex_in(0).bus_valid && !exceptionShielded(0), alu(0.U ^ order_flipped).out.out_valid, 1.B) &&
+        Mux(io.id_ex_in(1).bus_valid && !exceptionShielded(1), alu(1.U ^ order_flipped).out.out_valid, 1.B) &&
+        Mux(exception_occur(exception_index) || (interrupt_occur && interrupt_available),
+          !ms_cp0_hazard && !wb_cp0_hazard, 1.B) &&
+        // 当一条指令返回了addr_ok之后即可以进入下一个阶段
+        Mux(io.id_ex_in(data_ram_index).bus_valid && io.id_ex_in(data_ram_index).mem_en_id_ex &&
+          Mux(data_ram_index === 0.U, !exception_on_inst0, !exception_on_inst0 && !exception_on_inst1),
+          io.data_ram_addr_ok, 1.B)) && !tlb_writing
 
   val in_bus_valid: Bool = io.id_ex_in(0).bus_valid && !reset.asBool() && (!flush || eret_occur)
   for (i_alu <- 0 to 1) {
@@ -239,7 +242,7 @@ class InsExecute(n_tlb: Int) extends Module {
   // 如果第一条指令发生例外，清空ex阶段的所有指令
   // 如果第二条指令发生例外，仅将第一条无效化
   flush := ((interrupt_occur && interrupt_available) || exception_occur(exception_index) ||
-    eret_occur) && ready_go && io.id_ex_in(exception_index).bus_valid
+    eret_occur || refetch_flipper) && ready_go && io.id_ex_in(exception_index).bus_valid
   for (i <- 0 to 1) {
     exception_flags(i) := io.id_ex_in(i).exception_flags
     exception_occur(i) := exception_flags(i) =/= 0.U
@@ -342,7 +345,7 @@ class InsExecute(n_tlb: Int) extends Module {
     (interrupt_occur && interrupt_available)) &&
     io.id_ex_in(exception_index).bus_valid && ready_go
   io.ex_pf_out.to_epc_en_ex_pf := eret_occur && io.id_ex_in(0).bus_valid && ready_go
-  io.ex_pf_out.refetch_flag := refetch_flipper && io.id_ex_in(0).bus_valid
+  io.ex_pf_out.refetch_flag := refetch_flipper && io.id_ex_in(0).bus_valid && !tlb_writing
   io.ex_pf_out.refetch_pc := io.id_ex_in(0).pc_id_ex_debug
   io.ready_go := ready_go
 
@@ -363,12 +366,13 @@ class InsExecute(n_tlb: Int) extends Module {
 
   this_allowin := io.next_allowin && !reset.asBool() && ready_go
   io.this_allowin := this_allowin
+
   when((io.id_ex_in(0).tlbwi || io.id_ex_in(0).tlbr) && io.id_ex_in(0).bus_valid) {
     when(ready_go && io.next_allowin) {
       refetch_flipper := 1.B
     }
   }
-  when(io.id_ex_in(0).bus_valid && refetch_flipper === 1.B) {
+  when(io.id_ex_in(0).bus_valid && refetch_flipper === 1.B && ready_go) {
     refetch_flipper := 0.B
   }
 

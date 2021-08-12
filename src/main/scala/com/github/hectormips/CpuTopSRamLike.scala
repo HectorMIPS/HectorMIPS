@@ -208,7 +208,7 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0, n_tlb: Int = 16) extends 
   when(io.inst_sram_like_io.data_ok && fetch_state_reg === RamState.waiting_for_response) {
     // 如果等待返回的过程中正好可以data_ok并且可以发送新的请求，则继续等待新的请求结果
     when(pf_module.io.ins_ram_en) {
-      when(io.inst_sram_like_io.addr_ok) {
+      when(io.inst_sram_like_io.addr_ok && io.inst_sram_like_io.ex === 0.U) {
         fetch_state_reg := RamState.waiting_for_response
       }.otherwise {
         fetch_state_reg := RamState.requesting
@@ -238,7 +238,11 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0, n_tlb: Int = 16) extends 
   val if_module: InsSufFetch = Module(new InsSufFetch)
   // 由于是伪阶段，不需要寄存器来存储延迟槽指令pc
   if_module.io.ins_ram_data := io.inst_sram_like_io.rdata
-  if_module.io.pc_debug_pf_if := io.inst_sram_like_io.inst_pc
+  if_module.io.pc_debug_icache_if := io.inst_sram_like_io.inst_pc
+  if_module.io.pc_debug_pf_if := pf_module.io.ins_ram_addr
+  if_module.io.ins_ram_req := pf_module.io.ins_ram_en
+  if_module.io.ins_ram_addr_ok := io.inst_sram_like_io.addr_ok
+  if_module.io.ins_ram_ex := io.inst_sram_like_io.ex
   if_module.io.next_allowin := inst_fifo_allowin
   if_module.io.flush := fetch_force_cancel
   if_module.io.ins_ram_data_ok := io.inst_sram_like_io.data_ok
@@ -255,6 +259,7 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0, n_tlb: Int = 16) extends 
   inst_fifo.io.in.bits.inst_bundle.inst := if_fifo_bus.ins_if_id
   inst_fifo.io.in.bits.inst_bundle.pc := if_fifo_bus.pc_debug_if_id
   inst_fifo.io.in.bits.inst_bundle.inst_valid := if_fifo_bus.ins_valid_if_id
+  inst_fifo.io.in.bits.inst_bundle.exception := if_fifo_bus.exception_flag
   inst_fifo_allowin := inst_fifo.io.in.ready
   for (i <- 0 to 1) {
     inst_fifo.io.in.bits.inst_bundle.pred_jump_target(i) := predictor.io.predicts(i).target
@@ -269,6 +274,7 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0, n_tlb: Int = 16) extends 
   fifo_id_bus.bus_valid := inst_fifo.io.out.valid && !fetch_force_cancel && !id_feedback_flipper.hasPredictFail
   fifo_id_bus.predict_jump_target_if_id := inst_fifo.io.out.bits.inst_bundle.pred_jump_target
   fifo_id_bus.predict_jump_taken_if_id := inst_fifo.io.out.bits.inst_bundle.pred_jump_taken
+  fifo_id_bus.exception_flag := inst_fifo.io.out.bits.inst_bundle.exception
   inst_fifo.io.out.ready := id_allowin
   inst_fifo.io.in.bits.flush := id_feedback_flipper.hasPredictFail || pipeline_flush_ex
 
