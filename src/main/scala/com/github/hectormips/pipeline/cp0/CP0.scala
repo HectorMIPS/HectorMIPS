@@ -154,11 +154,11 @@ class CP0(n_tlb: Int) extends Module {
       }
 
       when(io.wb_cp0(i).regaddr === CP0Const.CP0_REGADDR_ENTRYLO0) {
-        entrylo0 := Cat(entrylo0(31, 30), io.wb_cp0(i).wdata(29, 0))
+        entrylo0 := Cat(entrylo0(31, 26), io.wb_cp0(i).wdata(25, 0))
       }
 
       when(io.wb_cp0(i).regaddr === CP0Const.CP0_REGADDR_ENTRYLO1) {
-        entrylo1 := Cat(entrylo1(31, 30), io.wb_cp0(i).wdata(29, 0))
+        entrylo1 := Cat(entrylo1(31, 26), io.wb_cp0(i).wdata(25, 0))
       }
 
       when(io.wb_cp0(i).regaddr === CP0Const.CP0_REGADDR_INDEX) {
