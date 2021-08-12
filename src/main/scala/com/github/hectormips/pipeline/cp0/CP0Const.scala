@@ -53,7 +53,7 @@ object ExcCodeConst {
   val INT : UInt = 0x00.U
   val MOD : UInt = 0x01.U
   val TLBL: UInt = 0x02.U
-  val TLBS: UInt = 0x02.U
+  val TLBS: UInt = 0x03.U
   val ADEL: UInt = 0x04.U
   val ADES: UInt = 0x05.U
   val SYS : UInt = 0x08.U
