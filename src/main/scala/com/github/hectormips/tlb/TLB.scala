@@ -135,7 +135,7 @@ class TLB(TLBNUM: Int) extends Module {
     for (i <- 0 until TLBNUM)
     // vpn匹配 且 进程id匹配
       match0(i) := ((s.vpn2 === tlbrow(i).vpn2) && ((s.asid === tlbrow(i).asid) || (tlbrow(i).g.asBool())))
-    when(match0.asUInt() === 0.U(1.W)) {
+    when(match0.asUInt() === 0.U) {
       // 未找到
       s.found := false.B
       s.index := 0.U
