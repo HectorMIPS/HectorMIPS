@@ -423,7 +423,7 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0, n_tlb: Int = 16) extends 
   ex_module.io.next_allowin := ms_allowin
   ms_module.io.next_allowin := wb_allowin
   io.tlb.tlbr_io <> wb_module.io.wb_tlbr
-  io.tlb.tlbwi_io := wb_tlbwi
+  io.tlb.tlbwi_io <> wb_tlbwi
 
 
 }
