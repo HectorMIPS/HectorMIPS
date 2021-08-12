@@ -24,7 +24,7 @@ class CpuTopSRamLikeBundle(n_tlb: Int) extends Bundle {
 }
 
 
-class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0, n_tlb: Int = 16) extends MultiIOModule {
+class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0, n_tlb: Int = 16, timer_int_en: Boolean = false) extends MultiIOModule {
   // 命名
   val io: CpuTopSRamLikeBundle = IO(new CpuTopSRamLikeBundle(n_tlb))
 
@@ -381,7 +381,7 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0, n_tlb: Int = 16) extends 
     bundle
   }, this_allowin = wb_allowin)
 
-  val cp0: CP0 = Module(new CP0(n_tlb))
+  val cp0: CP0 = Module(new CP0(n_tlb, timer_int_en))
   cp0.io.ex_cp0_in := ex_cp0
   cp0_ex := cp0.io.cp0_ex_out
   epc_cp0_pf := cp0.io.epc

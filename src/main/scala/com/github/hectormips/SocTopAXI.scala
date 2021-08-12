@@ -26,15 +26,15 @@ class SocTopSRamLikeBundle extends Bundle {
 
 
 // 使用axi的Soc顶层
-class SocTopAXI(cache_all: Boolean = false) extends Module {
+class SocTopAXI(cache_all: Boolean = false, timer_int_en: Boolean = true) extends Module {
   val io: SocTopSRamLikeBundle = IO(new SocTopSRamLikeBundle)
   withReset(!reset.asBool()) {
-    val n_tlb = 32
-    val cpu_top  : CpuTopSRamLike   = Module(new CpuTopSRamLike(0xbfbffffcL, 0, n_tlb))
+    val n_tlb                       = 32
+    val cpu_top  : CpuTopSRamLike   = Module(new CpuTopSRamLike(0xbfbffffcL, 0, n_tlb, timer_int_en))
     val cache    : Cache            = Module(new Cache(new CacheConfig()))
     val crossbar : axi_crossbar_2x1 = Module(new axi_crossbar_2x1)
-    val mem_judge: MemAccessJudge = Module(new MemAccessJudge(cache_all.B))
-    val tlb      : TLB            = Module(new TLB(n_tlb))
+    val mem_judge: MemAccessJudge   = Module(new MemAccessJudge(cache_all.B))
+    val tlb      : TLB              = Module(new TLB(n_tlb))
 
     io.axi_io.force_name()
     cpu_top.io.interrupt := io.interrupt
@@ -76,9 +76,9 @@ object SocTopAXI extends App {
   // 生成根目录下的mycpu_top.v
   (new ChiselStage).emitVerilog(new SocTopAXI)
   // 生成开启加速的func test文件
-  (new ChiselStage).emitVerilog(new SocTopAXI(true), "--target-dir build/func".split(" +"))
+  (new ChiselStage).emitVerilog(new SocTopAXI(true, false), "--target-dir build/func".split(" +"))
   // 生成不开启加速的perf test文件
-  (new ChiselStage).emitVerilog(new SocTopAXI(false), "--target-dir build/perf".split(" +"))
+  (new ChiselStage).emitVerilog(new SocTopAXI(false, false), "--target-dir build/perf".split(" +"))
   // 生成不开启加速的sys test文件
   (new ChiselStage).emitVerilog(new SocTopAXI(false), "--target-dir build/sys".split(" +"))
 }

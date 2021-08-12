@@ -38,13 +38,13 @@ class CP0Bundle(n_tlb: Int) extends Bundle {
   val asid     : UInt           = Output(UInt(8.W))
 }
 
-class CP0(n_tlb: Int) extends Module {
+class CP0(n_tlb: Int = 32, timer_int_en: Boolean = true) extends Module {
   val io: CP0Bundle = IO(new CP0Bundle(n_tlb))
 
   val status_exl: Bool = Wire(Bool())
 
   val cause      : UInt = RegInit(UInt(32.W), init = 0x0.U)
-  val cause_15_10: UInt = RegNext(next = Cat(io.int_in(5) | cause(30), io.int_in(4, 0)), init = 0x0.U)
+  val cause_15_10: UInt = RegNext(next = Cat(io.int_in(5) | (if (timer_int_en) 0.U else cause(30)), io.int_in(4, 0)), init = 0x0.U)
   val status     : UInt = RegInit(UInt(32.W), init = 0x400000.U)
   val count      : UInt = RegInit(UInt(32.W), init = 0x0.U)
   // tick寄存器，用于每两个周期count+1
@@ -192,7 +192,7 @@ class CP0(n_tlb: Int) extends Module {
   when(!((io.wb_cp0(0).regaddr === CP0Const.CP0_REGADDR_COMPARE && io.wb_cp0(0).regsel === 0.U && io.wb_cp0(0).wen) ||
     (io.wb_cp0(1).regaddr === CP0Const.CP0_REGADDR_COMPARE && io.wb_cp0(1).regsel === 0.U && io.wb_cp0(1).wen))) {
     when(compare_eq_count) {
-      cause := Cat(cause(31), 1.B, cause(29, 0))
+      cause := Cat(cause(31), if (timer_int_en) 1.B else 0.B, cause(29, 0))
     }
   }
 
