@@ -35,34 +35,36 @@ class TLBRow extends Bundle {
 }
 
 class TLBWIBundle(tlb_num: Int) extends Bundle {
-  val we     : Bool = Input(Bool())
-  val w_index: UInt = Input(UInt(log2Up(tlb_num).W)) // TLB表项id
-  val w_vpn2 : UInt = Input(UInt(19.W))
-  val w_asid : UInt = Input(UInt(8.W))
-  val w_g    : Bool = Input(Bool())
-  val w_pfn0 : UInt = Input(UInt(20.W))
-  val w_c0   : UInt = Input(UInt(3.W))
-  val w_d0   : Bool = Input(Bool())
-  val w_v0   : Bool = Input(Bool())
-  val w_pfn1 : UInt = Input(UInt(20.W))
-  val w_c1   : UInt = Input(UInt(3.W))
-  val w_d1   : Bool = Input(Bool())
-  val w_v1   : Bool = Input(Bool())
+  val we        : Bool = Input(Bool())
+  val w_index   : UInt = Input(UInt(log2Up(tlb_num).W)) // TLB表项id
+  val w_vpn2    : UInt = Input(UInt(19.W))
+  val w_asid    : UInt = Input(UInt(8.W))
+  val w_g       : Bool = Input(Bool())
+  val w_pfn0    : UInt = Input(UInt(20.W))
+  val w_c0      : UInt = Input(UInt(3.W))
+  val w_d0      : Bool = Input(Bool())
+  val w_v0      : Bool = Input(Bool())
+  val w_pfn1    : UInt = Input(UInt(20.W))
+  val w_c1      : UInt = Input(UInt(3.W))
+  val w_d1      : Bool = Input(Bool())
+  val w_v1      : Bool = Input(Bool())
+  val w_pagemask: UInt = Output(UInt(12.W))
 }
 
 class TLBRBundle(tlb_num: Int) extends Bundle {
-  val r_index: UInt = Input(UInt(log2Up(tlb_num).W)) // TLB表项id
-  val r_vpn2 : UInt = Output(UInt(19.W))
-  val r_asid : UInt = Output(UInt(8.W))
-  val r_g    : Bool = Output(Bool())
-  val r_pfn0 : UInt = Output(UInt(20.W))
-  val r_c0   : UInt = Output(UInt(3.W))
-  val r_d0   : Bool = Output(Bool())
-  val r_v0   : Bool = Output(Bool())
-  val r_pfn1 : UInt = Output(UInt(20.W))
-  val r_c1   : UInt = Output(UInt(3.W))
-  val r_d1   : Bool = Output(Bool())
-  val r_v1   : Bool = Output(Bool())
+  val r_index   : UInt = Input(UInt(log2Up(tlb_num).W)) // TLB表项id
+  val r_vpn2    : UInt = Output(UInt(19.W))
+  val r_asid    : UInt = Output(UInt(8.W))
+  val r_g       : Bool = Output(Bool())
+  val r_pfn0    : UInt = Output(UInt(20.W))
+  val r_c0      : UInt = Output(UInt(3.W))
+  val r_d0      : Bool = Output(Bool())
+  val r_v0      : Bool = Output(Bool())
+  val r_pfn1    : UInt = Output(UInt(20.W))
+  val r_c1      : UInt = Output(UInt(3.W))
+  val r_d1      : Bool = Output(Bool())
+  val r_v1      : Bool = Output(Bool())
+  val r_pagemask: UInt = Output(UInt(12.W))
 }
 
 class TLBPBundle(tlb_num: Int) extends Bundle {
@@ -177,6 +179,7 @@ class TLB(TLBNUM: Int) extends Module {
   io.tlb_inst_io.tlbr_io.r_c1 := tlbrow(io.tlb_inst_io.tlbr_io.r_index).C1
   io.tlb_inst_io.tlbr_io.r_d1 := tlbrow(io.tlb_inst_io.tlbr_io.r_index).D1
   io.tlb_inst_io.tlbr_io.r_v1 := tlbrow(io.tlb_inst_io.tlbr_io.r_index).V1
+  io.tlb_inst_io.tlbr_io.r_pagemask := 0.U //只能使用4KB
 
   /**
    * 查询操作
