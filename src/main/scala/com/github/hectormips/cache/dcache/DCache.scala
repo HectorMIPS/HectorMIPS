@@ -334,7 +334,7 @@ class DCache(val config: CacheConfig)
    */
   val evictionCounter = RegInit(VecInit(Seq.fill(2)(0.U(config.bankNumWidth.W))))
   invalidateQueue.io.uncache_req := false.B
-  invalidateQueue.io.uncache_addr := Cat(io.tlb.pfn, io.addr(0)(config.indexWidth, 0))
+  invalidateQueue.io.uncache_addr := Cat(io.tlb.pfn, io.addr(0)(11, 0))
   invalidateQueue.io.uncache_data := io.wdata(0)
   invalidateQueue.io.uncache_size := io.size(0)
 
@@ -375,7 +375,7 @@ class DCache(val config: CacheConfig)
       when(io.tlb.c === 3.U) { //如果允许cache
         storeBuffer.io.cpu_req := true.B
         storeBuffer.io.cpu_size := io.size(0)
-        storeBuffer.io.cpu_addr := Cat(io.tlb.pfn, io.addr(0)(config.indexWidth, 0))
+        storeBuffer.io.cpu_addr := Cat(io.tlb.pfn, io.addr(0)(11, 0))
         storeBuffer.io.cpu_wdata := io.wdata(0)
         storeBuffer.io.cpu_port := 0.U
       }.otherwise{
@@ -421,7 +421,7 @@ class DCache(val config: CacheConfig)
               }.otherwise { //不允许cache
                 state(0) := sFetchHandshake // uncache
               }
-              addr_r_0 := Cat(io.tlb.pfn, io.addr(0)(config.indexWidth, 0))
+              addr_r_0 := Cat(io.tlb.pfn, io.addr(0)(11, 0))
             }.otherwise {
               // TLB Miss
               state(0) := sIDLE

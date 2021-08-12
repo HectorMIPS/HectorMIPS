@@ -253,7 +253,7 @@ class ICache(val config: CacheConfig)
           }.otherwise{
             state := sFetchHandshake // uncache
           }
-          addr_r := Cat(io.tlb.pfn,io.addr(config.indexWidth,0))
+          addr_r := Cat(io.tlb.pfn,io.addr(11,0))
         }.otherwise{
           // TLB Miss
           state := sIDLE
@@ -277,7 +277,7 @@ class ICache(val config: CacheConfig)
             }.otherwise{
               state := sFetchHandshake // uncache
             }
-            addr_r := Cat(io.tlb.pfn,io.addr(config.indexWidth,0))
+            addr_r := Cat(io.tlb.pfn,io.addr(11,0))
           }.otherwise{
             // TLB Miss
             state := sIDLE
