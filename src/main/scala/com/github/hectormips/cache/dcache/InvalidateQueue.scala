@@ -50,7 +50,7 @@ class InvalidateQueue(config:CacheConfig) extends Module {
 
   val uncache_data = RegInit(0.U(32.W))
   val uncache_addr = RegInit(0.U(32.W))
-  val uncache_state = RegInit(0.U(2.W))
+  val uncache_state = RegInit(0.U(3.W))
   val uncache_busy = RegInit(false.B)
   val uncache_wstrb = RegInit(0.U(4.W))
   val wstrb = Module(new Wstrb)
@@ -162,7 +162,7 @@ class InvalidateQueue(config:CacheConfig) extends Module {
   io.writeAddr.bits.prot := 0.U
   io.writeAddr.bits.burst := 2.U
 
-  io.writeAddr.valid := (state(0) === sHANDSHAKE|| state(1) === sHANDSHAKE || uncache_state===sHANDSHAKE) && !io.writeAddr.ready
+  io.writeAddr.valid := state(0) === sHANDSHAKE|| state(1) === sHANDSHAKE || uncache_state===sHANDSHAKE
 
   io.writeData.bits.wid := Mux(state(0)===sTrans,worker_id(0),Mux(state(1)===sTrans,worker_id(1),0.U))
   dontTouch(io.writeData.bits.wid)
