@@ -117,13 +117,13 @@ class MemAccessJudge(cache_all_inst:Bool=false.B) extends Module{
     io.mapped_data(i).req := should_map_data(i) & io.data(i).req
     io.unmapped_data(i).req := !should_map_data(i) & io.data(i).req
     io.mapped_data(i).size := io.data(i).size
-    io.mapped_data(i).addr := physical_addr(io.data(i).addr)
+    io.mapped_data(i).addr := io.data(i).addr
     io.mapped_data(i).wr := io.data(i).wr
     io.mapped_data(i).wdata := io.data(i).wdata
     io.mapped_data(i).asid := io.data(i).asid
 
     io.unmapped_data(i).size := io.data(i).size
-    io.unmapped_data(i).addr := physical_addr(io.data(i).addr)
+    io.unmapped_data(i).addr := data_physical_addr(i)
     io.unmapped_data(i).wr := io.data(i).wr
     io.unmapped_data(i).wdata := io.data(i).wdata
     io.unmapped_data(i).asid := DontCare
@@ -150,8 +150,8 @@ class MemAccessJudge(cache_all_inst:Bool=false.B) extends Module{
   val handshake = RegInit(false.B)
   val physical_inst_addr = Wire(UInt(32.W))
   val physical_queue_inst_addr = Wire(UInt(32.W))
-  physical_inst_addr := physical_addr(io.inst.addr)
-  physical_queue_inst_addr := physical_addr(queue.io.enq.bits.addr)
+  physical_inst_addr := get_physical_addr(io.inst.addr)
+  physical_queue_inst_addr := get_physical_addr(queue.io.enq.bits.addr)
 
   when(io.inst.req){
     handshake := false.B
@@ -190,13 +190,20 @@ class MemAccessJudge(cache_all_inst:Bool=false.B) extends Module{
   io.unmapped_inst.inst_predict_jump_out := DontCare
 
 
-  def physical_addr(virtual_addr:UInt):UInt={
-    val physical_addr: UInt = Wire(UInt(32.W))
-    when(io.inst.addr >= "h8000_0000".U && io.inst.addr <= "hbfff_ffff".U){
-      physical_addr := virtual_addr  & "h1fff_ffff".U
-    }.otherwise{
-      physical_addr := virtual_addr
-    }
-    physical_addr
+  def get_physical_addr(virtual_addr:UInt):UInt= {
+    val converter = Module(new physical_addr)
+    converter.io.virtual_addr := virtual_addr
+    converter.io.physical_addr
+  }
+}
+class physical_addr extends Module{
+  val io = IO(new Bundle{
+    val virtual_addr = Input(UInt(32.W))
+    val physical_addr = Output(UInt(32.W))
+  })
+  when(io.virtual_addr >= "h8000_0000".U && io.virtual_addr <= "hbfff_ffff".U){
+    io.physical_addr := io.virtual_addr  & "h1fff_ffff".U
+  }.otherwise{
+    io.physical_addr := io.virtual_addr
   }
 }

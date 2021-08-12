@@ -7,6 +7,7 @@ import chisel3._
 import chisel3.util._
 import chisel3.stage.{ChiselGeneratorAnnotation, ChiselStage}
 import chisel3.util.experimental.forceName
+import com.github.hectormips.cache.access_judge.physical_addr
 import com.github.hectormips.tlb.SearchPort
 
 
@@ -253,7 +254,7 @@ class ICache(val config: CacheConfig)
           }.otherwise{
             state := sFetchHandshake // uncache
           }
-          addr_r := Cat(io.tlb.pfn,io.addr(11,0))
+          addr_r := get_physical_addr(Cat(io.tlb.pfn,io.addr(11,0)))
         }.otherwise{
           // TLB Miss
           state := sIDLE
@@ -277,7 +278,7 @@ class ICache(val config: CacheConfig)
             }.otherwise{
               state := sFetchHandshake // uncache
             }
-            addr_r := Cat(io.tlb.pfn,io.addr(11,0))
+            addr_r := get_physical_addr(Cat(io.tlb.pfn,io.addr(11,0)))
           }.otherwise{
             // TLB Miss
             state := sIDLE
@@ -383,7 +384,11 @@ class ICache(val config: CacheConfig)
   //  when(io.axi.readAddr.fire()){
   //    io.axi.readAddr.valid := false.B
   //  }
-
+  def get_physical_addr(virtual_addr:UInt):UInt= {
+    val converter = Module(new physical_addr)
+    converter.io.virtual_addr := virtual_addr
+    converter.io.physical_addr
+  }
 
 }
 

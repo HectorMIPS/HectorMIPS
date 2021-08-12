@@ -4,10 +4,10 @@ import chisel3._
 import chisel3.stage.{ChiselGeneratorAnnotation, ChiselStage}
 import chisel3.util._
 import com.github.hectormips.amba._
+import com.github.hectormips.cache.access_judge.physical_addr
 import com.github.hectormips.cache.lru.LruMem
 import com.github.hectormips.cache.setting.CacheConfig
 import com.github.hectormips.tlb.SearchPort
-
 
 class QueueItem extends Bundle {
   val port = UInt(1.W)
@@ -88,6 +88,7 @@ class DCache(val config: CacheConfig)
   val addr_r_0 = Reg(UInt(32.W)) //地址寄存器
   val addr_r = Wire(Vec(2, UInt(32.W))) //地址寄存器
   addr_r(0) := Mux(io.valid(0) && io.addr_ok(0), io.addr(0), addr_r_0)
+
   addr_r(1) := storeBuffer.io.cache_write_addr
   val wdata_r = Wire(UInt(32.W))
   //  wdata_r(0) := queue.io.deq.bits.wdata
@@ -334,7 +335,7 @@ class DCache(val config: CacheConfig)
    */
   val evictionCounter = RegInit(VecInit(Seq.fill(2)(0.U(config.bankNumWidth.W))))
   invalidateQueue.io.uncache_req := false.B
-  invalidateQueue.io.uncache_addr := Cat(io.tlb.pfn, io.addr(0)(11, 0))
+  invalidateQueue.io.uncache_addr := get_physical_addr(Cat(io.tlb.pfn, io.addr(0)(11, 0)))
   invalidateQueue.io.uncache_data := io.wdata(0)
   invalidateQueue.io.uncache_size := io.size(0)
 
@@ -375,7 +376,7 @@ class DCache(val config: CacheConfig)
       when(io.tlb.c === 3.U) { //如果允许cache
         storeBuffer.io.cpu_req := true.B
         storeBuffer.io.cpu_size := io.size(0)
-        storeBuffer.io.cpu_addr := Cat(io.tlb.pfn, io.addr(0)(11, 0))
+        storeBuffer.io.cpu_addr := get_physical_addr(Cat(io.tlb.pfn, io.addr(0)(11, 0)))
         storeBuffer.io.cpu_wdata := io.wdata(0)
         storeBuffer.io.cpu_port := 0.U
       }.otherwise{
@@ -421,7 +422,7 @@ class DCache(val config: CacheConfig)
               }.otherwise { //不允许cache
                 state(0) := sFetchHandshake // uncache
               }
-              addr_r_0 := Cat(io.tlb.pfn, io.addr(0)(11, 0))
+              addr_r_0 := get_physical_addr(Cat(io.tlb.pfn, io.addr(0)(11, 0)))
             }.otherwise {
               // TLB Miss
               state(0) := sIDLE
@@ -570,6 +571,11 @@ class DCache(val config: CacheConfig)
         }
       }
     }
+  def get_physical_addr(virtual_addr:UInt):UInt= {
+    val converter = Module(new physical_addr)
+    converter.io.virtual_addr := virtual_addr
+    converter.io.physical_addr
+  }
 }
   object DCache extends App {
     new ChiselStage execute(args, Seq(ChiselGeneratorAnnotation(

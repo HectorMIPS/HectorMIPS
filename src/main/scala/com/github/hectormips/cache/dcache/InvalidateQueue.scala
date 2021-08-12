@@ -87,6 +87,7 @@ class InvalidateQueue(config:CacheConfig) extends Module {
   when(uncache_state === sTrans){
     when(io.writeData.valid && io.writeData.ready && io.writeData.bits.wid === 0.U) {
       uncache_state := sWaiting
+
     }.otherwise{
       uncache_state := sTrans
     }
@@ -156,7 +157,7 @@ class InvalidateQueue(config:CacheConfig) extends Module {
   io.writeAddr.bits.id := Mux(state(0)===sHANDSHAKE,worker_id(0),Mux(state(1)===sHANDSHAKE,worker_id(1),0.U))
   io.writeAddr.bits.addr := Mux(state(0)===sHANDSHAKE,addr_r(0),Mux(state(1)===sHANDSHAKE,addr_r(1),Mux(uncache_state===sHANDSHAKE,uncache_addr,0.U)))
   io.writeAddr.bits.size := 2.U
-  io.writeAddr.bits.len := Mux(uncache_state===sHANDSHAKE,0.U,(config.bankNum -1).U)
+  io.writeAddr.bits.len := Mux(uncache_state===sHANDSHAKE || uncache_state===sTrans,0.U,(config.bankNum -1).U)
   io.writeAddr.bits.cache := 0.U
   io.writeAddr.bits.lock := 0.U
   io.writeAddr.bits.prot := 0.U
@@ -167,8 +168,8 @@ class InvalidateQueue(config:CacheConfig) extends Module {
   io.writeData.bits.wid := Mux(state(0)===sTrans,worker_id(0),Mux(state(1)===sTrans,worker_id(1),0.U))
   dontTouch(io.writeData.bits.wid)
   io.writeData.bits.strb := Mux(uncache_state===sHANDSHAKE,uncache_wstrb,"b1111".U)
-  io.writeData.bits.last := Mux(uncache_state===sHANDSHAKE,1.U,counter(0) === (config.bankNum - 1).U || counter(1) === (config.bankNum - 1).U)
-  io.writeData.bits.data := Mux(uncache_state===sHANDSHAKE,uncache_data,Mux(state(0)===sTrans,io.wdata(0),Mux(state(1)===sTrans,io.wdata(1),0.U)))
+  io.writeData.bits.last := Mux(uncache_state===sTrans,1.U,counter(0) === (config.bankNum - 1).U || counter(1) === (config.bankNum - 1).U)
+  io.writeData.bits.data := Mux(uncache_state===sTrans,uncache_data,Mux(state(0)===sTrans,io.wdata(0),Mux(state(1)===sTrans,io.wdata(1),0.U)))
   io.writeData.valid := state(0) === sTrans || state(1) === sTrans || uncache_state===sTrans
 
   io.writeResp.ready := state(0) === sWaiting || state(1) === sWaiting || uncache_state === sWaiting
