@@ -287,7 +287,7 @@ class DCache(val config: CacheConfig)
    * AXI
    */
 
-  io.axi.readAddr.bits.id := 1.U // 未填
+  io.axi.readAddr.bits.id := Mux(state(0)===sFetchHandshake,0.U,1.U) // 未填
   val worker_id = Wire(Vec(2, UInt(4.W)))
   worker_id(0) := 1.U
   worker_id(1) := 3.U
@@ -300,6 +300,8 @@ class DCache(val config: CacheConfig)
   io.axi.readAddr.bits.prot := 0.U
   io.axi.readAddr.bits.burst := 2.U //突发模式2
   io.axi.readData.ready := state(0) === sREFILL || state(1) === sREFILL || state(0) === sFetchRecv
+  io.axi.readAddr.valid := state(0) === sREPLACE || state(1) === sREPLACE || state(0) === sFetchHandshake
+
   //  /**
   //   * debug
   //   */
@@ -398,7 +400,6 @@ class DCache(val config: CacheConfig)
 
   //  lookupReadyGO := state(0) === sLOOKUP && state(1)=/=sIDLE && state(1) =/= s
 
-  io.axi.readAddr.valid := state(0) === sREPLACE || state(1) === sREPLACE
   //  victim.io.qaddr := Cat(addr_r(31,config.offsetWidth),0.U(config.offsetWidth.W))
   for (worker <- 0 to 1) {
     switch(state(worker)) {
