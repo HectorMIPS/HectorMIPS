@@ -199,11 +199,19 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0, n_tlb: Int = 16, timer_in
     when(!io.inst_sram_like_io.addr_ok) {
       fetch_state_reg := RamState.requesting
     }.elsewhen(io.inst_sram_like_io.addr_ok) {
-      fetch_state_reg := RamState.waiting_for_response
+      when(io.inst_sram_like_io.ex === 0.U) {
+        fetch_state_reg := RamState.waiting_for_response
+      }.otherwise {
+        fetch_state_reg := RamState.waiting_for_request
+      }
     }
   }
   when(io.inst_sram_like_io.addr_ok && fetch_state_reg === RamState.requesting && pf_module.io.ins_ram_en) {
-    fetch_state_reg := RamState.waiting_for_response
+    when(io.inst_sram_like_io.ex === 0.U) {
+      fetch_state_reg := RamState.waiting_for_response
+    }.otherwise {
+      fetch_state_reg := RamState.waiting_for_request
+    }
   }
   when(io.inst_sram_like_io.data_ok && fetch_state_reg === RamState.waiting_for_response) {
     // 如果等待返回的过程中正好可以data_ok并且可以发送新的请求，则继续等待新的请求结果
@@ -226,7 +234,7 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0, n_tlb: Int = 16, timer_in
     }
   }
   when(fetch_state_reg === RamState.cancel && io.inst_sram_like_io.data_ok) {
-    when(io.inst_sram_like_io.addr_ok && pf_module.io.ins_ram_en) {
+    when(io.inst_sram_like_io.addr_ok && pf_module.io.ins_ram_en && io.inst_sram_like_io.ex === 0.U) {
       fetch_state_reg := RamState.waiting_for_response
     }.otherwise {
       fetch_state_reg := RamState.waiting_for_request
