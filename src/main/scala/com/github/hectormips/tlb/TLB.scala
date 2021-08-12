@@ -104,7 +104,21 @@ class TLB(TLBNUM: Int) extends Module {
    */
   //  chisel3.util.experimental.forceName(clock,"clk")
   val io     = IO(new TLBBundle(TLBNUM))
-  val tlbrow = Reg(Vec(TLBNUM, new TLBRow))
+  val tlbrow = RegInit(VecInit(Seq.fill(TLBNUM)({
+    val bundle = Wire(new TLBRow)
+    bundle.vpn2 := 0.U
+    bundle.asid := 0.U
+    bundle.g := 0.U
+    bundle.PFN0 := 0.U
+    bundle.C0 := 0.U
+    bundle.D0 := 0.U
+    bundle.V0 := 0.U
+    bundle.PFN1 := 0.U
+    bundle.C1 := 0.U
+    bundle.D1 := 0.U
+    bundle.V1 := 0.U
+    bundle
+  })))
 
   /**
    * 查询
@@ -115,7 +129,7 @@ class TLB(TLBNUM: Int) extends Module {
     index0 := OHToUInt(match0.asUInt())
     val ex = Wire(Vec(3, Bool()))
     s.ex := Cat(ex(2), ex(1), ex(0))
-    ex(2) := s.d //修改例外需要知道是否为store，因此由cache决定是否修改此位
+    ex(2) := s.found && tlbrow(s.index).D0.asBool() //修改例外需要知道是否为store，因此由cache决定是否修改此位
     ex(1) := false.B
     ex(0) := false.B
     for (i <- 0 until TLBNUM)
