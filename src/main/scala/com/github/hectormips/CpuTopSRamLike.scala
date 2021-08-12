@@ -330,6 +330,7 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0, n_tlb: Int = 16) extends 
   ex_module.io.cp0_ex_in.cp0_status_im := cp0_status_im
   ex_module.io.data_ram_addr_ok := io.data_sram_like_io(0).addr_ok
   ex_module.io.tlbp_io <> io.tlb.tlbp_io
+  ex_module.io.data_ram_ex := io.data_sram_like_io(0).ex
   io.data_sram_like_io(0).req := ex_module.io.ex_ram_out.mem_en
   io.data_sram_like_io(0).wr := ex_module.io.ex_ram_out.mem_wen
   io.data_sram_like_io(0).addr := ex_module.io.ex_ram_out.mem_addr

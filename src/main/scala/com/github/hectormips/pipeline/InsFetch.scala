@@ -31,20 +31,22 @@ class DecodePreFetchBundle extends Bundle {
 }
 
 class ExecutePrefetchBundle extends Bundle {
-  val to_exception_service_en_ex_pf: Bool = Bool()
-  val to_epc_en_ex_pf              : Bool = Bool()
-  val refetch_flag                 : Bool = Bool()
-  val refetch_pc                   : UInt = UInt(32.W)
+  val to_exception_service_en_ex_pf    : Bool = Bool()
+  val to_exception_service_tlb_en_ex_pf: Bool = Bool()
+  val to_epc_en_ex_pf                  : Bool = Bool()
+  val refetch_flag                     : Bool = Bool()
+  val refetch_pc                       : UInt = UInt(32.W)
 
   def defaults(): Unit = {
     to_exception_service_en_ex_pf := 0.B
+    to_exception_service_tlb_en_ex_pf := 0.B
     to_epc_en_ex_pf := 0.B
     refetch_flag := 0.B
     refetch_pc := 0xbfc00000L.U
   }
 
   def valid: Bool = {
-    to_epc_en_ex_pf || to_exception_service_en_ex_pf || refetch_flag
+    to_epc_en_ex_pf || to_exception_service_en_ex_pf || refetch_flag || to_exception_service_tlb_en_ex_pf
   }
 }
 
@@ -75,15 +77,14 @@ class InsPreFetchBundle extends WithAllowin {
 
 // 预取阶段，向同步RAM发起请求
 class InsPreFetch extends Module {
-  val io             : InsPreFetchBundle = IO(new InsPreFetchBundle())
-  val pc_jump        : UInt              = Wire(UInt(32.W))
-  val seq_pc_4       : UInt              = io.pc_seq4
+  val io       : InsPreFetchBundle = IO(new InsPreFetchBundle())
+  val pc_jump  : UInt              = Wire(UInt(32.W))
+  val seq_pc_4 : UInt              = io.pc_seq4
   // 如果上次取出的指令只有一个有效，则下一个取的指令只+4
-  val seq_pc_8       : UInt              = Mux(!io.inst_sram_ins_valid(1), io.pc_seq4, io.pc_seq8)
-  val seq_epc_8      : UInt              = io.cp0_pf_epc
-  val seq_exception_8: UInt              = ExceptionConst.EXCEPTION_PROGRAM_ADDR
+  val seq_pc_8 : UInt              = Mux(!io.inst_sram_ins_valid(1), io.pc_seq4, io.pc_seq8)
+  val seq_epc_8: UInt              = io.cp0_pf_epc
   // 如果有load-to-branch的情况，清空了队列之后还需要等待
-  val req            : Bool              = io.next_allowin &&
+  val req      : Bool              = io.next_allowin &&
     (io.fetch_state === RamState.waiting_for_request || io.fetch_state === RamState.requesting || io.data_ok) &&
     !io.flush
   pc_jump := io.id_pf_in.predict_branch_bundle.jumpTarget
@@ -101,7 +102,8 @@ class InsPreFetch extends Module {
   val pc_out: UInt = MuxCase(seq_pc_8, Seq(
     io.ex_pf_in.refetch_flag -> io.ex_pf_in.refetch_pc,
     io.ex_pf_in.to_epc_en_ex_pf -> seq_epc_8,
-    io.ex_pf_in.to_exception_service_en_ex_pf -> seq_exception_8,
+    io.ex_pf_in.to_exception_service_tlb_en_ex_pf -> ExceptionConst.EXCEPTION_PROGRAM_ADDR_REFILL,
+    io.ex_pf_in.to_exception_service_en_ex_pf -> ExceptionConst.EXCEPTION_PROGRAM_ADDR,
     // 如果队列已满或者还上一条请求还没有返回则原地踏步
     // 如果发起了请求但是没有addr_ok同样需要原地踏步
     (!io.next_allowin || (io.fetch_state === RamState.waiting_for_response && !io.data_ok) ||
@@ -172,8 +174,7 @@ class InsSufFetch extends Module {
   // 取消sufetch模块的缓冲，直接放入fifo
   io.if_id_out.ins_if_id := Mux(fetch_tlb_ex, 0.U, io.ins_ram_data)
   io.if_id_out.exception_flag := Mux(io.ins_ram_ex(0), ExceptionConst.EXCEPTION_TLB_REFILL_FETCH, 0.U) |
-    Mux(io.ins_ram_ex(1), ExceptionConst.EXCEPTION_TLB_INVALID_FETCH, 0.U) |
-    Mux(io.ins_ram_ex(2), ExceptionConst.EXCEPTION_TLB_MODIFIED_FETCH, 0.U)
+    Mux(io.ins_ram_ex(1), ExceptionConst.EXCEPTION_TLB_INVALID_FETCH, 0.U)
   io.if_id_out.ins_valid_if_id := Mux(fetch_tlb_ex, 1.U, io.ins_ram_data_valid)
   io.if_id_out.bus_valid := !reset.asBool() && !io.flush &&
     // 由缓冲寄存器读出
