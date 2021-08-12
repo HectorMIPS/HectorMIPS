@@ -117,13 +117,13 @@ class MemAccessJudge(cache_all_inst:Bool=false.B) extends Module{
     io.mapped_data(i).req := should_map_data(i) & io.data(i).req
     io.unmapped_data(i).req := !should_map_data(i) & io.data(i).req
     io.mapped_data(i).size := io.data(i).size
-    io.mapped_data(i).addr := io.data(i).addr
+    io.mapped_data(i).addr := physical_addr(io.data(i).addr)
     io.mapped_data(i).wr := io.data(i).wr
     io.mapped_data(i).wdata := io.data(i).wdata
     io.mapped_data(i).asid := io.data(i).asid
 
     io.unmapped_data(i).size := io.data(i).size
-    io.unmapped_data(i).addr := data_physical_addr(i)
+    io.unmapped_data(i).addr := physical_addr(io.data(i).addr)
     io.unmapped_data(i).wr := io.data(i).wr
     io.unmapped_data(i).wdata := io.data(i).wdata
     io.unmapped_data(i).asid := DontCare
