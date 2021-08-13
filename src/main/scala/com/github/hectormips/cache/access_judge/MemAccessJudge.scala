@@ -89,6 +89,11 @@ class MemAccessJudge(cache_all_inst:Bool=false.B) extends Module{
 //  val should_cache_inst   = Wire(Bool())
 
   val queue = Module(new Queue(new QueueItem, 3))
+  val handshake = RegInit(false.B)
+  val physical_inst_addr = Wire(UInt(32.W))
+  val physical_queue_inst_addr = Wire(UInt(32.W))
+  val wait_for_dequeue = RegInit(false.B)
+
   /**
    * 如果需要快速测试，cache_all_inst 设为true即可
    */
@@ -135,21 +140,19 @@ class MemAccessJudge(cache_all_inst:Bool=false.B) extends Module{
   io.data(0).ex := Mux(should_map_data_c(0),io.mapped_data(0).ex,0.U)
   io.data(1).ex := DontCare
 
-  io.inst.addr_ok := queue.io.enq.ready
+  io.inst.addr_ok := queue.io.enq.ready && !wait_for_dequeue
 
   queue.io.enq.bits.addr := io.inst.addr
   queue.io.enq.bits.wr := io.inst.wr
   queue.io.enq.bits.size := io.inst.size
   queue.io.enq.bits.wdata := io.inst.wdata
   queue.io.enq.bits.should_map := should_map_inst_c
-  queue.io.enq.valid := io.inst.req
+  queue.io.enq.valid := io.inst.req && !wait_for_dequeue
   queue.io.enq.bits.jump := io.inst.inst_predict_jump_out
   queue.io.enq.bits.target := io.inst.inst_predict_jump_target_out
   queue.io.enq.bits.asid := io.inst.asid
 
-  val handshake = RegInit(false.B)
-  val physical_inst_addr = Wire(UInt(32.W))
-  val physical_queue_inst_addr = Wire(UInt(32.W))
+
   physical_inst_addr := get_physical_addr(io.inst.addr)
   physical_queue_inst_addr := get_physical_addr(queue.io.enq.bits.addr)
 
@@ -182,8 +185,14 @@ class MemAccessJudge(cache_all_inst:Bool=false.B) extends Module{
   io.inst.inst_predict_jump_target_in := queue.io.deq.bits.target
   io.inst.inst_pc := queue.io.deq.bits.addr
   io.inst.ex := Mux(should_map_inst_c,io.mapped_inst.ex,0.U) //只有cache部分会出例外
-  queue.io.deq.ready := io.inst.data_ok
+  queue.io.deq.ready := io.inst.data_ok || (io.inst.req && should_map_inst_c && io.inst.ex=/= 0.U) || wait_for_dequeue
 
+  when(io.inst.req && should_map_inst_c && io.inst.ex=/= 0.U ){//需要出队两个
+    wait_for_dequeue := true.B
+  }
+  when(wait_for_dequeue){
+    wait_for_dequeue := false.B
+  }
   io.mapped_inst.inst_predict_jump_target_out := DontCare
   io.mapped_inst.inst_predict_jump_out := DontCare
   io.unmapped_inst.inst_predict_jump_target_out := DontCare
