@@ -81,7 +81,7 @@ class MemAccessJudge(cache_all_inst:Bool=false.B) extends Module{
   when(io.data(0).req){
     should_cache_data_r := should_cache_data_c
   }
-  should_cache_data_c := should_map(io.data(0).addr)
+  should_cache_data_c := should_cache_d(io.data(0).addr)
 
   for(i<- 0 until 2) {
     /**
@@ -123,8 +123,8 @@ class MemAccessJudge(cache_all_inst:Bool=false.B) extends Module{
     io.unmapped_data(i).asid := DontCare
 
     io.data(i).addr_ok := Mux(should_cache_data,io.mapped_data(i).addr_ok,io.unmapped_data(i).addr_ok)
-    io.data(i).data_ok := Mux(should_cache_data,io.mapped_data(i).data_ok,io.unmapped_data(i).data_ok)
-    io.data(i).rdata := Mux(should_cache_data,io.mapped_data(i).rdata,io.unmapped_data(i).rdata)
+    io.data(i).data_ok := Mux(should_cache_data_r,io.mapped_data(i).data_ok,io.unmapped_data(i).data_ok)
+    io.data(i).rdata := Mux(should_cache_data_r,io.mapped_data(i).rdata,io.unmapped_data(i).rdata)
   }
   io.data(0).ex := Mux(should_cache_data_c && should_map_data_c,io.mapped_data(0).ex,0.U)
   io.data(1).ex := DontCare
@@ -210,6 +210,9 @@ class MemAccessJudge(cache_all_inst:Bool=false.B) extends Module{
   }
   def should_cache(virtual_addr:UInt):Bool = {
     Mux(cache_all_inst,true.B,!(virtual_addr >= "ha000_0000".U && virtual_addr <= "hbfff_ffff".U))
+  }
+  def should_cache_d(virtual_addr:UInt):Bool = {
+    !(virtual_addr >= "ha000_0000".U && virtual_addr <= "hbfff_ffff".U)
   }
 }
 class physical_addr extends Module{

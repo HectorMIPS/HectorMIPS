@@ -6,7 +6,7 @@ class SRamLikeIO(data_width: Int = 32) extends Bundle {
   // master -> slave
   val req  : Bool = Output(Bool())
   val wr   : Bool = Output(Bool())
-  val size : UInt = Output(UInt(2.W))
+  val size : UInt = Output(UInt(3.W))
   val addr : UInt = Output(UInt(32.W))
   val wdata: UInt = Output(UInt(data_width.W))
   val asid  : UInt = Output(UInt(8.W)) //进程号
