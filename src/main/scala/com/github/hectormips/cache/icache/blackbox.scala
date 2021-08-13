@@ -9,7 +9,7 @@ import com.github.hectormips.cache.setting.CacheConfig
  */
 class icache_data_bank(config:CacheConfig) extends BlackBox {
   val io = IO(new Bundle {
-    val addra = Input(UInt (config.indexWidth.W))
+    val addra = Input(UInt (config.wayWidth.W))
     val clka = Input(Clock())
     val dina = Input(UInt (32.W))
     val douta = Output(UInt (32.W))
@@ -23,14 +23,14 @@ class icache_data_bank(config:CacheConfig) extends BlackBox {
  */
 class icache_tagv(config:CacheConfig) extends BlackBox {
   val io = IO(new Bundle {
-    val addra = Input(UInt(config.indexWidth.W))
+    val addra = Input(UInt(config.wayWidth.W))
     val clka = Input(Clock())
     val dina = Input(UInt((config.tagWidth + 1).W))
     val douta = Output(UInt((config.tagWidth + 1).W))
     val ena = Input(Bool())
     val wea = Input(Bool()) //默认置1
 
-    val addrb = Input(UInt(config.indexWidth.W))
+    val addrb = Input(UInt(config.wayWidth.W))
     val clkb = Input(Clock())
     val dinb = Input(UInt((config.tagWidth + 1).W))
     val doutb = Output(UInt((config.tagWidth + 1).W))

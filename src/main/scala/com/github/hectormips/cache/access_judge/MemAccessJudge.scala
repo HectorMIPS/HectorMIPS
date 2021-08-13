@@ -9,9 +9,10 @@ import com.github.hectormips.cache.uncache.UncacheInst
 
 
 class QueueItem extends Bundle{
-  val should_map = Bool()
+  val should_map   = Bool()
+  val should_cache = Bool()
   val addr         = UInt(32.W)
-  val wdata         = UInt(32.W)
+  val wdata        = UInt(32.W)
   val size         = UInt(3.W)
   val wr           = Bool()
   val jump         = Vec(2,Bool())
@@ -38,6 +39,11 @@ class MemAccessJudge(cache_all_inst:Bool=false.B) extends Module{
     val unmapped_inst = new SRamLikeInstIO()
     val unmapped_data = Vec(2,new SRamLikeDataIO()) //单口AXI-IO
     val mapped_data   = Vec(2,new SRamLikeDataIO())
+    val data_addr_is_mapped = Output(Bool())
+    val inst_addr_is_mapped = Output(Bool())
+    val data_unmap_should_cache = Output(Bool())
+    val inst_unmap_should_cache = Output(Bool())
+
   })
   val data_physical_addr = Wire(Vec(2,UInt(32.W)))
 //  val inst_physical_addr = Wire(UInt(32.W))
@@ -54,26 +60,30 @@ class MemAccessJudge(cache_all_inst:Bool=false.B) extends Module{
 //  }
 
 
-  val should_map_data_r = RegInit(VecInit(Seq.fill(2)(false.B)))
-  val should_map_data_c = Wire(Vec(2,Bool()))
-  val should_map_data   = Wire(Vec(2,Bool()))
-  // uncache的地址范围： 0xa000_0000 -- 0xbfff_ffff
-  //
+  val should_map_data_r = RegInit((false.B))
+  val should_map_data_c = Wire(Bool())
+  val should_map_data   = Wire(Bool())
+
+  val should_cache_data_r = RegInit((false.B))
+  val should_cache_data_c = Wire(Bool())
+  val should_cache_data   = Wire(Bool())
+
+  /**
+   * cache和map 属性确认
+   */
+  should_map_data := Mux(io.data(0).req,should_map_data_c,should_map_data_r)
+  when(io.data(0).req){
+    should_map_data_r := should_map_data_c
+  }
+  should_map_data_c := should_map(io.data(0).addr)
+
+  should_cache_data := Mux(io.data(0).req,should_cache_data_c,should_cache_data_r)
+  when(io.data(0).req){
+    should_cache_data_r := should_cache_data_c
+  }
+  should_cache_data_c := should_map(io.data(0).addr)
 
   for(i<- 0 until 2) {
-    /**
-     * cache 属性确认
-     */
-    should_map_data(i) := Mux(io.data(i).req,should_map_data_c(i),should_map_data_r(i))
-    when(io.data(i).req){
-      should_map_data_r(i) := should_map_data_c(i)
-    }
-    when(io.data(i).addr >= "ha000_0000".U && io.data(i).addr <= "hbfff_ffff".U){
-      should_map_data_c(i) := false.B
-    }.otherwise {
-      should_map_data_c(i) := true.B
-    }
-
     /**
      * 虚地址转换
      */
@@ -86,7 +96,8 @@ class MemAccessJudge(cache_all_inst:Bool=false.B) extends Module{
 
 //  val should_cache_inst_r = RegInit(false.B)
   val should_map_inst_c = Wire(Bool())
-//  val should_cache_inst   = Wire(Bool())
+  val should_cache_inst_c = Wire(Bool())
+  //  val should_cache_inst   = Wire(Bool())
 
   val queue = Module(new Queue(new QueueItem, 3))
   val handshake = RegInit(false.B)
@@ -94,33 +105,11 @@ class MemAccessJudge(cache_all_inst:Bool=false.B) extends Module{
   val physical_queue_inst_addr = Wire(UInt(32.W))
   val wait_for_dequeue = RegInit(false.B)
 
-  /**
-   * 如果需要快速测试，cache_all_inst 设为true即可
-   */
-  when(cache_all_inst) {
-    should_map_inst_c := true.B
-  }.otherwise{
-      when(io.inst.addr >= "ha000_0000".U && io.inst.addr <= "hbfff_ffff".U){
-        should_map_inst_c := false.B
-      }.otherwise {
-        should_map_inst_c := true.B
-      }
-  }
 
-
-//  when(io.inst.addr >= "h8000_0000".U && io.inst.addr <= "hbfff_ffff".U){
-//    inst_physical_addr := queue.io.deq.bits.addr  & "h1fff_ffff".U
-//  }.otherwise{
-//    inst_physical_addr := queue.io.deq.bits.addr
-//  }
-
-//  io.inst.addr :=
-
-  //  should_cache_data := false.B
 
   for(i <- 0 until 2) {
-    io.mapped_data(i).req := should_map_data(i) & io.data(i).req
-    io.unmapped_data(i).req := !should_map_data(i) & io.data(i).req
+    io.mapped_data(i).req := should_cache_data & io.data(i).req
+    io.unmapped_data(i).req := !should_cache_data & io.data(i).req
     io.mapped_data(i).size := io.data(i).size
     io.mapped_data(i).addr := io.data(i).addr
     io.mapped_data(i).wr := io.data(i).wr
@@ -133,12 +122,14 @@ class MemAccessJudge(cache_all_inst:Bool=false.B) extends Module{
     io.unmapped_data(i).wdata := io.data(i).wdata
     io.unmapped_data(i).asid := DontCare
 
-    io.data(i).addr_ok := Mux(should_map_data(i),io.mapped_data(i).addr_ok,io.unmapped_data(i).addr_ok)
-    io.data(i).data_ok := Mux(should_map_data(i),io.mapped_data(i).data_ok,io.unmapped_data(i).data_ok)
-    io.data(i).rdata := Mux(should_map_data(i),io.mapped_data(i).rdata,io.unmapped_data(i).rdata)
+    io.data(i).addr_ok := Mux(should_cache_data,io.mapped_data(i).addr_ok,io.unmapped_data(i).addr_ok)
+    io.data(i).data_ok := Mux(should_cache_data,io.mapped_data(i).data_ok,io.unmapped_data(i).data_ok)
+    io.data(i).rdata := Mux(should_cache_data,io.mapped_data(i).rdata,io.unmapped_data(i).rdata)
   }
-  io.data(0).ex := Mux(should_map_data_c(0),io.mapped_data(0).ex,0.U)
+  io.data(0).ex := Mux(should_cache_data_c,io.mapped_data(0).ex,0.U)
   io.data(1).ex := DontCare
+  io.data_addr_is_mapped := should_map_data
+  io.data_unmap_should_cache := should_cache_data
 
   io.inst.addr_ok := queue.io.enq.ready && !wait_for_dequeue
 
@@ -147,6 +138,7 @@ class MemAccessJudge(cache_all_inst:Bool=false.B) extends Module{
   queue.io.enq.bits.size := io.inst.size
   queue.io.enq.bits.wdata := io.inst.wdata
   queue.io.enq.bits.should_map := should_map_inst_c
+  queue.io.enq.bits.should_cache := should_cache_inst_c
   queue.io.enq.valid := io.inst.req && !wait_for_dequeue
   queue.io.enq.bits.jump := io.inst.inst_predict_jump_out
   queue.io.enq.bits.target := io.inst.inst_predict_jump_target_out
@@ -156,6 +148,11 @@ class MemAccessJudge(cache_all_inst:Bool=false.B) extends Module{
   physical_inst_addr := get_physical_addr(io.inst.addr)
   physical_queue_inst_addr := get_physical_addr(queue.io.enq.bits.addr)
 
+
+
+
+  should_cache_inst_c := should_cache(io.inst.addr)
+  should_map_inst_c := should_map(io.inst.addr)
   when(io.inst.req){
     handshake := false.B
   }
@@ -163,14 +160,18 @@ class MemAccessJudge(cache_all_inst:Bool=false.B) extends Module{
   when(io.mapped_inst.req && io.mapped_inst.addr_ok || io.unmapped_inst.req && io.unmapped_inst.addr_ok){
     handshake :=true.B
   }
-  io.mapped_inst.req := Mux(io.inst.req,should_map_inst_c,queue.io.deq.valid && !handshake && queue.io.deq.bits.should_map)
+  io.mapped_inst.req := Mux(io.inst.req,should_cache_inst_c,queue.io.deq.valid && !handshake && queue.io.deq.bits.should_map)
   io.mapped_inst.wr := false.B
   io.mapped_inst.size := 2.U
   io.mapped_inst.addr := Mux(io.inst.req,physical_inst_addr,physical_queue_inst_addr)
   io.mapped_inst.wdata := 0.U
   io.mapped_inst.asid := io.inst.asid
+  io.inst_addr_is_mapped := Mux(io.inst.req,should_map_inst_c,queue.io.deq.bits.should_map)
+  io.inst_unmap_should_cache := Mux(io.inst.req,should_cache_inst_c,queue.io.deq.bits.should_cache)
 
-  io.unmapped_inst.req := Mux(io.inst.req,!should_map_inst_c,queue.io.deq.valid && !queue.io.deq.bits.should_map && !handshake)
+  io.inst_unmap_should_cache
+
+  io.unmapped_inst.req := Mux(io.inst.req,!should_cache_inst_c,queue.io.deq.valid && !queue.io.deq.bits.should_map && !handshake)
   io.unmapped_inst.wr  := false.B
   io.unmapped_inst.size := 2.U
   io.unmapped_inst.addr := Mux(io.inst.req,physical_inst_addr,physical_queue_inst_addr)
@@ -184,10 +185,10 @@ class MemAccessJudge(cache_all_inst:Bool=false.B) extends Module{
   io.inst.inst_predict_jump_in := queue.io.deq.bits.jump
   io.inst.inst_predict_jump_target_in := queue.io.deq.bits.target
   io.inst.inst_pc := queue.io.deq.bits.addr
-  io.inst.ex := Mux(should_map_inst_c,io.mapped_inst.ex,0.U) //只有cache部分会出例外
-  queue.io.deq.ready := io.inst.data_ok || (io.inst.req && should_map_inst_c && io.inst.ex=/= 0.U) || wait_for_dequeue
+  io.inst.ex := Mux(should_cache_inst_c,io.mapped_inst.ex,0.U) //只有cache部分会出例外
+  queue.io.deq.ready := io.inst.data_ok || (io.inst.req && should_cache_inst_c && io.inst.ex=/= 0.U) || wait_for_dequeue
 
-  when(io.inst.req && should_map_inst_c && io.inst.ex=/= 0.U ){//需要出队两个
+  when(io.inst.req && should_cache_inst_c && io.inst.ex=/= 0.U ){//需要出队两个
     wait_for_dequeue := true.B
   }
   when(wait_for_dequeue){
@@ -203,6 +204,12 @@ class MemAccessJudge(cache_all_inst:Bool=false.B) extends Module{
     val converter = Module(new physical_addr)
     converter.io.virtual_addr := virtual_addr
     converter.io.physical_addr
+  }
+  def should_map(virtual_addr:UInt):Bool = {
+    !(virtual_addr >= "h8000_0000".U && virtual_addr <= "hbfff_ffff".U)
+  }
+  def should_cache(virtual_addr:UInt):Bool = {
+    !(virtual_addr >= "ha000_0000".U && virtual_addr <= "hbfff_ffff".U)
   }
 }
 class physical_addr extends Module{

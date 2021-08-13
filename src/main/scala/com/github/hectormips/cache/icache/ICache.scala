@@ -18,6 +18,8 @@ class ICache(val config: CacheConfig)
     val addr = Input(UInt(32.W))
     val asid = Input(UInt(8.W)) //进程ID
     val addr_ok = Output(Bool())
+    val is_mapped = Input(Bool()) // 是否是map部分
+    val is_unmapped_cached = Input(Bool()) // 是否需要cache
 
     val inst = Output(UInt(64.W))
     val instOK = Output(Bool())
@@ -99,7 +101,7 @@ class ICache(val config: CacheConfig)
   index := config.getIndex(addr_r)
   nextline_index := config.getIndex(prefetch_addr)
   bankIndex := config.getBankIndex(addr_r)
-  tag := config.getTag(addr_r)
+  tag := config.getTag(addr_r) // physical tag
   nextline_tag := config.getTag(prefetch_addr)
 
   //  val dataBankWtMask = WireInit(VecInit.tabulate(4) { _ => true.B })
@@ -248,16 +250,25 @@ class ICache(val config: CacheConfig)
   switch(state) {
     is(sIDLE) {
       when(io.valid) {
-        when(io.tlb.found){
-          when(io.tlb.c === 3.U){
+        when(io.is_mapped) {//允许映射
+          when(io.tlb.found) {
+            when(io.tlb.c === 3.U) {
+              state := sLOOKUP // cache
+            }.otherwise {
+              state := sFetchHandshake // uncache
+            }
+            addr_r := get_physical_addr(Cat(io.tlb.pfn, io.addr(11, 0)))
+          }.otherwise {
+            state := sIDLE            // TLB Miss
+          }
+        }.otherwise{
+          //不允许映射
+          addr_r := get_physical_addr(io.addr)
+            when(io.is_unmapped_cached){ // unmap可以cache
             state := sLOOKUP // cache
-          }.otherwise{
+          }.otherwise{//不能cache
             state := sFetchHandshake // uncache
           }
-          addr_r := get_physical_addr(Cat(io.tlb.pfn,io.addr(11,0)))
-        }.otherwise{
-          // TLB Miss
-          state := sIDLE
         }
       }
     }
@@ -271,24 +282,27 @@ class ICache(val config: CacheConfig)
         io.instOK := true.B
         lruMem.io.visit := cache_hit_way // lru记录命中
         when(io.valid) {
-          // 直接进入下一轮
-          when(io.tlb.found){
-            when(io.tlb.c === 3.U){
+          when(io.is_mapped) {//允许映射
+            when(io.tlb.found) {
+              when(io.tlb.c === 3.U) {
+                state := sLOOKUP // cache
+              }.otherwise {
+                state := sFetchHandshake // uncache
+              }
+              addr_r := get_physical_addr(Cat(io.tlb.pfn, io.addr(11, 0)))
+            }.otherwise {
+              state := sIDLE            // TLB Miss
+            }
+          }.otherwise{
+            //不允许映射
+            addr_r := get_physical_addr(io.addr)
+            when(io.is_unmapped_cached){ // unmap可以cache
               state := sLOOKUP // cache
-            }.otherwise{
+            }.otherwise{//不能cache
               state := sFetchHandshake // uncache
             }
-            addr_r := get_physical_addr(Cat(io.tlb.pfn,io.addr(11,0)))
-          }.otherwise{
-            // TLB Miss
-            state := sIDLE
           }
-
-        }.otherwise {
-          state := sIDLE
         }
-        //        state := sIDLE
-
       }.otherwise {
         //没命中,尝试请求
         io.inst := 0.U

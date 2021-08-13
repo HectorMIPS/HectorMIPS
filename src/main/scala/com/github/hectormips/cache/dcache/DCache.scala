@@ -22,7 +22,8 @@ class DCache(val config: CacheConfig)
     val addr = Input(Vec(2, UInt(32.W)))
     val asid = Input(UInt(8.W)) //进程ID
     val addr_ok = Output(Vec(2, Bool()))
-
+    val is_mapped = Input(Bool()) // 是否是map部分
+    val is_unmapped_cached = Input(Bool()) // 是否需要cache
     val wr = Input(Vec(2, Bool()))
     val size = Input(Vec(2, UInt(2.W)))
     val data_ok = Output(Vec(2, Bool()))
@@ -74,7 +75,7 @@ class DCache(val config: CacheConfig)
   }
 
 
-  val lruMem = Module(new LruMem(config.wayNumWidth, config.indexWidth)) // lru
+  val lruMem = Module(new LruMem(config.wayNumWidth, config.wayWidth)) // lru
   //  val victim = Module(new Victim(config)) // 写代理
   val invalidateQueue = Module(new InvalidateQueue(config))
   io.axi.writeAddr <> invalidateQueue.io.writeAddr
@@ -335,7 +336,7 @@ class DCache(val config: CacheConfig)
    */
   val evictionCounter = RegInit(VecInit(Seq.fill(2)(0.U(config.bankNumWidth.W))))
   invalidateQueue.io.uncache_req := false.B
-  invalidateQueue.io.uncache_addr := get_physical_addr(Cat(io.tlb.pfn, io.addr(0)(11, 0)))
+  invalidateQueue.io.uncache_addr := Mux(io.is_mapped,get_physical_addr(Cat(io.tlb.pfn, io.addr(0)(11, 0))),get_physical_addr(io.addr(0)))
   invalidateQueue.io.uncache_data := io.wdata(0)
   invalidateQueue.io.uncache_size := io.size(0)
 
@@ -371,16 +372,28 @@ class DCache(val config: CacheConfig)
   storeBuffer.io.cpu_size := 0.U
   storeBuffer.io.cpu_port := 0.U
   when(io.wr(0) && io.addr_ok(0) && io.valid(0)) {
-    doWrite := true.B
-    when(io.tlb.found) {
-      when(io.tlb.c === 3.U) { //如果允许cache
+    when(io.is_mapped) { //如果需要映射
+      when(io.tlb.found) { // 并且找到tlb
+        doWrite := true.B
+        when(io.tlb.c === 3.U) { //如果允许cache
+          storeBuffer.io.cpu_req := true.B
+          storeBuffer.io.cpu_size := io.size(0)
+          storeBuffer.io.cpu_addr := get_physical_addr(Cat(io.tlb.pfn, io.addr(0)(11, 0)))
+          storeBuffer.io.cpu_wdata := io.wdata(0)
+          storeBuffer.io.cpu_port := 0.U
+        }.otherwise {  //若不允许cache，直接向invalidate queue发起请求
+          invalidateQueue.io.uncache_req := true.B
+        }
+      }
+    }.otherwise{//如果不需要映射
+      doWrite := true.B
+      when(io.is_unmapped_cached){        // unmap可以cache
         storeBuffer.io.cpu_req := true.B
         storeBuffer.io.cpu_size := io.size(0)
-        storeBuffer.io.cpu_addr := get_physical_addr(Cat(io.tlb.pfn, io.addr(0)(11, 0)))
+        storeBuffer.io.cpu_addr := get_physical_addr(io.addr(0))
         storeBuffer.io.cpu_wdata := io.wdata(0)
         storeBuffer.io.cpu_port := 0.U
-      }.otherwise{
-        //若不允许cache，直接向invalidate queue发起请求
+      }.otherwise{        // unmap不可以cache
         invalidateQueue.io.uncache_req := true.B
       }
     }
@@ -407,26 +420,26 @@ class DCache(val config: CacheConfig)
       is(sIDLE) {
         when(worker.U === 0.U) { //读端口操作
           when(io.valid(0) && io.addr_ok(0) && !io.wr(0)) { // 如果有新的读请求
-            when(io.tlb.found) { //TLB 命中
-              when(io.tlb.c === 3.U) { //如果允许cache
-
-                when(index(0) === index(1)) { // 如果冲突，考虑阻塞
-                  when(state(1) === sIDLE) {
-                    state(0) := sLOOKUP
-                  }.otherwise {
-                    state(0) := sWaiting // 阻塞状态
-                  }
-                }.otherwise {
-                  state(0) := sLOOKUP
+            when(io.is_mapped) {// 需要map映射
+              when(io.tlb.found) { //TLB 命中
+                when(io.tlb.c === 3.U) { //如果允许cache
+                  state(0) := Mux(index(0) === index(1),Mux(state(1) === sIDLE,sLOOKUP,sWaiting),sLOOKUP)
+                  //如果可能冲突，那么进入等待状态，否则进入查询状态
+                }.otherwise { //不允许cache
+                  state(0) := sFetchHandshake // uncache
                 }
-              }.otherwise { //不允许cache
-                state(0) := sFetchHandshake // uncache
+                addr_r_0 := get_physical_addr(Cat(io.tlb.pfn, io.addr(0)(11, 0)))
+              }.otherwise{//TLB未命中
+                state(0) := sIDLE
               }
-              addr_r_0 := get_physical_addr(Cat(io.tlb.pfn, io.addr(0)(11, 0)))
-            }.otherwise {
-              // TLB Miss
-              state(0) := sIDLE
-//              io.data_ok(0) := true.B
+            }.otherwise{
+              addr_r_0 := get_physical_addr(io.addr(0))
+              when(io.is_unmapped_cached) {
+                state(0) := Mux(index(0) === index(1),Mux(state(1) === sIDLE,sLOOKUP,sWaiting),sLOOKUP)
+                //如果可能冲突，那么进入等待状态，否则进入查询状态
+              }.otherwise{
+                state(0) := sFetchHandshake //如果不允许cache
+              }
             }
           }
           }.elsewhen(worker.U === 1.U) {

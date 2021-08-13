@@ -33,13 +33,19 @@ class Cache(val config:CacheConfig)  extends Module{
     val icache_total_count = Output(UInt(32.W))
     val dcache_hit_count = Output(UInt(32.W))
     val dcache_total_count = Output(UInt(32.W))
+
+    val data_addr_is_mapped = Input(Bool())
+    val inst_addr_is_mapped = Input(Bool())
+    val data_unmap_should_cache = Input(Bool())
+    val inst_unmap_should_cache = Input(Bool())
+
     val axi = new AXIIO(4)
   }
   )
-  val dcache = Module(new DCache(new CacheConfig(WayWidth=4*1024,DataWidthByByte=16)))
+  val dcache = Module(new DCache(new CacheConfig(WaySize=4*1024,DataWidthByByte=16)))
   // 2路组相连，每路4KB，每行16KB
 
-  val icache = Module(new ICache(new CacheConfig(_wayNum=2,WayWidth =4*1024,DataWidthByByte=64)))
+  val icache = Module(new ICache(new CacheConfig(_wayNum=2,WaySize =4*1024,DataWidthByByte=64)))
   // 2路组相连，每路4KB，每行8KB
 
   val uncached = Module(new Uncache())
@@ -57,7 +63,8 @@ class Cache(val config:CacheConfig)  extends Module{
   icache.io.valid := io.icache.req
   icache.io.addr := io.icache.addr
   icache.io.asid := io.icache.asid
-
+  icache.io.is_mapped := io.inst_addr_is_mapped
+  icache.io.is_unmapped_cached := io.inst_unmap_should_cache
   io.icache.addr_ok := icache.io.addr_ok
   io.icache.rdata :=  icache.io.inst
   io.icache.data_ok := icache.io.instOK
@@ -78,7 +85,8 @@ class Cache(val config:CacheConfig)  extends Module{
     io.dcache(i).ex := dcache.io.ex
   }
   dcache.io.asid := io.dcache(0).asid
-
+  dcache.io.is_mapped := io.data_addr_is_mapped
+  dcache.io.is_unmapped_cached := io.data_unmap_should_cache
   //uncached
   uncached.io.input <> io.uncached
   uncache_inst.io.input <> io.uncache_inst

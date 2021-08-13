@@ -9,8 +9,8 @@ import com.github.hectormips.cache.setting.CacheConfig
  */
 class dcache_data_bank(config: CacheConfig) extends BlackBox {
   val io = IO(new Bundle {
-    val addra = Input(UInt(config.indexWidth.W))
-    val addrb = Input(UInt(config.indexWidth.W))
+    val addra = Input(UInt(config.wayWidth.W))
+    val addrb = Input(UInt(config.wayWidth.W))
     val clka = Input(Clock())
     val clkb = Input(Clock())
     val dina = Input(UInt(32.W))
@@ -29,8 +29,8 @@ class dcache_data_bank(config: CacheConfig) extends BlackBox {
  */
 class dcache_tagv(config: CacheConfig) extends BlackBox {
   val io = IO(new Bundle {
-    val addra = Input(UInt(config.indexWidth.W))
-    val addrb = Input(UInt(config.indexWidth.W))
+    val addra = Input(UInt(config.wayWidth.W))
+    val addrb = Input(UInt(config.wayWidth.W))
     val clka = Input(Clock())
     val clkb = Input(Clock())
     val dina = Input(UInt((config.tagWidth + 1).W))
@@ -46,8 +46,8 @@ class dcache_tagv(config: CacheConfig) extends BlackBox {
 
 class dcache_dirty(config: CacheConfig) extends BlackBox {
   val io = IO(new Bundle {
-    val addra = Input(UInt(config.indexWidth.W))
-    val addrb = Input(UInt(config.indexWidth.W))
+    val addra = Input(UInt(config.wayWidth.W))
+    val addrb = Input(UInt(config.wayWidth.W))
     val clka = Input(Clock())
     val clkb = Input(Clock())
     val dina = Input(UInt(1.W))

@@ -55,6 +55,10 @@ class SocTopAXI(cache_all: Boolean = false, timer_int_en: Boolean = true) extend
     mem_judge.io.mapped_data <> cache.io.dcache
     mem_judge.io.unmapped_data <> cache.io.uncached
     mem_judge.io.unmapped_inst <> cache.io.uncache_inst
+    cache.io.inst_addr_is_mapped := mem_judge.io.inst_addr_is_mapped
+    cache.io.data_addr_is_mapped := mem_judge.io.data_addr_is_mapped
+    cache.io.inst_unmap_should_cache := mem_judge.io.inst_unmap_should_cache
+    cache.io.data_unmap_should_cache := mem_judge.io.data_unmap_should_cache
 
     cache.io.axi <> crossbar.io.in
 
