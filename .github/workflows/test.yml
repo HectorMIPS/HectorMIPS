@@ -35,6 +35,30 @@ jobs:
           name: mycpu_top
           path: mycpu_top.v
 
+  tlb_test:
+    name: tlb_test
+    needs: test_and_generate
+    runs-on: self-hosted
+    env:
+      SIM_DIR: /home/hch/tlb_test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Download mycpu_top
+        uses: actions/download-artifact@v2
+        with:
+          name: mycpu_top
+      - name: copy to default location
+        run: cp mycpu_top.v ${{env.SIM_DIR}}/xsim/srcs/
+      - name: Cleanup
+        run: |
+          cd ${{env.SIM_DIR}}/xsim
+          make clean
+      - name: Run Test
+        run: |
+          cd ${{env.SIM_DIR}}/xsim
+          make
+
   func_test:
     name: func_test
     needs: test_and_generate
@@ -107,3 +131,28 @@ jobs:
         with:
           name: mycpu_bit
           path: ${{env.SIM_DIR}}/run_vivado/mycpu_prj1/mycpu.runs/impl_1/soc_axi_lite_top.bit
+
+  soc_generate:
+    name: soc_generate
+    needs: perf_test
+    runs-on: self-hosted
+    env:
+      SIM_DIR: /home/hch/soc
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Download mycpu_top
+        uses: actions/download-artifact@v2
+        with:
+          name: mycpu_top
+      - name: copy to default location
+        run: cp mycpu_top.v ${{env.SIM_DIR}}/rtl/cpu232/
+      - name: Run Test
+        run: |
+          cd ${{env.SIM_DIR}}/
+          make
+      - name: upload
+        uses: actions/upload-artifact@v2
+        with:
+          name: mycpu_bit
+          path: ${{env.SIM_DIR}}/vivado_xpr/project_1/project_1/project_1.runs/impl_1/soc_up_top.bit
