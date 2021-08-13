@@ -97,7 +97,7 @@ class InsWriteBack(n_tlb: Int) extends Module {
 
     io.bypass_wb_id(i).bus_valid := bus_valid && io.ms_wb_in(i).regfile_we_ms_wb =/= 0.U
     // 不对lwl和swl进行前递
-    io.bypass_wb_id(i).data_valid := io.ms_wb_in(0).regfile_we_ms_wb === 0xf.U
+    io.bypass_wb_id(i).data_valid := io.ms_wb_in(i).regfile_we_ms_wb === 0xf.U
     io.bypass_wb_id(i).reg_data := regfile_wdata
     io.bypass_wb_id(i).reg_addr := Mux1H(Seq(
       (io.ms_wb_in(i).regfile_waddr_sel_ms_wb === RegFileWAddrSel.inst_rd) -> io.ms_wb_in(i).inst_rd_ms_wb,

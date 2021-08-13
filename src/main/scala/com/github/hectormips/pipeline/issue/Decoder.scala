@@ -415,6 +415,7 @@ class Decoder extends Module {
 
   val ex_id_hazard_but_not_ready: Bool = hasValidBypassButNotReady(io.in.bypass_bus.bp_ex_id)
   val ms_id_hazard_but_not_ready: Bool = hasValidBypassButNotReady(io.in.bypass_bus.bp_ms_id)
+  val wb_id_hazard_but_not_ready: Bool = hasValidBypassButNotReady(io.in.bypass_bus.bp_wb_id)
 
   def hasBranchHazard(bus_hazard_but_not_ready: Bool, regaddr: UInt): Bool = {
     bus_hazard_but_not_ready &&
@@ -427,7 +428,9 @@ class Decoder extends Module {
   val load_branch_hazard: Bool = hasBranchHazard(ex_id_hazard_but_not_ready, io.in.bypass_bus.bp_ex_id(0).reg_addr) ||
     hasBranchHazard(ex_id_hazard_but_not_ready, io.in.bypass_bus.bp_ex_id(1).reg_addr) ||
     hasBranchHazard(ms_id_hazard_but_not_ready, io.in.bypass_bus.bp_ms_id(0).reg_addr) ||
-    hasBranchHazard(ms_id_hazard_but_not_ready, io.in.bypass_bus.bp_ms_id(1).reg_addr)
+    hasBranchHazard(ms_id_hazard_but_not_ready, io.in.bypass_bus.bp_ms_id(1).reg_addr) ||
+    hasBranchHazard(wb_id_hazard_but_not_ready, io.in.bypass_bus.bp_wb_id(0).reg_addr) ||
+    hasBranchHazard(wb_id_hazard_but_not_ready, io.in.bypass_bus.bp_wb_id(1).reg_addr)
 
   def hasRegularHazard(bus_hazard_but_not_ready: Bool, bp_regaddr: UInt): Bool = {
     bus_hazard_but_not_ready && bp_regaddr =/= 0.U &&
@@ -443,7 +446,9 @@ class Decoder extends Module {
   val load_regular_hazard: Bool = hasRegularHazard(ex_id_hazard_but_not_ready, io.in.bypass_bus.bp_ex_id(0).reg_addr) ||
     hasRegularHazard(ex_id_hazard_but_not_ready, io.in.bypass_bus.bp_ex_id(1).reg_addr) ||
     hasRegularHazard(ms_id_hazard_but_not_ready, io.in.bypass_bus.bp_ms_id(0).reg_addr) ||
-    hasRegularHazard(ms_id_hazard_but_not_ready, io.in.bypass_bus.bp_ms_id(1).reg_addr)
+    hasRegularHazard(ms_id_hazard_but_not_ready, io.in.bypass_bus.bp_ms_id(1).reg_addr) ||
+    hasBranchHazard(wb_id_hazard_but_not_ready, io.in.bypass_bus.bp_wb_id(0).reg_addr) ||
+    hasBranchHazard(wb_id_hazard_but_not_ready, io.in.bypass_bus.bp_wb_id(1).reg_addr)
 
   // 译码输出准备完毕条件：
   //  上一条lw的目的操作数为0
