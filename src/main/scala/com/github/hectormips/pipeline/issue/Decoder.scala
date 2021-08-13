@@ -33,7 +33,7 @@ class DecoderRegularOut extends Bundle {
   val rs                        : UInt                 = UInt(5.W)
   val rd                        : UInt                 = UInt(5.W)
   val rt                        : UInt                 = UInt(5.W)
-  val regfile_we                : Bool                 = Bool()
+  val regfile_we                : UInt                 = UInt(4.W)
   val pc_debug                  : UInt                 = UInt(32.W)
   val mem_wdata                 : UInt                 = UInt(32.W)
   val hi_wen                    : Bool                 = Bool()
@@ -181,6 +181,10 @@ class Decoder extends Module {
   val ins_tlbr    : Bool = Wire(Bool())
   val ins_tlbwi   : Bool = Wire(Bool())
   val ins_tlbp    : Bool = Wire(Bool())
+  val ins_swl     : Bool = Wire(Bool())
+  val ins_swr     : Bool = Wire(Bool())
+  val ins_lwl     : Bool = Wire(Bool())
+  val ins_lwr     : Bool = Wire(Bool())
 
   val offset       : SInt = Wire(SInt(32.W))
   val instr_index  : UInt = Wire(UInt(26.W))
@@ -259,6 +263,12 @@ class Decoder extends Module {
   ins_tlbr := instruction === 0x42000001.U
   ins_tlbwi := instruction === 0x42000002.U
   ins_tlbp := instruction === 0x42000008.U
+  ins_swl := opcode === 0x2a.U
+  ins_swr := opcode === 0x2e.U
+  ins_lwl := opcode === 0x22.U
+  ins_lwr := opcode === 0x26.U
+
+
   offset := Cat(VecInit(Seq.fill(14)(instruction(15))).asUInt(), instruction(15, 0), 0.U(2.W)).asSInt()
   instr_index := instruction(25, 0)
 
@@ -305,7 +315,7 @@ class Decoder extends Module {
       ins_slt | ins_sltu | ins_sll | ins_srl | ins_sra | ins_lui | ins_and | ins_or |
       ins_xor | ins_nor | ins_slti | ins_sltiu | ins_andi | ins_ori | ins_xori | ins_sllv |
       ins_srlv | ins_srav | ins_mult | ins_multu | ins_mul | ins_div | ins_divu | ins_mfhi | ins_mflo |
-      ins_mthi | ins_mtlo | ins_mfc0 | ins_mtc0) -> InsJumpSel.seq_pc,
+      ins_mthi | ins_mtlo | ins_mfc0 | ins_mtc0 | ins_swl | ins_swr | ins_lwl | ins_lwr) -> InsJumpSel.seq_pc,
     ((ins_beq && regfile1_eq_regfile2) |
       (ins_bne && !regfile1_eq_regfile2) |
       (ins_bgtz && regfile1_gt_0) |
@@ -384,16 +394,18 @@ class Decoder extends Module {
   val alu_src1_except_ex: UInt            = Wire(UInt(32.W))
   val alu_src2_except_ex: UInt            = Wire(UInt(32.W))
 
-  val ram_wen: Bool = ins_sw | ins_sh | ins_sb
+  val ram_wen: Bool = ins_sw | ins_sh | ins_sb |
+    ins_swl | ins_swr
   val ram_en : Bool = ins_lw | ins_lb |
-    ins_lbu | ins_lh | ins_lhu | ins_sw | ins_sh | ins_sb
+    ins_lbu | ins_lh | ins_lhu | ins_sw | ins_sh | ins_sb |
+    ins_swl | ins_swr | ins_lwl | ins_lwr
   io.out_regular.mem_en := ram_en
   io.out_regular.mem_wen := ram_wen
   io.out_issue.ram_wen := ram_wen
   io.out_issue.ram_en := ram_en
   io.out_issue.ram_wsrc_regfile := rt
   io.out_regular.regfile_wsrc_sel := ins_lw | ins_lb |
-    ins_lbu | ins_lh | ins_lhu
+    ins_lbu | ins_lh | ins_lhu | ins_lwl | ins_lwr
 
   // 前递数据有效但是尚未准备完成
   def hasValidBypassButNotReady(bypass: Vec[BypassMsgBundle]): Bool = {
@@ -474,7 +486,7 @@ class Decoder extends Module {
       ins_lbu | ins_lh | ins_lhu | ins_sw | ins_sh | ins_sb |
       ins_slt | ins_sltu | ins_and | ins_or | ins_xor | ins_nor | ins_sltu | ins_slti | ins_sltiu |
       ins_andi | ins_ori | ins_xori | ins_sllv | ins_srlv | ins_srav | ins_multu | ins_mul |
-      ins_mult | ins_div | ins_divu | ins_mthi | ins_mtlo) -> AluSrc1Sel.regfile_read1,
+      ins_mult | ins_div | ins_divu | ins_mthi | ins_mtlo | ins_lwl | ins_lwr | ins_swl | ins_swr) -> AluSrc1Sel.regfile_read1,
     (ins_jal | ins_bgezal | ins_bltzal | ins_jalr) -> AluSrc1Sel.pc_delay,
     (ins_sll | ins_srl | ins_sra | ins_mtc0) -> AluSrc1Sel.sa_32,
   ))
@@ -485,7 +497,7 @@ class Decoder extends Module {
       ins_mult | ins_multu | ins_mul | ins_div | ins_divu | ins_mtc0) -> AluSrc2Sel.regfile_read2,
     (ins_addiu | ins_addi | ins_lw | ins_lb |
       ins_lbu | ins_lh | ins_lhu | ins_sw | ins_sh | ins_sb | ins_lui | ins_slti |
-      ins_sltiu) -> AluSrc2Sel.imm_32_signed_extend,
+      ins_sltiu | ins_lwl | ins_lwr | ins_swl | ins_swr) -> AluSrc2Sel.imm_32_signed_extend,
     (ins_andi | ins_ori | ins_xori) -> AluSrc2Sel.imm_32_unsigned_extend,
     (ins_jal | ins_bgezal | ins_bltzal | ins_jalr) -> AluSrc2Sel.const_4
   ))
@@ -532,7 +544,8 @@ class Decoder extends Module {
   val alu_op: AluOp.Type = MuxCase(AluOp.nop, Seq(
     (ins_addu | ins_add | ins_addiu | ins_addi | ins_lw | ins_lb |
       ins_lbu | ins_lh | ins_lhu | ins_sw | ins_sh | ins_sb |
-      ins_jal | ins_bltzal | ins_bgezal | ins_jalr | ins_mtc0 | ins_mflo | ins_mfhi) -> AluOp.op_add,
+      ins_jal | ins_bltzal | ins_bgezal | ins_jalr | ins_mtc0 | ins_mflo | ins_mfhi |
+      ins_lwr | ins_lwl | ins_swl | ins_swr) -> AluOp.op_add,
     (ins_subu | ins_sub) -> AluOp.op_sub,
     (ins_slt | ins_slti) -> AluOp.op_slt,
     (ins_sltu | ins_sltiu) -> AluOp.op_sltu,
@@ -550,19 +563,33 @@ class Decoder extends Module {
     ins_divu -> AluOp.op_divu
   ))
   io.out_regular.alu_op := alu_op
-  val rf_wen     : Bool                 = ins_addu | ins_add | ins_addiu | ins_addi | ins_subu | ins_sub |
-    ins_lw | ins_lb | ins_mul |
-    ins_lbu | ins_lh | ins_lhu | ins_jal | ins_bgezal | ins_bltzal | ins_slt | ins_sltu | ins_sll | ins_srl | ins_sra |
-    ins_lui | ins_and | ins_or |
-    ins_xor | ins_nor | ins_sltiu | ins_slti | ins_andi | ins_ori | ins_xori | ins_sllv | ins_srlv |
-    ins_srav | ins_mfhi | ins_mflo | ins_jalr | ins_mfc0
-  val rf_wdst_sel: RegFileWAddrSel.Type = MuxCase(RegFileWAddrSel.nop, Seq(
+  val mem_data_sel     : MemDataSel.Type      = MuxCase(MemDataSel.word, Seq(
+    (ins_lb | ins_lbu | ins_sb) -> MemDataSel.byte,
+    (ins_lh | ins_lhu | ins_sh) -> MemDataSel.hword,
+    (ins_lw | ins_sw) -> MemDataSel.word,
+    (ins_lwl | ins_swl) -> MemDataSel.lword,
+    (ins_lwr | ins_swr) -> MemDataSel.rword
+  ))
+  val src_1_e          : UInt                 = Cat(alu_src1_except_ex(31), alu_src1_except_ex)
+  val src_2_e          : UInt                 = Cat(alu_src2_except_ex(31), alu_src2_except_ex)
+  val alu_quick_res    : UInt                 = Mux(alu_op === AluOp.op_add, src_1_e + src_2_e, src_1_e - src_2_e)
+  val overflow_flag    : Bool                 = alu_quick_res(32) ^ alu_quick_res(31)
+  val src_sum_except_ex: UInt                 = alu_src1_except_ex + alu_src2_except_ex
+  val rf_wen           : UInt                 = MuxCase(0.U,
+    Seq((ins_addu | ins_add | ins_addiu | ins_addi | ins_subu | ins_sub | ins_lw | ins_lb | ins_mul |
+      ins_lbu | ins_lh | ins_lhu | ins_jal | ins_bgezal | ins_bltzal | ins_slt | ins_sltu | ins_sll |
+      ins_srl | ins_sra | ins_lui | ins_and | ins_or | ins_xor | ins_nor | ins_sltiu | ins_slti |
+      ins_andi | ins_ori | ins_xori | ins_sllv | ins_srlv | ins_srav | ins_mfhi | ins_mflo | ins_jalr |
+      ins_mfc0) -> 0xf.U,
+      (ins_lwl | ins_lwr) -> Mux(mem_data_sel === MemDataSel.lword, (0xf.U << (3.U - src_sum_except_ex(1, 0))).asUInt(),
+        (0xf.U >> src_sum_except_ex(1, 0)).asUInt())))
+  val rf_wdst_sel      : RegFileWAddrSel.Type = MuxCase(RegFileWAddrSel.nop, Seq(
     (ins_addu | ins_add | ins_subu | ins_sub | ins_slt | ins_sltu | ins_sll | ins_srl |
       ins_sra | ins_and | ins_or | ins_xor | ins_nor | ins_sllv | ins_srlv |
       ins_srav | ins_mfhi | ins_mflo | ins_jalr | ins_mul) -> RegFileWAddrSel.inst_rd,
     (ins_addiu | ins_addi | ins_lw | ins_lb |
       ins_lbu | ins_lh | ins_lhu | ins_lui | ins_slti | ins_sltiu | ins_andi | ins_ori |
-      ins_xori | ins_mfc0) -> RegFileWAddrSel.inst_rt,
+      ins_xori | ins_mfc0 | ins_lwl | ins_lwr) -> RegFileWAddrSel.inst_rt,
     (ins_jal | ins_bgezal | ins_bltzal) -> RegFileWAddrSel.const_31
   ))
   io.out_regular.regfile_we := rf_wen
@@ -575,11 +602,6 @@ class Decoder extends Module {
   io.out_regular.imm_32 := imm_signed.asUInt()
 
 
-  val mem_data_sel: MemDataSel.Type = MuxCase(MemDataSel.word, Seq(
-    (ins_lb | ins_lbu | ins_sb) -> MemDataSel.byte,
-    (ins_lh | ins_lhu | ins_sh) -> MemDataSel.hword,
-    (ins_lw | ins_sw) -> MemDataSel.word
-  ))
   io.out_regular.mem_data_sel := mem_data_sel // 正常情况下只在load指令时起效，可以用这个参数来捎带传输load指令的位选择宽度
   io.out_regular.mem_rdata_extend_is_signed := ins_lb | ins_lh
 
@@ -674,18 +696,17 @@ class Decoder extends Module {
     ins_cache ||
     ins_tlbp ||
     ins_tlbwi ||
-    ins_tlbr
+    ins_tlbr ||
+    ins_lwl ||
+    ins_lwr ||
+    ins_swl ||
+    ins_swr
 
   io.out_regular.is_delay_slot := io.in.is_delay_slot
   val overflow_detection_en: Bool = ins_add | ins_addi | ins_sub
   io.out_regular.overflow_detection_en := overflow_detection_en
   io.out_regular.ins_eret := ins_eret
   io.out_regular.src_use_hilo := ins_mfhi | ins_mflo
-  val src_1_e          : UInt = Cat(alu_src1_except_ex(31), alu_src1_except_ex)
-  val src_2_e          : UInt = Cat(alu_src2_except_ex(31), alu_src2_except_ex)
-  val alu_quick_res    : UInt = Mux(alu_op === AluOp.op_add, src_1_e + src_2_e, src_1_e - src_2_e)
-  val overflow_flag    : Bool = alu_quick_res(32) ^ alu_quick_res(31)
-  val src_sum_except_ex: UInt = alu_src1_except_ex + alu_src2_except_ex
   io.out_regular.exception_flags := io.in.exception_flags |
     Mux(pc(1, 0) === 0.U, 0.U, ExceptionConst.EXCEPTION_FETCH_ADDR) |
     Mux(ins_valid, 0.U, ExceptionConst.EXCEPTION_RESERVE_INST) |

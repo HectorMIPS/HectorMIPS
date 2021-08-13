@@ -28,7 +28,7 @@ class DecodeExecuteBundle extends WithVEI {
   val inst_rs_id_ex                   : UInt                 = UInt(5.W)
   val inst_rd_id_ex                   : UInt                 = UInt(5.W)
   val inst_rt_id_ex                   : UInt                 = UInt(5.W)
-  val regfile_we_id_ex                : Bool                 = Bool()
+  val regfile_we_id_ex                : UInt                 = UInt(4.W)
   val pc_id_ex_debug                  : UInt                 = UInt(32.W)
   val mem_wdata_id_ex                 : UInt                 = UInt(32.W)
   val hi_wen                          : Bool                 = Bool()
@@ -124,7 +124,7 @@ class ExecuteRamBundle extends Bundle {
   val mem_wen  : UInt = Output(Bool())
   val mem_addr : UInt = Output(UInt(32.W))
   val mem_wdata: UInt = Output(UInt(32.W))
-  val mem_size : UInt = Output(UInt(2.W))
+  val mem_size : UInt = Output(UInt(3.W))
 }
 
 class ExecuteHILOBundle extends Bundle {
@@ -347,7 +347,7 @@ class InsExecute(n_tlb: Int) extends Module {
 
   // 给译码的前递
   for (i <- 0 to 1) {
-    io.bypass_ex_id(i).bus_valid := io.id_ex_in(i).bus_valid && io.id_ex_in(i).regfile_we_id_ex
+    io.bypass_ex_id(i).bus_valid := io.id_ex_in(i).bus_valid && io.id_ex_in(i).regfile_we_id_ex =/= 0.U
     io.bypass_ex_id(i).data_valid := io.id_ex_in(i).bus_valid &&
       // 写寄存器来源为内存或者cp0时，前递的数据尚未准备完成
       (!io.id_ex_in(i).regfile_wsrc_sel_id_ex && !io.id_ex_in(i).regfile_wdata_from_cp0_id_ex)

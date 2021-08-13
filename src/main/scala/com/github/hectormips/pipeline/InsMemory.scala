@@ -17,6 +17,8 @@ object MemDataSel extends ChiselEnum {
   val byte : Type = Value(1.U)
   val hword: Type = Value(2.U)
   val word : Type = Value(4.U)
+  val lword: Type = Value(8.U)
+  val rword: Type = Value(16.U)
 }
 
 class ExecuteMemoryBundle(n_tlb: Int) extends WithVEI {
@@ -25,7 +27,7 @@ class ExecuteMemoryBundle(n_tlb: Int) extends WithVEI {
   val regfile_waddr_sel_ex_ms         : RegFileWAddrSel.Type = RegFileWAddrSel()
   val inst_rd_ex_ms                   : UInt                 = UInt(5.W)
   val inst_rt_ex_ms                   : UInt                 = UInt(5.W)
-  val regfile_we_ex_ms                : Bool                 = Bool()
+  val regfile_we_ex_ms                : UInt                 = UInt(4.W)
   val pc_ex_ms_debug                  : UInt                 = UInt(32.W)
   val mem_rdata_offset                : UInt                 = UInt(2.W)
   val mem_rdata_sel_ex_ms             : MemDataSel.Type      = MemDataSel() // 假设数据已经将指定地址对齐到最低位
@@ -121,11 +123,11 @@ class InsMemory(n_tlb: Int) extends Module {
     io.ms_wb_out(i).bus_valid := io.ex_ms_in(i).bus_valid && !reset.asBool() && ready_go
     io.ms_wb_out(i).pc_ms_wb := io.ex_ms_in(i).pc_ex_ms_debug
 
-    val bypass_bus_valid: Bool = io.ex_ms_in(i).bus_valid
+    val bypass_bus_valid: Bool = io.ex_ms_in(i).regfile_we_ex_ms =/= 0.U && io.ex_ms_in(i).bus_valid
 
     io.bypass_ms_id(i).bus_valid := bypass_bus_valid
     // 如果是需要从内存中加载的数据，等待wb级进行前递
-    io.bypass_ms_id(i).data_valid := io.ex_ms_in(i).bus_valid && !reset.asBool() && io.ex_ms_in(i).regfile_we_ex_ms &&
+    io.bypass_ms_id(i).data_valid := io.ex_ms_in(i).bus_valid && !reset.asBool() &&
       !io.ex_ms_in(i).regfile_wsrc_sel_ex_ms && !io.ex_ms_in(i).regfile_wdata_from_cp0_ex_ms
     io.bypass_ms_id(i).reg_data := io.ex_ms_in(i).alu_val_ex_ms
     io.bypass_ms_id(i).reg_addr := MuxCase(0.U, Seq(

@@ -62,13 +62,13 @@ class Issuer extends Module {
   has_raw_hazard := has_raw_regfile_hazard || has_cp0_hazard || has_raw_hilo_hazard
   is_decoder2_jump := io.in_decoder2.is_valid && io.in_decoder2.is_jump
   // 只要有需要用乘法/除法器的指令均单发射
-  has_device_hazard := io.in_decoder1.div_or_mult || io.in_decoder2.div_or_mult
+  has_device_hazard := io.in_decoder1.div_or_mult && io.in_decoder2.div_or_mult
   has_waw_hazard := has_waw_regfile_hazard || has_waw_hilo_hazard || has_waw_hilo_hazard
   // 有冲突或者只有一条指令的时候只发射一条
   // 当一条指令为eret的时候也只发射一条
   // 存在内存写后写冲突时，由于不一定是对齐访存，因此同样需要禁止发射
   io.out.issue_count := Mux(has_raw_hazard || has_device_hazard || has_ram_access ||
-    io.in_decoder1.is_eret || io.in_decoder2.is_eret || is_decoder2_jump || !io.in_decoder2.is_valid, 1.U, 2.U)
+    io.in_decoder1.is_privileged || io.in_decoder2.is_privileged || is_decoder2_jump || !io.in_decoder2.is_valid, 1.U, 2.U)
   io.out.waw_hazard := Mux(io.in_decoder2.is_valid, has_waw_hazard, 0.B)
 
 

@@ -10,7 +10,7 @@ class MemoryWriteBackBundle(n_tlb: Int) extends WithVEI {
   val regfile_waddr_sel_ms_wb     : RegFileWAddrSel.Type = RegFileWAddrSel()
   val inst_rd_ms_wb               : UInt                 = UInt(5.W)
   val inst_rt_ms_wb               : UInt                 = UInt(5.W)
-  val regfile_we_ms_wb            : Bool                 = Bool()
+  val regfile_we_ms_wb            : UInt                 = UInt(4.W)
   val regfile_wdata_ms_wb         : UInt                 = UInt(32.W)
   val pc_ms_wb                    : UInt                 = UInt(32.W)
   val cp0_wen_ms_wb               : Bool                 = Bool()
@@ -45,7 +45,7 @@ class InsWriteBackBundle(n_tlb: Int) extends WithAllowin {
 
   val regfile_wdata: Vec[UInt] = Output(Vec(2, UInt(32.W)))
   val regfile_waddr: Vec[UInt] = Output(Vec(2, UInt(5.W)))
-  val regfile_wen  : Vec[Bool] = Output(Vec(2, Bool()))
+  val regfile_wen  : Vec[UInt] = Output(Vec(2, UInt(4.W)))
   val pc_wb        : Vec[UInt] = Output(Vec(2, UInt(32.W)))
 
   val cp0_rdata: Vec[UInt] = Input(Vec(2, UInt(32.W)))
@@ -66,7 +66,7 @@ class InsWriteBackBundle(n_tlb: Int) extends WithAllowin {
 class InsWriteBack(n_tlb: Int) extends Module {
   val io: InsWriteBackBundle = IO(new InsWriteBackBundle(n_tlb))
   for (i <- 0 to 1) {
-    io.regfile_wen(i) := io.ms_wb_in(i).regfile_we_ms_wb && io.ms_wb_in(i).bus_valid
+    io.regfile_wen(i) := io.ms_wb_in(i).regfile_we_ms_wb & VecInit(Seq.fill(4)(io.ms_wb_in(i).bus_valid)).asUInt()
     io.regfile_waddr(i) := 0.U
     switch(io.ms_wb_in(i).regfile_waddr_sel_ms_wb) {
       is(RegFileWAddrSel.inst_rd) {
@@ -95,8 +95,9 @@ class InsWriteBack(n_tlb: Int) extends Module {
     io.cp0_sel(i) := io.ms_wb_in(i).cp0_sel_ms_wb
     io.cp0_wdata(i) := io.ms_wb_in(i).regfile_wdata_ms_wb
 
-    io.bypass_wb_id(i).bus_valid := bus_valid && io.ms_wb_in(i).regfile_we_ms_wb
-    io.bypass_wb_id(i).data_valid := 1.B
+    io.bypass_wb_id(i).bus_valid := bus_valid && io.ms_wb_in(i).regfile_we_ms_wb =/= 0.U
+    // 不对lwl和swl进行前递
+    io.bypass_wb_id(i).data_valid := io.ms_wb_in(0).regfile_we_ms_wb === 0xf.U
     io.bypass_wb_id(i).reg_data := regfile_wdata
     io.bypass_wb_id(i).reg_addr := Mux1H(Seq(
       (io.ms_wb_in(i).regfile_waddr_sel_ms_wb === RegFileWAddrSel.inst_rd) -> io.ms_wb_in(i).inst_rd_ms_wb,

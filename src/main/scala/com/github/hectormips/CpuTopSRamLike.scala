@@ -425,8 +425,7 @@ class CpuTopSRamLike(pc_init: Long, reg_init: Int = 0, n_tlb: Int = 16, timer_in
 
   io.debug.debug_wb_pc := Cat(wb_module.io.pc_wb(1), wb_module.io.pc_wb(0))
   io.debug.debug_wb_rf_wnum := Cat(wb_module.io.regfile_waddr(1), wb_module.io.regfile_waddr(0))
-  io.debug.debug_wb_rf_wen := Cat(VecInit(Seq.fill(4)(wb_module.io.regfile_wen(1))).asUInt(),
-    VecInit(Seq.fill(4)(wb_module.io.regfile_wen(0))).asUInt())
+  io.debug.debug_wb_rf_wen := Cat(wb_module.io.regfile_wen(1), wb_module.io.regfile_wen(0))
   io.debug.debug_wb_rf_wdata := Cat(wb_module.io.regfile_wdata(1), wb_module.io.regfile_wdata(0))
 
   //  io.debug.debug_wb_pc := wb_module.io.pc_wb(0)
