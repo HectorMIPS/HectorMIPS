@@ -169,6 +169,7 @@ class InsExecute(n_tlb: Int) extends Module {
   val order_flipped               : Bool             = io.id_ex_in(1).bus_valid && (ins2_op === AluOp.op_div || ins2_op === AluOp.op_divu ||
     ins2_op === AluOp.op_mult || ins2_op === AluOp.op_multu)
   val exception_occur             : Vec[Bool]        = Wire(Vec(2, Bool()))
+  val exception_occur_except_tlb  : Vec[Bool]        = Wire(Vec(2, Bool()))
   val exception_flags             : Vec[UInt]        = Wire(Vec(2, UInt(ExceptionConst.EXCEPTION_FLAG_WIDTH.W)))
   val eret_occur                  : Bool             = io.id_ex_in(0).bus_valid && io.id_ex_in(0).ins_eret
   val interrupt_occur             : Bool             = !eret_occur &&
@@ -235,6 +236,10 @@ class InsExecute(n_tlb: Int) extends Module {
     io.id_ex_in(index).bus_valid && Mux(exception_occur(0), 1.B, exception_occur(1) && index === 1.U)
   }
 
+  def exceptionShieldedExceptTLB(index: UInt): Bool = {
+    io.id_ex_in(index).bus_valid && Mux(exception_occur_except_tlb(0), 1.B, exception_occur_except_tlb(1) && index === 1.U)
+  }
+
   def exceptionShielded(index: Int): Bool = {
     exceptionShielded(index.U)
   }
@@ -253,10 +258,12 @@ class InsExecute(n_tlb: Int) extends Module {
       Mux(io.data_ram_ex(2) && io.id_ex_in(i).bus_valid && io.id_ex_in(i).mem_wen_id_ex,
         ExceptionConst.EXCEPTION_TLB_MODIFIED_DATA, 0.U)
     exception_occur(i) := exception_flags(i) =/= 0.U
+    exception_occur_except_tlb(i) := io.id_ex_in(i).exception_flags =/= 0.U
   }
+
   // dram操作
   io.ex_ram_out.mem_en := io.id_ex_in(data_ram_index).bus_valid &&
-    io.id_ex_in(data_ram_index).mem_en_id_ex && !exceptionShielded(data_ram_index) &&
+    io.id_ex_in(data_ram_index).mem_en_id_ex && !exceptionShieldedExceptTLB(data_ram_index) &&
     !refetch_flipper
   io.ex_ram_out.mem_addr := io.id_ex_in(data_ram_index).src_sum
   io.ex_ram_out.mem_size := MuxCase(0.U, Seq(
