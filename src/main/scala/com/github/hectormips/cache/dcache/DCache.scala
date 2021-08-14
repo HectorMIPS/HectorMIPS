@@ -281,7 +281,7 @@ class DCache(val config: CacheConfig)
   /**
    * store buffer配置
    */
-  storeBuffer.io.cache_query_addr := addr_r(0)
+  storeBuffer.io.cache_query_addr := addr_r_0
   storeBuffer_reverse_mask := ~storeBuffer.io.cache_query_mask
   storeBuffer.io.cache_response := false.B
 
