@@ -42,9 +42,8 @@ class Uncache extends Module{
   io.input(1).ex := 0.U
   portHandleReq := false.B
   polling := ~polling
-  io.input(0).addr_ok :=  !do_req && polling
-  io.input(1).addr_ok :=  !do_req && !polling
-
+  io.input(0).addr_ok :=  !do_req
+  io.input(1).addr_ok := false.B
   when( (io.input(0).req || io.input(1).req) && !do_req){
     when(io.input(0).req && io.input(0).addr_ok){
       do_req := true.B

@@ -97,6 +97,7 @@ class ICache(val config: CacheConfig)
   val waySelReg = RegInit(0.U(config.wayNumWidth.W))
   val prefetch_addr = Wire(UInt(32.W))
   val tmp_inst = RegInit(0.U(32.W))
+
   prefetch_addr := Cat(addr_r(31, config.offsetWidth), 0.U(config.offsetWidth.W)) + (4 * config.bankNum).U
   index := config.getIndex(addr_r)
   nextline_index := config.getIndex(prefetch_addr)
@@ -213,7 +214,7 @@ class ICache(val config: CacheConfig)
   /**
    * 预取器
    */
-  prefetch.io.req_valid := ( (state === sLOOKUP && (!io.valid || io.valid && io.tlb.found && io.tlb.c===3.U)) || state === sREFILL) && !is_nextline_hitWay
+  prefetch.io.req_valid := ( state === sLOOKUP || state === sREFILL) && !is_nextline_hitWay
   prefetch.io.req_addr := prefetch_addr
 
   prefetch.io.query_addr := addr_r
@@ -319,11 +320,11 @@ class ICache(val config: CacheConfig)
       when(prefetch.io.query_finded) {
         //如果找到了
         state := sIDLE
-        io.instOK := true.B
+        io.instOK := RegNext(true.B)
         when(bankIndex === (config.bankNum - 1).U) {
-          io.inst := Cat(0.U(32.W), prefetch.io.query_data(bankIndex))
+          io.inst := RegNext(Cat(0.U(32.W), prefetch.io.query_data(bankIndex)))
         }.otherwise {
-          io.inst := Cat(prefetch.io.query_data(bankIndex + 1.U), prefetch.io.query_data(bankIndex))
+          io.inst := RegNext(Cat(prefetch.io.query_data(bankIndex + 1.U), prefetch.io.query_data(bankIndex)))
         }
       }.elsewhen(prefetch.io.query_wait){
         state := sQueryPrefetch
