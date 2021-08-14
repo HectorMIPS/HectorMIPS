@@ -97,6 +97,9 @@ class ICache(val config: CacheConfig)
   val waySelReg = RegInit(0.U(config.wayNumWidth.W))
   val prefetch_addr = Wire(UInt(32.W))
   val tmp_inst = RegInit(0.U(32.W))
+  val prefetch_delay_display = RegInit(false.B)
+  val prefetch_delay_display_data = RegInit(0.U(64.W))
+  val prefetch_delay_display_valid =RegInit(false.B)
 
   prefetch_addr := Cat(addr_r(31, config.offsetWidth), 0.U(config.offsetWidth.W)) + (4 * config.bankNum).U
   index := config.getIndex(addr_r)
@@ -175,7 +178,7 @@ class ICache(val config: CacheConfig)
    * IO初始化
    */
 
-  io.instValid := Cat(bankIndex =/= ((config.bankNum) - 1).U, true.B) //==bank-1
+  io.instValid := Mux(prefetch_delay_display,prefetch_delay_display_valid,Cat(bankIndex =/= ((config.bankNum) - 1).U, true.B)) //==bank-1
   io.instOK := false.B
   //  printf("%d\n",io.instValid)
   io.inst := 0.U
@@ -245,6 +248,15 @@ class ICache(val config: CacheConfig)
     }
   }
 
+  /**
+   * 时序优化：延迟prefetch数据给出
+   */
+  when(prefetch_delay_display){
+    prefetch_delay_display := false.B
+    io.inst := prefetch_delay_display_data
+    io.instOK := true.B
+    io.instValid := prefetch_delay_display_valid
+  }
   /**
    * Cache状态机
    */
@@ -320,11 +332,12 @@ class ICache(val config: CacheConfig)
       when(prefetch.io.query_finded) {
         //如果找到了
         state := sIDLE
-        io.instOK := true.B
+        prefetch_delay_display := true.B
+        prefetch_delay_display_valid := io.instValid
         when(bankIndex === (config.bankNum - 1).U) {
-          io.inst := Cat(0.U(32.W), prefetch.io.query_data(bankIndex))
+          prefetch_delay_display_data := Cat(0.U(32.W), prefetch.io.query_data(bankIndex))
         }.otherwise {
-          io.inst := Cat(prefetch.io.query_data(bankIndex + 1.U), prefetch.io.query_data(bankIndex))
+          prefetch_delay_display_data := Cat(prefetch.io.query_data(bankIndex + 1.U), prefetch.io.query_data(bankIndex))
         }
       }.elsewhen(prefetch.io.query_wait){
         state := sQueryPrefetch
