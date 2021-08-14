@@ -169,7 +169,6 @@ class MemAccessJudge(cache_all_inst:Bool=false.B) extends Module{
   io.inst_addr_is_mapped := Mux(io.inst.req,should_map_inst_c,queue.io.deq.bits.should_map)
   io.inst_unmap_should_cache := Mux(io.inst.req,should_cache_inst_c,queue.io.deq.bits.should_cache)
 
-  io.inst_unmap_should_cache
 
   io.unmapped_inst.req := Mux(io.inst.req,!should_cache_inst_c,queue.io.deq.valid && !queue.io.deq.bits.should_cache && !handshake)
   io.unmapped_inst.wr  := false.B

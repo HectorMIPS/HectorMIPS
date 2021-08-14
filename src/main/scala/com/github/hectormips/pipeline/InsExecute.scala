@@ -264,7 +264,7 @@ class InsExecute(n_tlb: Int) extends Module {
   // dram操作
   io.ex_ram_out.mem_en := io.id_ex_in(data_ram_index).bus_valid &&
     io.id_ex_in(data_ram_index).mem_en_id_ex && !exceptionShieldedExceptTLB(data_ram_index) &&
-    !refetch_flipper
+    !refetch_flipper && io.next_allowin
   io.ex_ram_out.mem_addr := io.id_ex_in(data_ram_index).src_sum
   io.ex_ram_out.mem_size := MuxCase(0.U, Seq(
     (io.id_ex_in(data_ram_index).mem_data_sel_id_ex === MemDataSel.word) -> 2.U,
