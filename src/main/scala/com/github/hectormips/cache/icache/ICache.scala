@@ -320,11 +320,11 @@ class ICache(val config: CacheConfig)
       when(prefetch.io.query_finded) {
         //如果找到了
         state := sIDLE
-        io.instOK := RegNext(true.B)
+        io.instOK := true.B
         when(bankIndex === (config.bankNum - 1).U) {
-          io.inst := RegNext(Cat(0.U(32.W), prefetch.io.query_data(bankIndex)))
+          io.inst := Cat(0.U(32.W), prefetch.io.query_data(bankIndex))
         }.otherwise {
-          io.inst := RegNext(Cat(prefetch.io.query_data(bankIndex + 1.U), prefetch.io.query_data(bankIndex)))
+          io.inst := Cat(prefetch.io.query_data(bankIndex + 1.U), prefetch.io.query_data(bankIndex))
         }
       }.elsewhen(prefetch.io.query_wait){
         state := sQueryPrefetch
