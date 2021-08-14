@@ -3,7 +3,7 @@ package com.github.hectormips.cache.dcache
 import chisel3._
 import chisel3.util._
 import com.github.hectormips.cache.setting.CacheConfig
-import com.github.hectormips.cache.utils.Wstrb
+import com.github.hectormips.cache.utils.{Wstrb,SWL_SWR_Wstrb}
 
 import scala.collection.immutable.Nil
 import scala.collection.script.Include
@@ -45,6 +45,7 @@ class StoreBuffer(config: CacheConfig) extends Module {
   cpu_hit_queue_index := OHToUInt(cpu_hit_queue_onehot)
   val buffer = new Buffer(config.storeBufferLength + 1)
   val wstrb = Module(new Wstrb)
+  val swl_swr_wstrb = Module(new SWL_SWR_Wstrb)
   val full_mask = Wire(UInt(32.W))
   val reverse_full_mask = Wire(UInt(32.W))
   val tmp_size = Reg(UInt(3.W))
@@ -54,6 +55,10 @@ class StoreBuffer(config: CacheConfig) extends Module {
   val tmp_port = RegInit(0.U)
   wstrb.io.size := tmp_size
   wstrb.io.offset := tmp_addr(1, 0)
+  swl_swr_wstrb.io.size := tmp_size
+  swl_swr_wstrb.io.offset := tmp_addr(1, 0)
+  swl_swr_wstrb.io.is_small_endian := true.B
+  swl_swr_wstrb.io.wdata_old := tmp_wdata
   /**
    * 处理cache请求
    */
@@ -94,11 +99,11 @@ class StoreBuffer(config: CacheConfig) extends Module {
       // 合并同类项
       buffer.data(cpu_hit_queue_index).wstrb := wstrb.io.mask | buffer.data(cpu_hit_queue_index).wstrb
       buffer.data(cpu_hit_queue_index).wdata := buffer.data(cpu_hit_queue_index).wdata & reverse_full_mask |
-        tmp_wdata & full_mask
+        Mux(tmp_size<3.U,tmp_wdata,swl_swr_wstrb.io.wdata_new) & full_mask
     }.otherwise {
-      buffer.enq_data().wstrb := wstrb.io.mask
+      buffer.enq_data().wstrb := Mux(tmp_size<3.U,wstrb.io.mask,swl_swr_wstrb.io.mask)
       buffer.enq_data().addr := tmp_addr
-      buffer.enq_data().wdata := tmp_wdata
+      buffer.enq_data().wdata :=  Mux(tmp_size<3.U,tmp_wdata,swl_swr_wstrb.io.wdata_new)
       buffer.enq_data().valid := true.B
       buffer.enq()
     }
@@ -120,11 +125,12 @@ class StoreBuffer(config: CacheConfig) extends Module {
    */
   //  val state = RegInit(0.U(1.W))
 
-
-  full_mask := Cat(Mux(wstrb.io.mask(3), "hff".U(8.W), 0.U(8.W)),
-    Mux(wstrb.io.mask(2), "hff".U(8.W), 0.U(8.W)),
-    Mux(wstrb.io.mask(1), "hff".U(8.W), 0.U(8.W)),
-    Mux(wstrb.io.mask(0), "hff".U(8.W), 0.U(8.W)))
+  val to_full_mask = Wire(UInt(4.W))
+  to_full_mask := Mux(tmp_size<3.U,wstrb.io.mask,swl_swr_wstrb.io.mask)
+  full_mask := Cat(Mux(to_full_mask(3), "hff".U(8.W), 0.U(8.W)),
+    Mux(to_full_mask(2), "hff".U(8.W), 0.U(8.W)),
+    Mux(to_full_mask(1), "hff".U(8.W), 0.U(8.W)),
+    Mux(to_full_mask(0), "hff".U(8.W), 0.U(8.W)))
   reverse_full_mask := ~full_mask
   when(!buffer.empty()) {
     io.cache_write_valid := true.B

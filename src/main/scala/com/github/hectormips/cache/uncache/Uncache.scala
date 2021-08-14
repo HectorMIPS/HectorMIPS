@@ -5,7 +5,7 @@ import chisel3._
 import chisel3.util._
 import com.github.hectormips.{AXIIO, SRamLikeIO}
 import com.github.hectormips.cache.setting._
-import com.github.hectormips.cache.utils.Wstrb
+import com.github.hectormips.cache.utils.{SWL_SWR_Wstrb, Wstrb}
 import chisel3.stage.{ChiselGeneratorAnnotation, ChiselStage}
 class QueueItem extends Bundle{
   val port = UInt(1.W)
@@ -29,7 +29,9 @@ class Uncache extends Module{
   val do_size_r = RegInit(0.U(2.W))
   val do_addr_r = RegInit(0.U(32.W))
   val do_wdata_r = RegInit(0.U(32.W))
-  
+  val swl_swr_wstrb = Module(new SWL_SWR_Wstrb)
+
+
   val data_back = Wire(Bool())
 
   val exe_port = Wire(Bool())
@@ -127,11 +129,17 @@ class Uncache extends Module{
   //w
   io.axi.wid := 2.U
 //  dontTouch(io.axi.wid)
-  io.axi.wdata := do_wdata_r
+  io.axi.wdata := Mux(do_size_r<3.U,do_wdata_r,swl_swr_wstrb.io.wdata_new)
   
   wstrb.io.offset := do_addr_r(1,0)
-  wstrb.io.size := do_size_r
-  io.axi.wstrb := wstrb.io.mask
+  wstrb.io.size := do_size_r(1,0)
+
+  swl_swr_wstrb.io.size := do_size_r
+  swl_swr_wstrb.io.offset := do_addr_r(1, 0)
+  swl_swr_wstrb.io.is_small_endian := true.B
+  swl_swr_wstrb.io.wdata_old :=  do_wdata_r
+
+  io.axi.wstrb := Mux(do_size_r<3.U,wstrb.io.mask,swl_swr_wstrb.io.mask)
 
   io.axi.wlast := true.B
   io.axi.wvalid := do_req && do_wr_r && !wdata_rev

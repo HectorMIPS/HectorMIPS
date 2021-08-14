@@ -25,7 +25,7 @@ class DCache(val config: CacheConfig)
     val is_mapped = Input(Bool()) // 是否是map部分
     val is_unmapped_cached = Input(Bool()) // 是否需要cache
     val wr = Input(Vec(2, Bool()))
-    val size = Input(Vec(2, UInt(2.W)))
+    val size = Input(Vec(2, UInt(3.W)))
     val data_ok = Output(Vec(2, Bool()))
     val ex = Output(UInt(3.W)) // 例外
     val rdata = Output(Vec(2, UInt(32.W)))
