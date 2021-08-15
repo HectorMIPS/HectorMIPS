@@ -46,7 +46,7 @@ class DCache(val config: CacheConfig)
     val debug_hit_count = Output(UInt(32.W)) // cache命中数
 
   })
-  val sIDLE :: sLOOKUP :: sREPLACE :: sREFILL :: sWaiting :: sEviction :: sEvictionWaiting :: sFetchHandshake :: sFetchRecv :: Nil = Enum(9)
+  val sIDLE :: sLOOKUP :: sREPLACE :: sREFILL::sWaitHandshake :: sWaiting :: sEviction :: sEvictionWaiting :: sFetchHandshake :: sFetchRecv :: Nil = Enum(10)
   val state = RegInit(VecInit(Seq.fill(2)(0.U(4.W))))
   val is_hitWay          = Wire(Vec(2, Bool()))
   val write_failed: Bool = RegInit(false.B)
@@ -288,9 +288,8 @@ class DCache(val config: CacheConfig)
   /**
    * AXI
    */
-
-  io.axi.readAddr.bits.id := Mux(state(0)===sFetchHandshake,0.U,1.U) // 未填
   val worker_id = Wire(Vec(2, UInt(4.W)))
+  io.axi.readAddr.bits.id := Mux(state(0)===sFetchHandshake||state(0)===sREPLACE,1.U,3.U) // 未填
   worker_id(0) := 1.U
   worker_id(1) := 3.U
   //  io.axi.readAddr.bits.len := 6.U
@@ -486,24 +485,21 @@ class DCache(val config: CacheConfig)
             io.data_ok(port_r) := true.B
             io.rdata(port_r) := storeBuffer.io.cache_query_data
           }.otherwise {
-            //没命中,检查victim
-            //        state := sCheckVictim
-            //        victim.io.qvalid := true.B
-            when(worker.U === 0.U && state(1) === sREPLACE || worker.U === 1.U && state(0) === sREPLACE || state(0)===sFetchHandshake) {
-              state(worker) := sLOOKUP
-            }.otherwise {
-              io.axi.readAddr.bits.id := worker_id(worker)
-
-              state(worker) := sREPLACE
-              waySelReg(worker) := lruMem.io.waySel
-            }
+            state(worker) := sWaitHandshake
+          }
+        }
+        is(sWaitHandshake){
+          when(worker.U===0.U && (state(1)===sLOOKUP||state(1)===sIDLE || state(1)===sWaitHandshake || state(1)===sWaiting) || worker.U===1.U && (state(0)===sLOOKUP||state(0)===sIDLE ||state(0)===sWaiting)){
+            waySelReg(worker) := lruMem.io.waySel
+            state(worker) := sREPLACE
+          }.otherwise{
+            state(worker) := sWaitHandshake
           }
         }
         is(sREPLACE) {
           //在此阶段完成驱逐
           bDataWtBank(worker) := bankIndex(worker)
           when(io.axi.readAddr.ready) {
-            io.axi.readAddr.bits.id := worker_id(worker)
             when(dirtyData.read(worker)(waySelReg(worker)) === true.B) {
               state(worker) := sEvictionWaiting
               invalidateQueue.io.req(worker) := true.B
@@ -512,7 +508,6 @@ class DCache(val config: CacheConfig)
             }
           }.otherwise {
             state(worker) := sREPLACE
-            io.axi.readAddr.bits.id := worker_id(worker)
           }
         }
         is(sEvictionWaiting) {
