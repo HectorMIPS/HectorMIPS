@@ -20,7 +20,7 @@ HectorMIPS实现了指令缓存(I-Cache)与数据缓存(D-Cache)，响应CPU的�
 
 ### 流水线结构
 
-![pipeline](A:\Projects\NSCSCC2021\Codes\HectorMIPS\asset\svg\pipeline.svg)
+![pipeline](./asset/svg/pipeline.svg)
 
 CPU采用伪六级流水线结构：取指、指令队列、译码/发射、执行、访存、写回，在大部分情况下可以同时发射两条指令。
 
